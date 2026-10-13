@@ -65,6 +65,12 @@ int main(int argc, char** argv) {
         const auto originalText = textProject.game.resources[6].payload;
         const auto newText = write_sci0_text({"Hello\nLarry", "", std::string("\x82\\\t", 3)});
         const auto table = export_sci0_text_table(newText);
+        const auto largest = export_sci0_text_table(write_sci0_text({std::string(max_stored_payload - 1, 'a')}));
+        require(prepare_project_text_edit(textProject, 6, largest).payload.size() == max_stored_payload,
+                "largest storable text rejected");
+        const auto oversized = export_sci0_text_table(write_sci0_text({std::string(max_stored_payload, 'a')}));
+        fails([&] { prepare_project_text_edit(textProject, 6, oversized); }, "65531");
+        fails([&] { write_sci0_text({std::string(65535, 'a')}); }, "65535");
         require(import_sci0_text_table(table) == newText, "escaped text round-trip differs");
         require(import_sci0_text_table("index\ttext\n").empty(), "empty text table failed");
         fails([&] { import_sci0_text_table("index\ttext\n1\twrong\n"); }, "indices");

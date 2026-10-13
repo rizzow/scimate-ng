@@ -152,9 +152,10 @@ Bytes write_sci0_text(const std::vector<std::string> &strings) {
   for (const auto &s : strings) {
     require(s.find('\0') == std::string::npos,
             "text: embedded NUL is unsupported");
+    require(out.size() < 65535 && s.size() <= 65535 - out.size() - 1,
+            "text: payload exceeds 65535-byte limit");
     out.insert(out.end(), s.begin(), s.end());
     out.push_back(0);
-    payload_limit(out);
   }
   return out;
 }

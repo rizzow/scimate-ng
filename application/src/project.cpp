@@ -66,6 +66,8 @@ ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t re
         throw std::runtime_error("Select a text resource first.");
     auto payload = import_sci0_text_table(table);
     const auto original = read_sci0_game(project.game.original).resources.at(record).payload;
+    if (payload != original && payload.size() > max_stored_payload)
+        throw std::runtime_error("Edited text exceeds the SCI0 uncompressed payload limit of 65531 bytes.");
     std::ostringstream name;
     name << std::setfill('0') << std::setw(7) << record;
     const auto binary = project.directory / "payloads" / (name.str() + ".bin");
@@ -93,8 +95,10 @@ ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t re
                 destination = bundle / "strings.tsv";
                 const auto normalized = export_sci0_text_table(payload);
                 contents.assign(normalized.begin(), normalized.end());
-            } else {
+            } else if (std::filesystem::exists(bundle / "payload.bin")) {
                 destination = bundle / "payload.bin";
+            } else {
+                throw std::runtime_error("This text bundle uses another representation. Edit it in the resource folder and refresh.");
             }
         }
     }
