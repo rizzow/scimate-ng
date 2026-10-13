@@ -9,8 +9,12 @@
 #include "scimate/asset_io.hpp"
 #include "help.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
+#include <chrono>
+#include <filesystem>
+#include <functional>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -18,7 +22,7 @@
 #include <vector>
 
 namespace {
-constexpr std::string_view migrate_help = R"(Usage: scimate migrate [--to sci1] <SCI0-game-directory> <new-SCI1-game-directory>
+constexpr std::string_view migrate_help = R"(Usage: scimate migrate [--to sci1] [--force] <SCI0-game-directory> <SCI1-game-directory>
 
 Experimental format-based export targeting ScummVM's SCI1 runtime paths.
 Parser-bearing games target SCI1 EGA with converted words, grammar and suffix
@@ -31,12 +35,49 @@ Examples:
   scimate inspect --format sci1-ega ./migrated-sci1
 
 The source is an actual SCI0 game directory, not the exported payload bundle.
-The destination must not exist. Resources are internally round-trip checked;
+The destination must not exist unless --force replaces its entire directory.
+Resources are internally round-trip checked;
 runtime compatibility is UNVERIFIED until you validate the result in ScummVM.
 This is not a general SCI0 -> SCI1/SCI1.1 converter. No VGA artwork conversion.
 See docs/sci1-migration.md for the manual detection and gameplay proof checklist.
 Exit codes: 0 candidate written, 1 conversion/I/O error, 2 usage error.
 )";
+
+void write_directory(const std::filesystem::path& source,
+                     const std::filesystem::path& destination, bool force,
+                     const std::function<void(const std::filesystem::path&)>& write) {
+    namespace fs = std::filesystem;
+    if (!force) { write(destination); return; }
+    const auto input = fs::weakly_canonical(source);
+    const auto output = fs::weakly_canonical(destination);
+    auto mismatch = std::mismatch(output.begin(), output.end(), input.begin(), input.end());
+    if (output == output.root_path() || mismatch.first == output.end())
+        throw std::runtime_error("--force destination must not be the source directory or an ancestor of it");
+    if (fs::is_symlink(fs::symlink_status(destination)))
+        throw std::runtime_error("--force destination must not be a symbolic link");
+    if (!fs::exists(destination)) { write(destination); return; }
+    if (!fs::is_directory(destination))
+        throw std::runtime_error("--force destination must be a directory");
+    // Generate the complete output before removing the previous directory.
+    fs::path staging;
+    for (unsigned attempt = 0; attempt < 100; ++attempt) {
+        staging = output.parent_path() / (".scimate-output-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" + std::to_string(attempt));
+        if (fs::create_directory(staging)) break;
+        staging.clear();
+    }
+    if (staging.empty()) throw std::runtime_error("cannot create temporary output directory");
+    try {
+        write(staging / "output");
+        fs::remove_all(output);
+        fs::rename(staging / "output", output);
+        fs::remove(staging);
+    } catch (...) {
+        std::error_code ignored;
+        fs::remove_all(staging, ignored);
+        throw;
+    }
+}
 
 std::vector<std::uint8_t> read_file(const char* path, bool script = false) {
     std::ifstream file(path, std::ios::binary);
@@ -72,12 +113,14 @@ int main(int argc, char** argv) {
     const bool asset_export = command == "sound-export" || command == "font-export" || command == "cursor-export" || command == "text-export";
     const bool asset_import = command == "sound-import" || command == "font-import" || command == "cursor-import" || command == "text-import";
     std::vector<const char*> paths;
-    bool valid = true, format_seen = false, options = true, target_seen = false;
+    bool valid = true, format_seen = false, options = true, target_seen = false, force = false;
     std::string_view format = "sci0";
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (options && arg == "--") { options = false; continue; }
-        if (options && arg == "--format") {
+        if (options && arg == "--force" && (exporting || migrating)) {
+            force = true;
+        } else if (options && arg == "--format") {
             if (format_seen || i+1 == argc) { valid = false; break; }
             format = argv[++i]; format_seen = true;
             if (format != "sci0" && format != "sci1" && format != "sci11" && format != "sci1-ega") { valid = false; break; }
@@ -95,7 +138,9 @@ int main(int argc, char** argv) {
     }
     try {
         if (migrating) {
-            scimate::migrate_sci0_to_sci1_directory(paths[0], paths[1]);
+            write_directory(paths[0], paths[1], force, [&](const auto& destination) {
+                scimate::migrate_sci0_to_sci1_directory(paths[0], destination);
+            });
             std::cout << "Wrote experimental SCI1 candidate: " << paths[1]
                       << "\nRuntime proof remains UNVERIFIED; see migration-report.txt.\n";
             if (!std::cout) throw std::runtime_error("failed to write migration result");
@@ -172,7 +217,10 @@ int main(int argc, char** argv) {
         }
         if (exporting || importing) {
             if (exporting) {
-                const auto summary = scimate::export_sci0_game(paths[0], paths[1]);
+                scimate::ExportSummary summary;
+                write_directory(paths[0], paths[1], force, [&](const auto& destination) {
+                    summary = scimate::export_sci0_game(paths[0], destination);
+                });
                 std::cout << "Scripts: " << summary.script_listings << " readable listings, "
                           << summary.script_errors << " errors (see scripts/*.error.txt).\n";
                 std::cout << "Pictures: " << summary.editable_pictures << " editable PNG bundles, "

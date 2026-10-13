@@ -113,7 +113,9 @@ ctest --test-dir build -C Debug --output-on-failure
 ```
 
 These are instructions for manual execution, not evidence that they passed.
-The destination must not exist. On a reported incompatibility, implement and
+The destination must not exist unless `--force` replaces its entire directory.
+Output is generated before replacement; symbolic-link destinations and the
+source directory or its ancestors are refused. On a reported incompatibility, implement and
 validate the missing generic adaptation rather than bypassing the check.
 
 Once conversion succeeds, add the generated directory to unmodified ScummVM.

@@ -41,6 +41,7 @@ Export and import individual resources
 Options
   -h, --help       Show help for the selected command.
   --format FORMAT  Select a resource format; sci0 is the default.
+  --force          Replace the entire destination directory (export/migrate).
   --               End options, allowing paths that begin with --.
 
 Examples
@@ -51,7 +52,8 @@ Examples
   scimate sound-export sound.bin ./sound-bundle
   scimate help resource-export
 
-All output destinations must be new. Import does not overwrite a game.
+Output destinations must be new unless export/migrate uses --force.
+Import does not overwrite a game.
 Editing is SCI0 only. Rebuilding resource files does not copy the interpreter,
 disk scripts, configuration, or other files needed for a complete runnable game.
 Script listings are inspection-only, not compilable source.
@@ -79,7 +81,7 @@ every resource. Print metadata as a tab-separated table. The game is unchanged.
 Example: scimate inspect ./game
 )";
     } else if (command == "export") {
-        body = R"(Usage: scimate export [--format sci0] <game-directory> <new-workspace>
+        body = R"(Usage: scimate export [--format sci0] [--force] <game-directory> <workspace>
 
 Create a new workspace containing:
   manifest.tsv and original/  Resource identities and original map/volumes.
@@ -92,7 +94,9 @@ Create a new workspace containing:
 
 Unknown layouts expose byte-level JSON and conversion diagnostics.
 Keep the manifest and original snapshots unchanged. Duplicate IDs stay separate.
-The destination must not exist; the source game is unchanged.
+The destination must not exist unless --force replaces its entire directory.
+Output is generated before replacement. The source game is unchanged.
+--force refuses symbolic links and destinations containing the source directory.
 
 Example: scimate export ./game ./workspace
 Next: edit workspace files, then scimate import ./workspace ./rebuilt-game
@@ -184,10 +188,11 @@ Example: scimate resource-import ./dictionary edited-vocab.bin
 )";
     } else if (command == "migrate" && sci1) {
         format_option = false;
-        body = migration_help.empty() ? R"(Usage: scimate migrate [--to sci1] <SCI0-game-directory> <new-SCI1-directory>
+        body = migration_help.empty() ? R"(Usage: scimate migrate [--to sci1] [--force] <SCI0-game-directory> <SCI1-directory>
 
 Create an experimental SCI1 late compatibility candidate from a SCI0 game.
-The destination must not exist. Review migration-report.txt before use.
+The destination must not exist unless --force replaces its entire directory.
+Review migration-report.txt before use.
 Unsupported transformations fail explicitly; successful conversion does not
 prove runtime detection, graphics/sound compatibility, or gameplay.
 

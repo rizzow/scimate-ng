@@ -205,7 +205,13 @@ Unchanged imports preserve the original map and referenced volumes byte-for-byte
 including unused bytes within those volumes. Edited imports recalculate offsets,
 preserve unchanged compressed records, and write changed payloads uncompressed.
 The importer verifies the reconstruction and reopens the saved files. Output
-directories must not exist; neither command overwrites an existing destination.
+directories must not exist by default. `export --force` replaces an existing
+destination directory, including unrelated files; `import` still refuses
+existing destinations.
+
+```sh
+./build/scimate export --force /path/to/game /path/to/export
+```
 
 This reconstructs the packaged resources, not a complete runnable game folder:
 interpreters, scripts on disk, configuration, patch files, and unreferenced
@@ -320,7 +326,16 @@ records (methods 0/1/2). SCI1 EGA uses SCI0-style method numbering: 0 stored,
 ./build/scimate inspect --format sci1-ega /path/to/migrated-sci1
 ```
 
-The source must be an SCI0 game directory, and the destination must be new.
+The source must be an SCI0 game directory. The destination must be new unless
+`--force` is supplied:
+
+```sh
+./build/scimate migrate --force --to sci1 /path/to/source-game /path/to/migrated-sci1
+```
+
+For both `export` and `migrate`, `--force` generates output before replacing the
+entire destination directory. It refuses symbolic-link destinations and the
+source directory or any ancestor of it.
 Migration writes `resource.map`, `resource.000`, and `migration-report.txt`.
 It retains EGA assets, remaps kernel calls, and bridges supported file-I/O calls.
 Parser-bearing games target SCI1 EGA: word vocabulary 0 becomes 900, grammar
