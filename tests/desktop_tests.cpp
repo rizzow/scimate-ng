@@ -49,11 +49,31 @@ private slots:
     }
     void explanationReferences() {
         ExplanationTree tree;
-        tree.setReport("Views\n  [fact] View 5: 2 loops\n    [fact] Loop 1: 2 cels\n"
-                       "Scripts and objects\n  [fact] Script 3: 1 objects\n"
-                       "    [fact] Initial pic = 6\n    [likely] Background picture reference 999 (resource absent)\n"
-                       "Startup\n  [likely] Opening-room candidate 8: script 3 @ $0000 sends newRoom\n"
-                       "  [unresolved] Room 8 has no proven resource identity\n");
+        using scimate::ExplanationConfidence;
+        using scimate::ResourceId;
+        using scimate::ResourceType;
+        scimate::GameExplanation analysis;
+        analysis.resources = {{ResourceType::view, 5}, {ResourceType::script, 3}, {ResourceType::pic, 6}};
+        auto node = [](std::string text, ExplanationConfidence confidence = ExplanationConfidence::none,
+                       std::optional<ResourceId> resource = std::nullopt) {
+            return scimate::ExplanationNode{std::move(text), confidence, resource, {}, {}, {}};
+        };
+        analysis.nodes = {node("Views"), node("Scripts"), node("Startup")};
+        auto view = node("Arbitrary view caption", ExplanationConfidence::fact, ResourceId{ResourceType::view, 5});
+        auto loop = node("Arbitrary loop caption", ExplanationConfidence::fact, ResourceId{ResourceType::view, 5});
+        loop.loop = 1;
+        view.children.push_back(std::move(loop));
+        analysis.nodes[0].children.push_back(std::move(view));
+        auto script = node("Arbitrary script caption", ExplanationConfidence::fact, ResourceId{ResourceType::script, 3});
+        script.children.push_back(node("Picture", ExplanationConfidence::fact, ResourceId{ResourceType::pic, 6}));
+        analysis.nodes[1].children.push_back(std::move(script));
+        auto room = node("Room 8 candidate", ExplanationConfidence::likely, ResourceId{ResourceType::script, 3});
+        room.offset = 0;
+        analysis.nodes[2].children.push_back(std::move(room));
+        analysis.nodes[2].children.push_back(node("Room 8 has no proven resource identity", ExplanationConfidence::unresolved));
+        analysis.references.push_back({{ResourceType::script, 3}, {ResourceType::pic, 6}, 42,
+            scimate::ReferenceConfidence::likely, "A property with a renamed display label"});
+        tree.setAnalysis(analysis);
         tree.setCurrentItem(tree.topLevelItem(0)->child(0)->child(0));
         QVERIFY(tree.selection().resource.has_value());
         QCOMPARE(tree.selection().resource->type, scimate::ResourceType::view);
@@ -67,6 +87,20 @@ private slots:
         QCOMPARE(tree.selection().resource->number, 3);
         tree.setCurrentItem(tree.topLevelItem(2)->child(1));
         QVERIFY(!tree.selection().resource);
+        tree.focusResource({ResourceType::pic, 6});
+        auto* picture = tree.currentItem();
+        tree.setCurrentItem(picture->child(1)->child(0));
+        QCOMPARE(tree.selection().resource->type, ResourceType::script);
+        QCOMPARE(tree.selection().resource->number, 3);
+        QCOMPARE(*tree.selection().offset, std::size_t(42));
+        tree.focusResource({ResourceType::script, 3});
+        tree.setCurrentItem(tree.currentItem()->child(0)->child(0));
+        QCOMPARE(tree.selection().resource->type, ResourceType::pic);
+        QCOMPARE(tree.selection().resource->number, 6);
+        QVERIFY(!tree.selection().offset);
+        tree.setAnalysis({});
+        tree.focusResource({ResourceType::text, 7});
+        QVERIFY(tree.selection().evidence.contains("No recognized static references"));
     }
     void projectWorkflow() {
         QTemporaryDir temp;
@@ -86,6 +120,11 @@ private slots:
         QVERIFY(window.project());
         QVERIFY(gameInfo->isEnabled());
         QCOMPARE(window.project()->name, std::string("My project"));
+        auto* references = window.findChild<QPushButton*>("resourceReferences");
+        QVERIFY(references && references->isEnabled());
+        references->click();
+        QTRY_VERIFY_WITH_TIMEOUT(!window.busy(), 10000);
+        QVERIFY(window.findChild<QTreeWidget*>("explanationTree")->currentItem()->text(0).startsWith("text "));
         window.renameProject("Renamed project");
         QCOMPARE(window.project()->name, std::string("Renamed project"));
         QVERIFY(window.windowTitle().contains("Renamed project"));

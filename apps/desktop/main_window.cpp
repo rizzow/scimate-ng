@@ -26,7 +26,7 @@ void rememberDirectory(const QString& key, const QString& directory) {
     if (!directory.isEmpty() && QDir(directory).exists())
         QSettings().setValue("dialogs/" + key, QDir(directory).absolutePath());
 }
-struct Outcome { std::shared_ptr<scimate::Project> project; QString error; std::vector<bool> modified; QString explanation; };
+struct Outcome { std::shared_ptr<scimate::Project> project; QString error; std::vector<bool> modified; scimate::GameExplanation explanation; };
 struct ProgressState { std::mutex mutex; scimate::OperationProgress value; };
 class ResourceFilter : public QSortFilterProxyModel {
 public:
@@ -64,7 +64,7 @@ MainWindow::MainWindow() {
     recent_ = file->addMenu("Recent Projects");
     close_ = file->addAction("Close Project", this, [this] {
         project_.reset(); model_->removeRows(0, model_->rowCount()); preview();
-        explanation_->clear(); explain_->setEnabled(false); gameInfo_->setEnabled(false);
+        explanation_->resetAnalysis(); explanationReady_ = false; explain_->setEnabled(false); gameInfo_->setEnabled(false);
         heading_->setText("SCIMate NG"); heading_->setToolTip({}); location_->setText("Create a project from an SCI0 game, or open an existing project.");
         setWindowTitle("SCIMate NG");
         refresh_->setEnabled(false); build_->setEnabled(false); folder_->setEnabled(false); close_->setEnabled(false); rename_->setEnabled(false);
@@ -186,13 +186,17 @@ MainWindow::MainWindow() {
     auto* collapse = new QPushButton("Collapse all"); explainButtons->addWidget(collapse);
     explainLayout->addLayout(explainButtons);
     explanation_ = new ExplanationTree; explainLayout->addWidget(explanation_, 1);
-    auto* explainHint = new QLabel("Select an entry to preview its referenced resource and evidence. Double-click to locate it in Resources.");
+    auto* explainHint = new QLabel("Select a link to preview its resource. References shows outgoing links; Referenced by shows source scripts and offsets. Double-click a link to locate it in Resources.");
     explainHint->setWordWrap(true); explainLayout->addWidget(explainHint);
     connect(collapse, &QPushButton::clicked, explanation_, &QTreeWidget::collapseAll);
     browserTabs_->addTab(explainPage, "Explain"); splitter->addWidget(browserTabs_);
     auto* inspector = new QFrame; inspector->setObjectName("card"); auto* inspectorLayout = new QVBoxLayout(inspector); inspectorLayout->setContentsMargins(14, 14, 14, 14); inspectorLayout->setSpacing(10);
     auto* inspectorHeader = new QHBoxLayout; previewTitle_ = new QLabel("Resource viewer"); previewTitle_->setObjectName("section"); inspectorHeader->addWidget(previewTitle_); inspectorHeader->addStretch();
     inspectorHeader->addWidget(actionButton(folder_, "Open folder"));
+    references_ = new QPushButton("References…"); references_->setObjectName("resourceReferences"); references_->setEnabled(false);
+    references_->setToolTip("Find references to and from this resource, including source scripts and byte offsets.");
+    inspectorHeader->addWidget(references_);
+    connect(references_, &QPushButton::clicked, this, &MainWindow::showResourceReferences);
     export_ = new QPushButton("Export…"); export_->setObjectName("exportResource"); export_->setEnabled(false); inspectorHeader->addWidget(export_);
     connect(export_, &QPushButton::clicked, this, &MainWindow::exportResource); inspectorLayout->addLayout(inspectorHeader);
     auto* controls = new QHBoxLayout;
@@ -245,7 +249,7 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
     for (auto* action : {new_, open_, refresh_, folder_, build_, close_, rename_, explain_, gameInfo_}) action->setEnabled(false);
     browserTabs_->setEnabled(false);
     play_->setChecked(false); play_->setEnabled(false);
-    cels_->setEnabled(false); export_->setEnabled(false); editText_->setEnabled(false);
+    cels_->setEnabled(false); export_->setEnabled(false); editText_->setEnabled(false); references_->setEnabled(false);
     recent_->setEnabled(false); progressPanel_->show(); progress_->setRange(0, 0); progressTitle_->setText(message);
     progressDetail_->setText("Starting…"); statusBar()->showMessage(message); elapsed_.start();
     auto state = std::make_shared<ProgressState>();
@@ -274,6 +278,7 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
             else if (result.project) installProject(result.project, result.modified);
             statusBar()->showMessage(message + QString(" — done in %1 s").arg(elapsed_.elapsed() / 1000.0, 0, 'f', 1), 10000);
         } else {
+            referenceFocus_.reset();
             statusBar()->showMessage("Operation failed; previous project remains open.");
             QMessageBox::critical(this, "SCIMate", result.error);
         }
@@ -285,7 +290,10 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
     watcher->setFuture(QtConcurrent::run([operation = std::move(operation), progress, explain] {
         try {
             auto project = operation(progress);
-            if (explain) return Outcome{project, {}, {}, QString::fromStdString(scimate::explain_sci0_game(project->game))};
+            if (explain) {
+                progress({"Analyzing resource references", 0, 0, "Inspecting scripts, properties and resource links"});
+                return Outcome{project, {}, {}, scimate::analyze_sci0_game(project->game)};
+            }
             std::vector<bool> modified;
             if (project) {
                 progress({"Preparing resource browser", 0, 0, "Comparing current resources with originals"});
@@ -299,10 +307,31 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
     }));
 }
 
-void MainWindow::installExplanation(const QString& report) {
-    explanation_->setReport(report);
+void MainWindow::installExplanation(const scimate::GameExplanation& analysis) {
+    explanation_->setAnalysis(analysis);
+    explanationReady_ = true;
+    if (referenceFocus_) {
+        explanation_->focusResource(*referenceFocus_);
+        referenceFocus_.reset();
+    }
     browserTabs_->setCurrentIndex(1);
     previewExplanation();
+}
+
+void MainWindow::showResourceReferences() {
+    if (!project_ || busy_) return;
+    const auto selected = proxy_->mapToSource(table_->currentIndex());
+    if (!selected.isValid()) return;
+    const auto id = project_->game.resources.at(static_cast<std::size_t>(selected.row())).entry.id;
+    if (explanationReady_) {
+        explanation_->focusResource(id);
+        browserTabs_->setCurrentIndex(1);
+        previewExplanation();
+    } else {
+        referenceFocus_ = id;
+        const auto project = project_;
+        run("Finding resource references", [project](const scimate::ProgressCallback&) { return project; }, true);
+    }
 }
 
 void MainWindow::previewExplanation() {
@@ -323,10 +352,17 @@ void MainWindow::previewExplanation() {
                 }
             }
             details_->setPlainText(selected.evidence + "\n" + details_->toPlainText());
+            if (selected.offset && selected.resource->type == scimate::ResourceType::script) {
+                const auto address = QString("%1").arg(*selected.offset, 4, 16, QChar('0'));
+                const QRegularExpression position("^(?:\\s*" + address + "\\b|\\.(?:class|instance) object_" + address + "\\b)",
+                    QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
+                const auto cursor = details_->document()->find(position);
+                if (!cursor.isNull()) { details_->setTextCursor(cursor); details_->centerCursor(); }
+            }
             return;
         }
     }
-    play_->setChecked(false); play_->hide(); cels_->hide(); editText_->hide(); previewStack_->hide(); export_->setEnabled(false);
+    play_->setChecked(false); play_->hide(); cels_->hide(); editText_->hide(); previewStack_->hide(); export_->setEnabled(false); references_->setEnabled(false);
     previewTitle_->setText("Explanation evidence");
     auto evidence = selected.evidence;
     if (selected.resource)
@@ -369,7 +405,7 @@ void MainWindow::buildProject(const QString& destination) {
 
 void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& modified) {
     const QSignalBlocker selectionSignals(table_->selectionModel());
-    explanation_->clear(); browserTabs_->setCurrentIndex(0);
+    explanation_->resetAnalysis(); explanationReady_ = false; referenceFocus_.reset(); browserTabs_->setCurrentIndex(0);
     project_ = std::move(project);
     table_->setUpdatesEnabled(false);
     model_->removeRows(0, model_->rowCount()); filter_->clear(); types_->clear(); types_->addItem("All resource types", "");
@@ -439,7 +475,7 @@ void MainWindow::newProjectDialog() {
 }
 
 void MainWindow::preview() {
-    play_->setChecked(false); play_->setEnabled(false); export_->setEnabled(false);
+    play_->setChecked(false); play_->setEnabled(false); export_->setEnabled(false); references_->setEnabled(false);
     play_->hide(); previewStack_->hide(); previewTitle_->setText("Resource viewer");
     editText_->hide(); strings_->setRowCount(0); previewStack_->setCurrentIndex(0);
     previewImage_ = {}; previewView_ = {}; previewPicture_ = {};
@@ -451,6 +487,7 @@ void MainWindow::preview() {
     const auto index = static_cast<std::size_t>(selected.row());
     const auto& resource = project_->game.resources.at(index);
     export_->setEnabled(true);
+    references_->setEnabled(!busy_);
     QString description = "Record " + QString::number(index) + " • " + QString::fromUtf8(scimate::resource_type_name(resource.entry.id.type).data()) + " " + QString::number(resource.entry.id.number) +
         "\nPayload: payloads/" + stem(index) + ".bin\n";
     std::error_code directoryError;

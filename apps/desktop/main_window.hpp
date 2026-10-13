@@ -3,6 +3,7 @@
 #include "scimate/project.hpp"
 #include "scimate/view.hpp"
 #include "scimate/picture.hpp"
+#include "scimate/explain.hpp"
 #include <QMainWindow>
 #include <QElapsedTimer>
 #include <QImage>
@@ -41,9 +42,11 @@ public:
 protected:
     void closeEvent(QCloseEvent* event) override;
 private:
+    void buildInterface();
     using ProjectPtr = std::shared_ptr<scimate::Project>;
     void run(const QString& message, std::function<ProjectPtr(const scimate::ProgressCallback&)> operation, bool explain = false);
-    void installExplanation(const QString& report);
+    void installExplanation(const scimate::GameExplanation& analysis);
+    void showResourceReferences();
     void previewExplanation();
     void installProject(ProjectPtr project, const std::vector<bool>& modified);
     void newProjectDialog();
@@ -56,6 +59,8 @@ private:
     void editText();
     ProjectPtr project_;
     bool busy_ = false;
+    bool explanationReady_ = false;
+    std::optional<scimate::ResourceId> referenceFocus_;
     QAction *new_, *open_, *refresh_, *build_, *folder_, *close_, *rename_, *explain_, *gameInfo_;
     ExplanationTree* explanation_;
     QTabWidget* browserTabs_;
@@ -64,7 +69,7 @@ private:
     QWidget *progressPanel_;
     QTimer *progressTimer_, *playTimer_;
     QElapsedTimer elapsed_;
-    QPushButton *play_, *export_, *editText_;
+    QPushButton *play_, *export_, *editText_, *references_;
     QTableWidget* strings_;
     QStackedWidget* previewStack_;
     QLineEdit* filter_;

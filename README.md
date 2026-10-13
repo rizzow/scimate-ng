@@ -81,6 +81,17 @@ supporting generator and update `.clangd`'s `CompilationDatabase` path.
 
 ## Desktop projects
 
+Select a resource and click **References…** to find its outgoing **References**
+and incoming **Referenced by** entries in Explain. Select a link to preview its
+target or source script; source links include byte offsets and highlight the
+matching disassembly location when available. Double-click to locate the
+resource in the Resources table. Links come directly from the structured model,
+not from parsing prose. Analysis runs on demand and is reused until the project
+is reopened/refreshed or Explain / Refresh is requested. Missing targets and
+partial-analysis diagnostics are visible; an empty lookup does not prove unused.
+The reference lookup runs in the background with progress feedback; opening a
+project does not automatically run the analysis.
+
 **Project → Game Info…** shows the loaded project's name and directory, validated
 SCI0 resource format, record counts (including duplicate IDs), unique resource
 IDs, decoded sizes by resource type, and original map/volume sizes. It uses the

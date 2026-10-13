@@ -1,33 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "explanation_tree.hpp"
-#include <QRegularExpression>
+#include <QSignalBlocker>
 #include <functional>
-#include <vector>
+#include <set>
 
 namespace {
-std::optional<scimate::ResourceId> reference(const QString& line) {
-    using scimate::ResourceType;
-    static const QRegularExpression header("^\\[fact\\] (Script|View) ([0-9]+):");
-    static const QRegularExpression property("^\\[fact\\] Initial (view|pic|picture|picNumber) = ([0-9]+)$");
-    static const QRegularExpression picture("^\\[likely\\] Background picture reference ([0-9]+) ");
-    static const QRegularExpression script(
-        "^\\[(?:fact|likely)\\] (?:Class |Instance |Referenced: |Player view: |Player object: |"
-        "(?:Opening-room candidate|Constant room call) [0-9]+: )?script ([0-9]+) @ \\$");
-    auto id = [](ResourceType type, const QString& value) -> std::optional<scimate::ResourceId> {
-        bool valid = false;
-        const auto number = value.toUInt(&valid);
-        if (!valid || number > 2047) return std::nullopt;
-        return scimate::ResourceId{type, static_cast<std::uint16_t>(number)};
-    };
-    auto match = header.match(line);
-    if (match.hasMatch()) return id(match.captured(1) == "Script" ? ResourceType::script : ResourceType::view, match.captured(2));
-    match = property.match(line);
-    if (match.hasMatch()) return id(match.captured(1) == "view" ? ResourceType::view : ResourceType::pic, match.captured(2));
-    match = picture.match(line);
-    if (match.hasMatch()) return id(ResourceType::pic, match.captured(1));
-    match = script.match(line);
-    if (match.hasMatch()) return id(ResourceType::script, match.captured(1));
-    return std::nullopt;
+enum Role { ResourceTypeRole = Qt::UserRole, ResourceNumberRole, OffsetRole, LoopRole };
+QString resourceName(scimate::ResourceId id) {
+    return QString::fromStdString(std::string(scimate::resource_type_name(id.type))) + " " + QString::number(id.number);
+}
+void link(QTreeWidgetItem* item, scimate::ResourceId id, std::optional<std::size_t> offset = {}) {
+    item->setData(0, ResourceTypeRole, static_cast<int>(id.type));
+    item->setData(0, ResourceNumberRole, id.number);
+    if (offset) item->setData(0, OffsetRole, static_cast<qulonglong>(*offset));
+    item->setToolTip(0, "Select to preview " + resourceName(id) + ". Double-click to locate it in Resources.");
+}
+QString label(const scimate::ExplanationNode& node) {
+    using Confidence = scimate::ExplanationConfidence;
+    const auto prefix = node.confidence == Confidence::fact ? "[fact] " : node.confidence == Confidence::likely ? "[likely] " :
+        node.confidence == Confidence::unresolved ? "[unresolved] " : "";
+    return prefix + QString::fromStdString(node.text);
 }
 }
 
@@ -37,44 +29,95 @@ ExplanationTree::ExplanationTree(QWidget* parent) : QTreeWidget(parent) {
     setWordWrap(true);
 }
 
-void ExplanationTree::setReport(const QString& report) {
-    clear();
+QTreeWidgetItem* ExplanationTree::resourceNode(scimate::ResourceId resource) {
+    const Key key{resource.type, resource.number};
+    auto found = resourceNodes_.find(key);
+    if (found != resourceNodes_.end()) return found->second;
+    auto* node = new QTreeWidgetItem(referencesRoot_, {resourceName(resource)});
+    link(node, resource);
+    new QTreeWidgetItem(node, {"References"});
+    new QTreeWidgetItem(node, {"Referenced by"});
+    resourceNodes_[key] = node;
+    return node;
+}
+
+void ExplanationTree::resetAnalysis() {
+    const QSignalBlocker selectionSignals(this);
+    resourceNodes_.clear(); referencesRoot_ = nullptr;
+    QTreeWidget::clear();
+}
+
+void ExplanationTree::setAnalysis(const scimate::GameExplanation& analysis) {
+    const QSignalBlocker selectionSignals(this);
+    resetAnalysis();
     setUpdatesEnabled(false);
-    std::vector<std::pair<int, QTreeWidgetItem*>> parents;
-    for (const auto& line : report.split('\n')) {
-        if (line.trimmed().isEmpty()) continue;
-        int indent = 0;
-        while (indent < line.size() && line[indent] == QChar(' ')) ++indent;
-        while (!parents.empty() && parents.back().first >= indent) parents.pop_back();
-        auto* item = new QTreeWidgetItem(QStringList{line.trimmed()});
-        if (parents.empty()) addTopLevelItem(item);
-        else parents.back().second->addChild(item);
-        parents.emplace_back(indent, item);
+    std::function<void(const scimate::ExplanationNode&, QTreeWidgetItem*)> append = [&](const auto& node, auto* parent) {
+        auto* item = new QTreeWidgetItem(parent, {label(node)});
+        if (node.resource) link(item, *node.resource, node.offset);
+        if (node.loop) item->setData(0, LoopRole, *node.loop);
+        for (const auto& child : node.children) append(child, item);
+    };
+    for (const auto& node : analysis.nodes) append(node, invisibleRootItem());
+    referencesRoot_ = new QTreeWidgetItem(this, {"Resource references"});
+    for (const auto& ref : analysis.references) {
+        const auto prefix = ref.confidence == scimate::ReferenceConfidence::decoded ? "[fact] " : "[likely] ";
+        const auto evidence = QString::fromStdString(ref.evidence);
+        auto* outgoing = new QTreeWidgetItem(resourceNode(ref.source)->child(0), {prefix + resourceName(ref.target) + " — " + evidence});
+        link(outgoing, ref.target);
+        auto* origin = new QTreeWidgetItem(outgoing, {"Source: " + evidence});
+        link(origin, ref.source, ref.offset);
+        auto* incoming = new QTreeWidgetItem(resourceNode(ref.target)->child(1), {prefix + evidence});
+        link(incoming, ref.source, ref.offset);
+        auto* target = new QTreeWidgetItem(incoming, {"Target: " + resourceName(ref.target)});
+        link(target, ref.target);
     }
-    expandToDepth(0);
-    setUpdatesEnabled(true);
+    std::set<Key> present;
+    for (const auto& id : analysis.resources) present.emplace(id.type, id.number);
+    for (const auto& entry : resourceNodes_) {
+        const scimate::ResourceId id{entry.first.first, entry.first.second};
+        if (!present.count(entry.first)) entry.second->setText(0, resourceName(id) + " (resource absent)");
+        for (int i = 0; i < 2; ++i) {
+            auto* group = entry.second->child(i);
+            group->setText(0, group->text(0) + QString(" (%1)").arg(group->childCount()));
+            if (!group->childCount()) new QTreeWidgetItem(group, {"No recognized static references. Dynamic or unsupported uses may exist."});
+        }
+    }
+    if (!analysis.diagnostics.empty()) {
+        auto* diagnostics = new QTreeWidgetItem(this, {"Diagnostics (partial analysis)"});
+        for (const auto& text : analysis.diagnostics) new QTreeWidgetItem(diagnostics, {QString::fromStdString(text)});
+    }
+    expandToDepth(0); setUpdatesEnabled(true);
     if (topLevelItemCount()) setCurrentItem(topLevelItem(0));
+}
+
+void ExplanationTree::focusResource(scimate::ResourceId resource) {
+    if (!referencesRoot_) return;
+    auto* node = resourceNode(resource);
+    for (int i = 0; i < 2; ++i) {
+        auto* group = node->child(i);
+        if (!group->childCount()) new QTreeWidgetItem(group, {"No recognized static references. Dynamic or unsupported uses may exist."});
+        group->setExpanded(true);
+    }
+    referencesRoot_->setExpanded(true); node->setExpanded(true);
+    setCurrentItem(node); scrollToItem(node, QAbstractItemView::PositionAtTop);
 }
 
 ExplanationSelection ExplanationTree::selection() const {
     ExplanationSelection result;
     auto* selected = currentItem();
     if (!selected) return result;
-    std::function<void(QTreeWidgetItem*, int)> append = [&](QTreeWidgetItem* node, int depth) {
+    std::function<void(QTreeWidgetItem*, int)> append = [&](auto* node, int depth) {
         result.evidence += QString(depth * 2, QChar(' ')) + node->text(0) + '\n';
         for (int i = 0; i < node->childCount(); ++i) append(node->child(i), depth + 1);
     };
     append(selected, 0);
-    // Metadata such as loop counts belongs to the enclosing resource. Explicit
-    // picture/view properties take precedence over the owning script.
     for (auto* item = selected; item; item = item->parent()) {
-        result.resource = reference(item->text(0));
-        if (result.resource) break;
-    }
-    if (result.resource && result.resource->type == scimate::ResourceType::view) {
-        static const QRegularExpression loop("^\\[fact\\] Loop ([0-9]+):");
-        const auto match = loop.match(selected->text(0));
-        if (match.hasMatch()) result.loop = match.captured(1).toInt();
+        if (!item->data(0, ResourceTypeRole).isValid()) continue;
+        result.resource = scimate::ResourceId{static_cast<scimate::ResourceType>(item->data(0, ResourceTypeRole).toInt()),
+            static_cast<std::uint16_t>(item->data(0, ResourceNumberRole).toUInt())};
+        if (item->data(0, OffsetRole).isValid()) result.offset = item->data(0, OffsetRole).toULongLong();
+        if (item->data(0, LoopRole).isValid()) result.loop = item->data(0, LoopRole).toInt();
+        break;
     }
     return result;
 }
