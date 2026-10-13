@@ -129,10 +129,6 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
   binary/table edits are checked before saving.
 - **Open Resource Folder** opens the selected resource bundle or payload folder.
   Edit PNGs externally, then **Refresh from Disk** to validate and load changes.
-- The **Explain** tab and **Project → Explain Project** analyze the loaded
-  project in a background worker. Expand the evidence tree for fact, likely,
-  and unresolved findings; double-click a Script or View entry to inspect it
-  in Resources. Use **Explain / Refresh** to rerun analysis after project edits.
 - **Build Resources to New Folder** re-reads edits, reconstructs resources, and
   verifies the result. Existing destinations are refused. This builds resource
   maps/volumes, not script source or a complete runnable game installation.
@@ -293,8 +289,7 @@ See [picture editing rules and limits](docs/sci0-pictures.md).
 `list` and `inspect` accept `--format sci1` for DOS SCI1 late directory maps,
 `--format sci11` for SCI1.1 directory maps, and `--format sci1-ega` for SCI1 EGA
 packed-ID maps. SCI1 late/SCI1.1 decoding supports stored, Huffman, and MSB LZW
-records (methods 0/1/2). SCI1 EGA uses SCI0-style method numbering: 0 stored,
-1 MSB LZW, and 2 Huffman. Migration writes uncompressed records.
+records (methods 0/1/2); the SCI1 EGA profile supports stored payloads.
 
 ```sh
 ./build/scimate migrate --to sci1 /path/to/source-game /path/to/migrated-sci1
