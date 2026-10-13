@@ -258,8 +258,22 @@ void tests() {
     require(!migrate_sci0_to_sci1(unsupported).files.map.empty(),"migration depends on game identity");
     unsupported = sample(); unsupported.resources[2].payload[5] = 0x55;
     fails([&] { migrate_sci0_to_sci1(unsupported); },"DoAvoider");
-    unsupported = sample(); unsupported.resources[2].payload[6] = 0;
-    fails([&] { migrate_sci0_to_sci1(unsupported); },"argument count");
+    unsupported = sample(); unsupported.resources[2].payload[6] = 3;
+    fails([&] { migrate_sci0_to_sci1(unsupported); },"odd SCI0 file-I/O");
+    auto short_open = sample(); short_open.resources[2].payload[6] = 2;
+    const auto forwarded = migrate_sci0_to_sci1(short_open);
+    const auto forwarded_game = read_sci1_game(forwarded.files,Sci1Format::sci1_late);
+    require(forwarded_game.resources[1].payload[6] == 2,"short FOpen frame was changed");
+    require(forwarded.report.find("frames retained: 1") != std::string::npos,"unusual FOpen frame not reported");
+    const auto bridged_main = scimate::script_detail::parse(forwarded_game.resources[0].payload);
+    for (std::size_t i = 1; i < bridged_main.exports.size(); ++i) {
+        const auto start = bridged_main.exports[i].second;
+        const auto& payload = forwarded_game.resources[0].payload;
+        // Golden VM bytes: push1; pushi subop; rest 1; callk FileIO, 2; ret.
+        require(payload[start] == 0x78 && payload[start+3] == 0x59 && payload[start+4] == 1 &&
+                payload[start+5] == 0x43 && payload[start+6] == 0x74 && payload[start+7] == 2 && payload[start+8] == 0x48,
+                "FileIO bridge does not forward the runtime parameter list");
+    }
     unsupported = sample(); unsupported.resources[2].payload[5] = 0x24;
     fails([&] { migrate_sci0_to_sci1(unsupported); },"parser migration");
     unsupported = sample(); unsupported.resources[2].payload[5] = 0x31;

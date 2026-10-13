@@ -63,7 +63,11 @@ does not use SCI1.1 split script/heap resources or VGA artwork.
   ScummVM SCI0 resource loader.
 - Applies the documented standard SCI0-to-SCI1 kernel numbering transformation.
 - Bridges FOpen/FPuts/FGets/FClose through SCI1 FileIO suboperations, validating
-  argument counts and relocating the expanded main export table.
+  frame alignment and relocating the expanded main export table. Bridges add
+  the FileIO suboperation and forward the actual parameter list with `rest 1`.
+  No omitted parameters are read and no default open mode is guessed. Unusual
+  encoded counts are preserved and reported for runtime signature validation;
+  malformed source calls do not become silently repaired or valid calls.
 - Supports a ScummVM SCI0 late sound compatibility profile: validates sound
   resources with the SCI0 late decoder and statically proves DoSound suboperation
   and argument-count frames before remapping the kernel to 0x2d. Resource bytes
