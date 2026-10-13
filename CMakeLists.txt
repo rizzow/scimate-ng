@@ -31,7 +31,7 @@ endif()
 
 if(SCIMATE_BUILD_DESKTOP)
   find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets Concurrent)
-  add_library(scimate_desktop_ui apps/desktop/main_window.cpp)
+  add_library(scimate_desktop_ui apps/desktop/main_window.cpp apps/desktop/explanation_tree.cpp)
   target_include_directories(scimate_desktop_ui PUBLIC apps/desktop)
   target_link_libraries(scimate_desktop_ui PUBLIC scimate_application Qt6::Widgets Qt6::Concurrent)
   add_executable(scimate-desktop MACOSX_BUNDLE WIN32 apps/desktop/main.cpp)

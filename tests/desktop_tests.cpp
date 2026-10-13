@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
+#include "explanation_tree.hpp"
 #include "project_fixture.hpp"
 #include <QtTest>
 #include <QComboBox>
@@ -22,6 +23,27 @@
 class DesktopTests : public QObject {
     Q_OBJECT
 private slots:
+    void explanationReferences() {
+        ExplanationTree tree;
+        tree.setReport("Views\n  [fact] View 5: 2 loops\n    [fact] Loop 1: 2 cels\n"
+                       "Scripts and objects\n  [fact] Script 3: 1 objects\n"
+                       "    [fact] Initial pic = 6\n    [likely] Background picture reference 999 (resource absent)\n"
+                       "Startup\n  [likely] Opening-room candidate 8: script 3 @ $0000 sends newRoom\n"
+                       "  [unresolved] Room 8 has no proven resource identity\n");
+        tree.setCurrentItem(tree.topLevelItem(0)->child(0)->child(0));
+        QVERIFY(tree.selection().resource.has_value());
+        QCOMPARE(tree.selection().resource->type, scimate::ResourceType::view);
+        QCOMPARE(tree.selection().resource->number, 5);
+        QCOMPARE(*tree.selection().loop, 1);
+        tree.setCurrentItem(tree.topLevelItem(1)->child(0)->child(0));
+        QCOMPARE(tree.selection().resource->type, scimate::ResourceType::pic);
+        QCOMPARE(tree.selection().resource->number, 6);
+        tree.setCurrentItem(tree.topLevelItem(2)->child(0));
+        QCOMPARE(tree.selection().resource->type, scimate::ResourceType::script);
+        QCOMPARE(tree.selection().resource->number, 3);
+        tree.setCurrentItem(tree.topLevelItem(2)->child(1));
+        QVERIFY(!tree.selection().resource);
+    }
     void projectWorkflow() {
         QTemporaryDir temp;
         QVERIFY(temp.isValid());
@@ -47,6 +69,14 @@ private slots:
         auto* explanation = window.findChild<QTreeWidget*>("explanationTree");
         QVERIFY(explanation && explanation->topLevelItemCount() > 0);
         QVERIFY(window.findChild<QWidget*>("visualPreview")->isHidden());
+        const auto views = explanation->findItems("[fact] View 5:", Qt::MatchContains | Qt::MatchRecursive);
+        QVERIFY(!views.empty()); explanation->setCurrentItem(views.front());
+        QVERIFY(window.findChild<QWidget*>("visualPreview")->isVisible());
+        QVERIFY(window.findChild<QPushButton*>("exportResource")->isEnabled());
+        QVERIFY(window.findChild<QPlainTextEdit*>("details")->toPlainText().contains("[fact] View 5:"));
+        window.findChild<QTabWidget*>()->setCurrentIndex(0);
+        window.findChild<QTabWidget*>()->setCurrentIndex(1);
+        QVERIFY(window.findChild<QWidget*>("visualPreview")->isVisible());
         window.findChild<QTabWidget*>()->setCurrentIndex(0);
         auto* table = window.findChild<QTableView*>("resources");
         auto* filter = window.findChild<QLineEdit*>("resourceFilter");

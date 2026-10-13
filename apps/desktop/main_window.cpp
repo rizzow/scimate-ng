@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
+#include "explanation_tree.hpp"
 #include "scimate/script.hpp"
 #include "scimate/asset_io.hpp"
 #include "scimate/explain.hpp"
@@ -8,7 +9,6 @@
 #include <QtWidgets>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
-#include <QRegularExpression>
 #include <array>
 #include <mutex>
 
@@ -170,10 +170,8 @@ MainWindow::MainWindow() {
     explainButtons->addWidget(actionButton(explain_, "Explain / Refresh"));
     auto* collapse = new QPushButton("Collapse all"); explainButtons->addWidget(collapse);
     explainLayout->addLayout(explainButtons);
-    explanation_ = new QTreeWidget; explanation_->setObjectName("explanationTree");
-    explanation_->setHeaderLabel("Static analysis · fact / likely / unresolved");
-    explanation_->setWordWrap(true); explainLayout->addWidget(explanation_, 1);
-    auto* explainHint = new QLabel("Explain analyzes the loaded project. Expand branches for evidence; double-click a Script or View entry to inspect its resource.");
+    explanation_ = new ExplanationTree; explainLayout->addWidget(explanation_, 1);
+    auto* explainHint = new QLabel("Select an entry to preview its referenced resource and evidence. Double-click to locate it in Resources.");
     explainHint->setWordWrap(true); explainLayout->addWidget(explainHint);
     connect(collapse, &QPushButton::clicked, explanation_, &QTreeWidget::collapseAll);
     browserTabs_->addTab(explainPage, "Explain"); splitter->addWidget(browserTabs_);
@@ -209,36 +207,14 @@ MainWindow::MainWindow() {
     auto* note = new QLabel("Edit exported PNGs in your image editor, refresh to review, then build to a new folder."); note->setObjectName("location"); note->setWordWrap(true); layout->addWidget(note);
     setCentralWidget(central);
     connect(browserTabs_, &QTabWidget::currentChanged, this, [this](int tab) {
-        preview();
-        if (tab == 1) {
-            play_->setChecked(false); play_->hide(); cels_->hide(); editText_->hide(); previewStack_->hide(); export_->setEnabled(false);
-            previewTitle_->setText("Explanation");
-            details_->setPlainText("Click Explain / Refresh to analyze the loaded project, then select a tree entry.\nThis is static analysis; runtime behavior is not proven.");
-        }
+        if (tab == 1) previewExplanation();
+        else preview();
     });
-    connect(explanation_, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem* item) {
-        if (!item) return;
-        play_->setChecked(false); play_->hide(); cels_->hide(); editText_->hide(); previewStack_->hide(); export_->setEnabled(false);
-        previewTitle_->setText("Explanation evidence");
-        QString content;
-        std::function<void(QTreeWidgetItem*, int)> append = [&](QTreeWidgetItem* node, int depth) {
-            content += QString(depth * 2, QChar(' ')) + node->text(0) + '\n';
-            for (int i = 0; i < node->childCount(); ++i) append(node->child(i), depth + 1);
-        };
-        append(item, 0); details_->setPlainText(content);
+    connect(explanation_, &QTreeWidget::currentItemChanged, this, [this] {
+        if (browserTabs_->currentIndex() == 1) previewExplanation();
     });
-    connect(explanation_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item) {
-        const auto match = QRegularExpression("^\\[fact\\] (Script|View) ([0-9]+):").match(item->text(0));
-        if (!match.hasMatch() || !project_) return;
-        const auto type = match.captured(1) == "Script" ? scimate::ResourceType::script : scimate::ResourceType::view;
-        const auto number = match.captured(2).toUInt();
-        for (std::size_t i = project_->game.resources.size(); i-- > 0;) {
-            const auto id = project_->game.resources[i].entry.id;
-            if (id.type != type || id.number != number) continue;
-            filter_->clear(); types_->setCurrentIndex(0); browserTabs_->setCurrentIndex(0);
-            const auto row = proxy_->mapFromSource(model_->index(static_cast<int>(i), 0));
-            table_->selectRow(row.row()); table_->scrollTo(row); break;
-        }
+    connect(explanation_, &QTreeWidget::itemDoubleClicked, this, [this] {
+        if (explanation_->selection().resource && export_->isEnabled()) browserTabs_->setCurrentIndex(0);
     });
     connect(filter_, &QLineEdit::textChanged, proxy_, &QSortFilterProxyModel::setFilterFixedString);
     connect(table_->selectionModel(), &QItemSelectionModel::currentRowChanged, this, [this] { preview(); });
@@ -304,23 +280,40 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
 }
 
 void MainWindow::installExplanation(const QString& report) {
-    // Adapt the CLI's indentation-based report; retain every evidence label and
-    // diagnostic verbatim instead of maintaining a second analysis engine.
-    explanation_->clear(); explanation_->setUpdatesEnabled(false);
-    std::vector<std::pair<int, QTreeWidgetItem*>> parents;
-    for (const auto& line : report.split('\n')) {
-        if (line.trimmed().isEmpty()) continue;
-        int indent = 0;
-        while (indent < line.size() && line[indent] == QChar(' ')) ++indent;
-        while (!parents.empty() && parents.back().first >= indent) parents.pop_back();
-        auto* item = new QTreeWidgetItem(QStringList{line.trimmed()});
-        if (parents.empty()) explanation_->addTopLevelItem(item);
-        else parents.back().second->addChild(item);
-        parents.emplace_back(indent, item);
-    }
-    explanation_->expandToDepth(0); explanation_->setUpdatesEnabled(true);
+    explanation_->setReport(report);
     browserTabs_->setCurrentIndex(1);
-    if (explanation_->topLevelItemCount()) explanation_->setCurrentItem(explanation_->topLevelItem(0));
+    previewExplanation();
+}
+
+void MainWindow::previewExplanation() {
+    const auto selected = explanation_->selection();
+    if (project_ && selected.resource) {
+        for (std::size_t i = project_->game.resources.size(); i-- > 0;) {
+            const auto id = project_->game.resources[i].entry.id;
+            if (id.type != selected.resource->type || id.number != selected.resource->number) continue;
+            filter_->clear(); types_->setCurrentIndex(0);
+            const auto row = proxy_->mapFromSource(model_->index(static_cast<int>(i), 0));
+            table_->selectRow(row.row()); table_->scrollTo(row);
+            preview();
+            if (selected.loop) {
+                for (int cel = 0; cel < cels_->count(); ++cel) {
+                    if (cels_->itemData(cel).toPoint().x() == *selected.loop) {
+                        cels_->setCurrentIndex(cel); break;
+                    }
+                }
+            }
+            details_->setPlainText(selected.evidence + "\n" + details_->toPlainText());
+            return;
+        }
+    }
+    play_->setChecked(false); play_->hide(); cels_->hide(); editText_->hide(); previewStack_->hide(); export_->setEnabled(false);
+    previewTitle_->setText("Explanation evidence");
+    auto evidence = selected.evidence;
+    if (selected.resource)
+        evidence += "\nReferenced " + QString::fromUtf8(scimate::resource_type_name(selected.resource->type).data()) +
+                    " " + QString::number(selected.resource->number) + " is absent from the loaded project.";
+    if (evidence.isEmpty()) evidence = "Click Explain / Refresh to analyze the loaded project.\nThis is static analysis; runtime behavior is not proven.";
+    details_->setPlainText(evidence);
 }
 
 void MainWindow::renameProject(const QString& value) {

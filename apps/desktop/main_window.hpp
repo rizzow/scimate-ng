@@ -24,7 +24,7 @@ class QPushButton;
 class QTimer;
 class QTableWidget;
 class QStackedWidget;
-class QTreeWidget;
+class ExplanationTree;
 class QTabWidget;
 
 class MainWindow : public QMainWindow {
@@ -44,6 +44,7 @@ private:
     using ProjectPtr = std::shared_ptr<scimate::Project>;
     void run(const QString& message, std::function<ProjectPtr(const scimate::ProgressCallback&)> operation, bool explain = false);
     void installExplanation(const QString& report);
+    void previewExplanation();
     void installProject(ProjectPtr project, const std::vector<bool>& modified);
     void newProjectDialog();
     void updateRecents();
@@ -56,7 +57,7 @@ private:
     ProjectPtr project_;
     bool busy_ = false;
     QAction *new_, *open_, *refresh_, *build_, *folder_, *close_, *rename_, *explain_;
-    QTreeWidget* explanation_;
+    ExplanationTree* explanation_;
     QTabWidget* browserTabs_;
     QMenu* recent_;
     QLabel *heading_, *location_, *image_, *progressTitle_, *progressDetail_, *previewTitle_;

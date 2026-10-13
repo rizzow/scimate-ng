@@ -121,8 +121,10 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
 - **Explain → Explain / Refresh** (or **Project → Explain Project**) analyzes the
   loaded project on a background worker using the same engine as `scimate explain`.
   Expand the tree for scripts/objects, views/loops, startup, transitions and limits;
-  select a branch to read its evidence. Double-click a Script/View entry to inspect
-  that resource. Fact/likely/unresolved labels and diagnostics are preserved.
+  select an entry to preview its referenced script, view/loop or background with
+  the evidence alongside it. Double-click to locate the resource in Resources.
+  Missing references are identified explicitly; room numbers are not treated as
+  resource IDs. Fact/likely/unresolved labels and diagnostics are preserved.
   Refresh from Disk first to include external edits; rerun Explain after changes.
 - Filter resources by type and search text; inspect script disassembly and preview
   view cels, mirrored loops, and background/priority/control planes. **Play loop**
@@ -139,10 +141,6 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
   binary/table edits are checked before saving.
 - **Open Resource Folder** opens the selected resource bundle or payload folder.
   Edit PNGs externally, then **Refresh from Disk** to validate and load changes.
-- The **Explain** tab and **Project → Explain Project** analyze the loaded
-  project in a background worker. Expand the evidence tree for fact, likely,
-  and unresolved findings; double-click a Script or View entry to inspect it
-  in Resources. Use **Explain / Refresh** to rerun analysis after project edits.
 - **Build Resources to New Folder** re-reads edits, reconstructs resources, and
   verifies the result. Existing destinations are refused. This builds resource
   maps/volumes, not script source or a complete runnable game installation.
