@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(scimate_ng VERSION 0.1.0 LANGUAGES CXX)
 
 option(SCIMATE_BUILD_CLI "Build the resource inspection CLI" ON)
-add_library(scimate_core core/src/resource_map.cpp)
+add_library(scimate_core core/src/resource_map.cpp core/src/codecs.cpp core/src/resource_game.cpp)
 target_include_directories(scimate_core PUBLIC core/include)
 target_compile_features(scimate_core PUBLIC cxx_std_17)
 set_target_properties(scimate_core PROPERTIES CXX_EXTENSIONS OFF)
@@ -22,6 +22,9 @@ if(BUILD_TESTING)
   add_executable(resource_map_tests tests/resource_map_tests.cpp)
   target_link_libraries(resource_map_tests PRIVATE scimate_core)
   add_test(NAME resource_map COMMAND resource_map_tests)
+  add_executable(resource_game_tests tests/resource_game_tests.cpp)
+  target_link_libraries(resource_game_tests PRIVATE scimate_core)
+  add_test(NAME resource_game COMMAND resource_game_tests)
   if(SCIMATE_BUILD_CLI)
     add_test(NAME cli COMMAND ${CMAKE_COMMAND}
       -DCLI=$<TARGET_FILE:scimate>

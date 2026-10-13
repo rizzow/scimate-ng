@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Resource read/write core
+
+- Add validated SCI0 volume reading, stored/LZW/Huffman decoding, and verified
+  reconstruction with exact unchanged and semantic edited round-trips.
+- Cover malformed streams, dictionary boundaries, duplicates, aliases,
+  multiple volumes, and payload size limits with synthetic tests.
+
 ### Added
 
 - First milestone: a dependency-free C++17 `scimate_core` library for reading
