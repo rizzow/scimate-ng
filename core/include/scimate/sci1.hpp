@@ -16,6 +16,7 @@ GameFiles write_sci1_game(const std::vector<Resource>& resources, Sci1Format for
 struct Sci1Migration {
     GameFiles files;
     std::string report;
+    std::vector<std::string> auxiliary_file_references;
 };
 // Experimental format-based SCI0 -> SCI1 late/ScummVM compatibility export.
 // Remaps kernels and bridges SCI0 file I/O. Preserves EGA graphics and addresses

@@ -5,6 +5,7 @@
 #include "scimate/assets.hpp"
 #include "script_internal.hpp"
 #include "sci_vm.hpp"
+#include "migration_analysis.hpp"
 #include <array>
 #include <initializer_list>
 #include <sstream>
@@ -74,7 +75,11 @@ void validate_sound_call(const ParsedScript& parsed, std::size_t index) {
     const auto needed = frame/2+1; // Includes the argument-count stack word.
     while (pushed.size() < needed && index > 0) {
         const auto& inst = parsed.instructions.at(--index);
-        if (inst.end != cursor || parsed.labels.count(cursor) || parsed.procedures.count(cursor)) break;
+        bool noop_jump = inst.opcode == op::jump && target(inst) == inst.end;
+        if (noop_jump) for (const auto& other : parsed.instructions)
+            if (other.start != inst.start && (op::is_branch(other.opcode) || other.opcode == op::call_local) && target(other) == cursor)
+                noop_jump = false;
+        if (inst.end != cursor || (parsed.labels.count(cursor) && !noop_jump) || parsed.procedures.count(cursor)) break;
         cursor = inst.start;
         int value = -1;
         if (inst.opcode == op::push_immediate) value = static_cast<int>(inst.operands.at(0));
@@ -86,7 +91,7 @@ void validate_sound_call(const ParsedScript& parsed, std::size_t index) {
         // Unary accumulator operations do not consume any stack words. The
         // computed argument remains unknown, while earlier frame constants
         // remain available for independent count/suboperation validation.
-        else if (op::is_accumulator_unary(inst.opcode) || inst.opcode == op::load_immediate || inst.opcode == op::load_class || inst.opcode == op::self_id ||
+        else if (noop_jump || op::is_accumulator_unary(inst.opcode) || inst.opcode == op::load_immediate || inst.opcode == op::load_class || inst.opcode == op::self_id ||
                  inst.opcode == op::property_to_accumulator || inst.opcode == op::load_offset_to_accumulator ||
                  (inst.opcode >= op::load_global_to_accumulator && inst.opcode <= op::load_parameter_to_accumulator)) continue;
         else break;
@@ -316,10 +321,16 @@ Bytes add_file_bridges(const Bytes& original, const ParsedScript& parsed, unsign
         // Add the FileIO suboperation, then forward the caller's entire actual
         // parameter list. This also preserves SCI0 &rest forwarding and malformed
         // legacy calls without reading nonexistent parameters or guessing defaults.
+        const bool preserve_accumulator = subops[i] == sci_vm::file_io::close;
+        if (preserve_accumulator) {
+            append_byte_instruction(code,op::allocate_temporaries,{1});
+            append_byte_instruction(code,op::store_accumulator_to_temporary,{0});
+        }
         append_byte_instruction(code,op::push_one,{});
         append_byte_instruction(code,op::push_immediate,{subops[i]});
         append_byte_instruction(code,op::rest,{1});
         append_byte_instruction(code,op::call_kernel,{sci_vm::sci1_kernel::file_io,sci_vm::word_bytes});
+        if (preserve_accumulator) append_byte_instruction(code,op::load_temporary_to_accumulator,{0});
         append_byte_instruction(code,op::return_,{});
     }
     put(bytes, sci_vm::section::code); put(bytes, static_cast<unsigned>(code.size()+sci_vm::section_header_bytes));
@@ -327,6 +338,36 @@ Bytes add_file_bridges(const Bytes& original, const ParsedScript& parsed, unsign
     return bytes;
 }
 using ScriptMetadata = std::map<std::uint16_t,ParsedScript>;
+std::vector<std::string> repair_volume_queries(Resources& resources) {
+    std::vector<std::string> repaired;
+    for (auto& entry : resources) if (entry.first.first == ResourceType::script) {
+        auto& resource = entry.second;
+        const auto script = parse_migration_script(resource);
+        for (std::size_t i = 3; i < script.instructions.size(); ++i) {
+            const auto& count = script.instructions[i-3];
+            const auto& command = script.instructions[i-2];
+            const auto& parameter = script.instructions[i-1];
+            const auto& call = script.instructions[i];
+            constexpr unsigned master_volume_command = 8;
+            constexpr unsigned setter_frame_bytes = 2*sci_vm::word_bytes;
+            if (count.opcode != op::push_two || command.opcode != op::push_immediate || command.operands.at(0) != master_volume_command ||
+                parameter.opcode != op::load_temporary_to_stack || call.opcode != op::call_kernel ||
+                call.operands.at(0) != kernel0::do_sound || call.operands.at(1) != setter_frame_bytes ||
+                count.end != command.start || command.end != parameter.start || parameter.end != call.start) continue;
+            if (script.labels.count(command.start) || script.labels.count(parameter.start) || script.labels.count(call.start) ||
+                script.procedures.count(command.start) || script.procedures.count(parameter.start) || script.procedures.count(call.start)) continue;
+            if (!migration_detail::uninitialized_temporary(script,parameter.operands.at(0),parameter.start)) continue;
+            auto& payload = resource.payload;
+            payload.at(count.start) = static_cast<std::uint8_t>(sci_vm::encoded_opcode(op::push_one));
+            payload.at(parameter.start) = static_cast<std::uint8_t>(sci_vm::encoded_opcode(op::jump,parameter.width == 1));
+            for (unsigned byte = 0; byte < parameter.width; ++byte) payload.at(parameter.start+1+byte) = 0;
+            payload.at(call.end-1) = sci_vm::word_bytes;
+            repaired.push_back("Repaired invalid master-volume setter as a query: script " + std::to_string(entry.first.second) +
+                " at byte " + std::to_string(call.start) + ", uninitialized temporary " + std::to_string(parameter.operands.at(0)) + ".\n");
+        }
+    }
+    return repaired;
+}
 struct MigrationStats {
     std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0;
     std::size_t parser_calls = 0, opaque_exports = 0, unusual_file_frames = 0;
@@ -505,11 +546,47 @@ std::string migration_report(std::size_t resource_count, const MigrationStats& s
     for (const auto& fallback : selected_fallbacks) report << "Selected fallback: " << fallback << ".\n";
     return report.str();
 }
+std::vector<std::string> auxiliary_references(const Game& game) {
+    std::set<std::string> names;
+    for (const auto& resource : game.resources) if (resource.entry.id.type == ResourceType::script) {
+        const auto script = parse_migration_script(resource);
+        for (const auto& section : script.sections) if (section.type == sci_vm::section::strings) {
+            std::size_t cursor = section.start+sci_vm::section_header_bytes;
+            while (cursor < section.end) {
+                const auto start = cursor;
+                while (cursor < section.end && resource.payload[cursor]) ++cursor;
+                const std::string name(resource.payload.begin()+start,resource.payload.begin()+cursor);
+                ++cursor;
+                if (name.empty() || name.size() > 255 || name.find('.') == std::string::npos) continue;
+                bool filename = true;
+                for (const unsigned char ch : name)
+                    if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                          (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-')) filename = false;
+                if (filename && name != "." && name != "..") names.insert(name);
+            }
+        }
+    }
+    return {names.begin(),names.end()};
+}
+std::string object_layout_diagnostics(const ScriptMetadata& scripts) {
+    std::map<unsigned,std::size_t> classes;
+    for (const auto& entry : scripts) for (const auto& object : entry.second.objects)
+        if (object.is_class) classes.emplace(object.values.at(0),object.values.size());
+    std::ostringstream report;
+    for (const auto& entry : scripts) for (const auto& object : entry.second.objects) if (!object.is_class) {
+        const auto base = classes.find(object.values.at(0));
+        if (base != classes.end() && base->second != object.values.size())
+            report << "Source object layout mismatch: script " << entry.first << " at byte " << object.pointer <<
+                ", instance properties " << object.values.size() << ", base properties " << base->second << "; preserved.\n";
+    }
+    return report.str();
+}
 } // namespace
 
 Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     auto resources = resolve_duplicate_resources(game);
     if (!resources.count({ResourceType::script,0})) throw std::runtime_error("migration requires script 0");
+    const auto volume_repairs = repair_volume_queries(resources);
     std::vector<std::string> selected_fallbacks;
     const auto scripts = validate_migration_scripts(resources,selected_fallbacks);
     const auto first_bridge_export = validate_main_export(scripts);
@@ -522,7 +599,9 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     const auto output = take_resources(resources);
     Sci1Migration result;
     result.files = write_verified_game(output,format);
-    result.report = migration_report(output.size(),stats,selected_fallbacks);
+    result.report = migration_report(output.size(),stats,selected_fallbacks) + object_layout_diagnostics(scripts);
+    result.auxiliary_file_references = auxiliary_references(game);
+    for (const auto& repair : volume_repairs) result.report += repair;
     return result;
 }
 } // namespace scimate

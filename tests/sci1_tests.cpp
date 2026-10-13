@@ -47,6 +47,31 @@ Game sample() {
     return game;
 }
 void tests() {
+    auto volume_query = sample();
+    volume_query.resources.push_back(resource(ResourceType::script,70,
+        {7,0,8,0,1,0,12,0,2,0,15,0,0x3f,2,0x7a,0x39,8,0x8d,1,0x43,0x31,4,0x48,0,0}));
+    const auto query_result = migrate_sci0_to_sci1(volume_query);
+    const auto query_game = read_sci1_game(query_result.files,Sci1Format::sci1_late);
+    bool query_found = false;
+    for (const auto& item : query_game.resources) if (item.entry.id.type == ResourceType::script && item.entry.id.number == 70) {
+        require(item.payload[14] == 0x78 && item.payload[17] == 0x33 && item.payload[18] == 0 &&
+                item.payload[20] == 0x2d && item.payload[21] == 2,"uninitialized master-volume argument was not repaired");
+        query_found = true;
+    }
+    require(query_found && query_result.report.find("Repaired invalid master-volume setter") != std::string::npos,
+            "volume-query repair was not reported");
+    volume_query.resources.back().payload = {7,0,8,0,1,0,12,0,2,0,19,0,0x3f,2,0x35,5,0xa5,1,
+        0x7a,0x39,8,0x8d,1,0x43,0x31,4,0x48,0,0};
+    require(migrate_sci0_to_sci1(volume_query).report.find("Repaired invalid master-volume setter") == std::string::npos,
+            "initialized volume setter was changed");
+    auto references = sample();
+    auto& referenced_script = references.resources[2].payload;
+    referenced_script.resize(referenced_script.size()-2);
+    const Bytes filename{'D','A','T','A','.','B','I','N',0};
+    put(referenced_script,5,2); put(referenced_script,filename.size()+4,2);
+    referenced_script.insert(referenced_script.end(),filename.begin(),filename.end()); put(referenced_script,0,2);
+    require(migrate_sci0_to_sci1(references).auxiliary_file_references == std::vector<std::string>{"DATA.BIN"},
+            "auxiliary file reference was not exported");
     // Accumulator-only unary computation preserves an already-pushed sound
     // argument count and suboperation. Golden opcodes keep fixtures independent.
     for (const std::uint8_t unary : {std::uint8_t(0x00),std::uint8_t(0x16),std::uint8_t(0x18)}) {
@@ -280,11 +305,18 @@ void tests() {
     require(forwarded.report.find("frames retained: 1") != std::string::npos,"unusual FOpen frame not reported");
     const auto bridged_main = scimate::script_detail::parse(forwarded_game.resources[0].payload);
     for (std::size_t i = 1; i < bridged_main.exports.size(); ++i) {
-        const auto start = bridged_main.exports[i].second;
+        auto start = bridged_main.exports[i].second;
         const auto& payload = forwarded_game.resources[0].payload;
+        if (i == 4) {
+            require(payload[start] == 0x3f && payload[start+1] == 1 && payload[start+2] == 0xa5 && payload[start+3] == 0,
+                    "FClose bridge did not save the source accumulator");
+            start += 4;
+            require(payload[start+8] == 0x85 && payload[start+9] == 0 && payload[start+10] == 0x48,
+                    "FClose bridge did not restore the source accumulator");
+        }
         // Golden VM bytes: push1; pushi subop; rest 1; callk FileIO, 2; ret.
         require(payload[start] == 0x78 && payload[start+3] == 0x59 && payload[start+4] == 1 &&
-                payload[start+5] == 0x43 && payload[start+6] == 0x74 && payload[start+7] == 2 && payload[start+8] == 0x48,
+                payload[start+5] == 0x43 && payload[start+6] == 0x74 && payload[start+7] == 2 && (i == 4 || payload[start+8] == 0x48),
                 "FileIO bridge does not forward the runtime parameter list");
     }
     unsupported = sample(); unsupported.resources[2].payload[5] = 0x24;

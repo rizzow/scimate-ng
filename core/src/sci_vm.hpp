@@ -3,8 +3,17 @@
 
 // Numeric identities belong here; transformations use their semantic names.
 namespace scimate::sci_vm {
+namespace section { inline constexpr unsigned strings = 5; }
 namespace opcode {
 inline constexpr unsigned bitwise_not = 0, negate = 11, logical_not = 12;
+inline constexpr unsigned allocate_temporaries = 31, load_temporary_to_accumulator = 66;
+inline constexpr unsigned load_temporary_to_stack = 70, store_accumulator_to_temporary = 82;
+inline constexpr unsigned first_variable_store = 80, temporary_storage = 2;
+inline constexpr unsigned variable_storage_mask = 3, indexed_variable_flag = 8;
+inline constexpr unsigned address_storage_shift = 1, indexed_address_flag = 16;
+constexpr bool writes_temporary(unsigned value) {
+    return value >= first_variable_store && (value & variable_storage_mask) == temporary_storage;
+}
 constexpr bool is_accumulator_unary(unsigned value) {
     return value == bitwise_not || value == negate || value == logical_not;
 }
