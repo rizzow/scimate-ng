@@ -61,6 +61,17 @@ alone. This procedure uses ordinary VM arithmetic and local-variable operations;
 it does not call the native Parse/Said kernels. Sentence traversal, tree storage
 and Said evaluation still need to be connected before VGA export is enabled.
 
+The emitted input scanner and word resolver now use the standard string kernels
+only. The scanner retains SCI0's default OEM case folding and input rules: literal
+spaces end words, other punctuation is ignored, and hyphens can occur after a word
+starts. Exact lookup strips hyphens; suffix reduction uses the original lowercased
+word. The resolver applies the source suffix order and output class, then recognises
+complete decimal words with the numeric word group. Buffers remain in generated
+script locals, so failure callbacks can safely read them after the routine returns.
+The current scanner limits are 255 bytes per word, 64 words and 4096 input bytes;
+failures clear the token count and record a reason instead of truncating input.
+Alternative language/code-page handling still needs an explicit export profile.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

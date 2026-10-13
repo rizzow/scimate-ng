@@ -8,6 +8,7 @@
 #include "../core/src/parser_lexicon.hpp"
 #include "../core/src/parser_tables.hpp"
 #include "../core/src/parser_grammar.hpp"
+#include "../core/src/parser_scanner.hpp"
 #include <iostream>
 
 namespace {
@@ -110,6 +111,27 @@ void tests() {
     lexicon_builder.export_procedure(lexicon.group);
     const auto lexicon_script = lexicon_builder.finish();
     const auto lexicon_metadata = script_detail::parse(lexicon_script);
+    parser_detail::ScriptBuilder scanner_builder;
+    const auto scanner_tables = parser_detail::emit_parser_tables(scanner_builder,grammar_table,suffix_table);
+    const auto scanner_words = parser_detail::emit_lexicon(scanner_builder,
+        {{"look",0x800,12},{"coin",0x100,22},{"enemy",0x100,23}});
+    const auto word_resolver = parser_detail::emit_word_resolver(scanner_builder,scanner_words,scanner_tables);
+    const auto scanner = parser_detail::emit_token_scanner(scanner_builder,word_resolver);
+    scanner_builder.export_procedure(word_resolver.procedure); scanner_builder.export_procedure(scanner.procedure);
+    const auto generated_scanner = script_detail::parse(scanner_builder.finish());
+    require(generated_scanner.exports.size() == 2 && scanner.classes+64 == scanner.groups,
+            "portable scanner token buffers or exports are invalid");
+    std::set<unsigned> lexical_kernels;
+    for (const auto& instruction : generated_scanner.instructions)
+        if (instruction.opcode == sci_vm::opcode::call_kernel) lexical_kernels.insert(instruction.operands.at(0));
+    require(lexical_kernels == std::set<unsigned>({0x45,0x46,0x47,0x62}),
+            "portable word scanner depends on unexpected kernels");
+    const auto character_table = parser_detail::scanner_character_table();
+    require(character_table['A'] == ('a' | parser_detail::token_character) &&
+            character_table[' '] == (' ' | parser_detail::token_boundary) &&
+            character_table['-'] == ('-' | parser_detail::token_hyphen) &&
+            character_table[','] == ',' && character_table[0x8e] == (0x84 | parser_detail::token_character),
+            "portable scanner case folding or delimiter classification differs from SCI0");
     require(lexicon.count == 2 && lexicon_metadata.exports.size() == 3,"portable parser lexicon exports/deduplication failed");
     bool lexicon_locals = false, lexicon_relocations = false;
     for (const auto& section : lexicon_metadata.sections) {

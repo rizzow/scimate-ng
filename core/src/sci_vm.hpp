@@ -10,6 +10,7 @@ inline constexpr unsigned bitwise_and = 9, equal = 13, less_signed = 17, less_un
 inline constexpr unsigned load_local_to_accumulator = 65, load_local_to_stack = 69;
 inline constexpr unsigned load_indexed_local_to_accumulator = 73, load_indexed_local_to_stack = 77;
 inline constexpr unsigned store_accumulator_to_local = 81, store_accumulator_to_parameter = 83;
+inline constexpr unsigned store_stack_to_indexed_local = 93;
 inline constexpr unsigned increment_temporary_to_accumulator = 98;
 inline constexpr unsigned bitwise_not = 0, negate = 11, logical_not = 12;
 inline constexpr unsigned allocate_temporaries = 31, load_temporary_to_accumulator = 66;
