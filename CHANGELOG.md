@@ -4,8 +4,8 @@
 
 ### Desktop projects
 
-- Default file dialogs to home, remember locations by workflow, and provide a
-  larger Open Project browser with persistent layout.
+- Default native file dialogs to home and remember locations by workflow,
+  including the macOS Open Project picker.
 - Rename open projects with atomic descriptor saves and external-name checks.
 
 - Show loading phases, per-resource progress and elapsed time; reuse decoded games

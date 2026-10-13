@@ -47,19 +47,9 @@ MainWindow::MainWindow() {
     new_ = file->addAction("&New Project from Game…", this, &MainWindow::newProjectDialog);
     new_->setShortcut(QKeySequence::New);
     open_ = file->addAction("&Open Project…", this, [this] {
-        QFileDialog dialog(this, "Open SCIMate project");
-        // The widget picker has a reliably sized browser and persistent layout.
-        dialog.setOption(QFileDialog::DontUseNativeDialog);
-        dialog.setFileMode(QFileDialog::ExistingFile);
-        dialog.setNameFilter("SCIMate projects (*.scimate)");
-        dialog.setViewMode(QFileDialog::Detail);
-        dialog.resize(900, 600); dialog.setMinimumSize(700, 450);
-        dialog.restoreState(QSettings().value("dialogs/openProjectState").toByteArray());
-        dialog.setDirectory(dialogDirectory("projects"));
-        const bool accepted = dialog.exec() == QDialog::Accepted;
-        QSettings().setValue("dialogs/openProjectState", dialog.saveState());
-        if (accepted && !dialog.selectedFiles().isEmpty()) {
-            const auto filename = dialog.selectedFiles().first();
+        const auto filename = QFileDialog::getOpenFileName(this, "Open SCIMate project",
+            dialogDirectory("projects"), "SCIMate projects (*.scimate)");
+        if (!filename.isEmpty()) {
             rememberDirectory("projects", QFileInfo(filename).absolutePath());
             if (QFileInfo(filename).fileName() != "project.scimate") {
                 QMessageBox::warning(this, "Open project", "Select the project's project.scimate file.");
