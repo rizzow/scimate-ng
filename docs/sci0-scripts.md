@@ -33,7 +33,7 @@ within code sections are listed linearly; no reachability analysis is performed.
 
 Early SCI0 scripts with a leading local-variable count, absolute-address lofsa
 variants, SCI1/SCI1.1 layouts, and wide export tables are not supported. Layout
-selection is explicit through `--format sci0`; there is no automatic detection.
+selection defaults to SCI0 (`--format sci0` is optional); there is no automatic detection.
 Some alternate layouts may be structurally ambiguous, so this is not a universal
 script validator. An out-of-range lofsa/lofss target is annotated as a warning.
 
@@ -52,3 +52,6 @@ input format. Import ignores them. Editing and rebuilding scripts from readable
 SCI source requires a decompiler and compiler, neither of which is implemented
 by this milestone. Original variable/procedure names and comments generally
 cannot be recovered from bytecode alone.
+
+Use [sluicebox/sci-tools](https://github.com/sluicebox/sci-tools) separately for
+high-level decompilation. SCIMate does not bundle it or import its source output.

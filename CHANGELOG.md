@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Retire the experimental decompiler integration; document separately installed
+  sci-tools/Snuffer for source recovery. Keep built-in script disassembly.
+
 ### Editable SCI0 EGA views
 
 - Add portable view/cel reading and writing with bounded EGA RLE, placement,

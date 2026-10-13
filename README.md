@@ -100,6 +100,20 @@ view's binary payload and PNG bundle are rejected. See [editable view workflow,
 limits, and manifest rules](docs/sci0-views.md). Cursors and picture planes are
 separate future work.
 
+## Decompile with sci-tools
+
+High-level decompilation is handled separately by
+[sluicebox/sci-tools](https://github.com/sluicebox/sci-tools). Install/build its
+Snuffer CLI separately, then run it with an explicit output directory:
+
+```sh
+snuffer --decompile --annotate --sco /path/to/game /path/to/decompiled-output
+```
+
+SCIMate does not bundle or invoke Snuffer, and has no .NET dependency. Its
+output is for source inspection; SCIMate does not compile/import `.sc` files.
+Our experimental decompiler port has been retired. Disassembly remains built in.
+
 ## Read scripts
 
 Exports now also contain `scripts/NNNNNNN.asm` listings for script resources,

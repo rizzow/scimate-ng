@@ -2,6 +2,13 @@
 
 Date: 2026-10-13
 
+## Decompiler direction
+
+Use sluicebox/sci-tools as a separately installed, user-invoked tool. The
+uncommitted SCI Companion decompiler port was retired; do not resume it or add
+a .NET helper integration. Keep built-in disassembly and resource workflows.
+Update README.md in every implementation commit.
+
 ## Editable view implementation update
 
 SCI0 EGA views now export as editable indexed PNG/metadata bundles and import
