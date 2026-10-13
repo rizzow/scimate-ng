@@ -2,6 +2,17 @@
 
 Date: 2026-10-13
 
+## Desktop project milestone
+
+The optional Qt 6 Widgets target `scimate-desktop` now provides project creation
+from a game, reopening/recent projects, resource filtering, sprite and picture-plane previews,
+disassembly/hex inspection, external-edit refresh, and verified resource builds.
+The `scimate` CLI remains a separate binary with no Qt dependency. Build with
+`-DSCIMATE_BUILD_DESKTOP=ON`; see README.md and docs/projects.md. The application
+layer owns a movable project descriptor and the existing export workspace.
+There is no in-app resource editor or script compiler yet. Older implementation
+updates and pre-implementation sections below are historical context.
+
 ## Decompiler direction
 
 Use sluicebox/sci-tools as a separately installed, user-invoked tool. The

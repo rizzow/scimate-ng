@@ -1,5 +1,29 @@
 # Validation
 
+## Desktop projects (2026-10-13)
+
+An isolated snapshot containing the desktop/project changes on top of the
+committed picture workflow passed all 15 CTest suites on Apple Silicon macOS with Qt 6.12.0, including a clean build with
+`-Wall -Wextra -Wpedantic -Werror`. The five core-only suites passed with the
+application, CLI, and desktop disabled. `otool -L` confirmed that the separate
+`scimate` CLI links libpng/zlib and system libraries, with no Qt dependency.
+
+Project tests cover creation, names with quotes, invalid names/descriptors,
+existing destinations, moving a workspace while making its source unavailable,
+unchanged reconstruction, payload edits, and manifest corruption. The offscreen
+Qt test creates/reopens a project, filters/selects resources, previews cels and all three picture planes,
+edits both a PNG and a binary payload externally, refreshes modified markers,
+builds and checks both edits, and verifies failed opens preserve the prior
+project. The GUI is a separate macOS app bundle.
+
+A local LSL3 project contained all 985 resource records. Project build reproduced
+its resource map and four referenced volumes byte-for-byte. The unchanged
+workspace was also rebuilt successfully through the retained CLI `import`
+command. The offscreen desktop test opened this real project, and a captured
+window was visually checked. No native interactive session, Windows/Linux GUI
+run, standalone deployment bundle, or SCI-engine execution is claimed. A Linux
+Qt offscreen CI job is configured but has not run here.
+
 ## Editable SCI0 EGA views
 
 The completed workflow passed all nine suites in Release and ASan/UBSan builds

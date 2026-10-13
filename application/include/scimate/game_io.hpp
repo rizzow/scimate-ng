@@ -9,6 +9,9 @@ namespace scimate {
 std::string volume_filename(std::uint8_t number);
 Game open_sci0_game(const std::filesystem::path& directory);
 
+// Validate the manifest/snapshots and load current payload and PNG edits.
+Game open_sci0_export(const std::filesystem::path& directory);
+
 struct ExportSummary {
     std::size_t script_listings = 0;
     std::size_t script_errors = 0;

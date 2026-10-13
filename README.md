@@ -1,8 +1,9 @@
 # SCIMate NG
 
 A portable successor to SCI Companion, starting with a headless SCI0 resource
-read/write pipeline. The core uses C++17 and has no Qt or other external
-dependencies. The desktop editor is future work.
+read/write pipeline and a Qt project-management desktop app. The core uses
+C++17 and has no Qt or other external dependencies. The `scimate` CLI and
+`scimate-desktop` GUI are separate executables.
 
 ## Build and test
 
@@ -26,6 +27,46 @@ cmake -S . -B build-core -DSCIMATE_BUILD_CLI=OFF \
   -DSCIMATE_BUILD_APPLICATION=OFF -DBUILD_TESTING=OFF
 cmake --build build-core
 ```
+
+## Desktop projects
+
+The GUI is optional; the commands above still build the **`scimate` CLI without
+Qt**. Enable the separate **`scimate-desktop`** target with Qt 6 Widgets and
+Concurrent installed (Qt 6.2+; Qt Test is also needed when testing):
+
+```sh
+# macOS: brew install qtbase (a full Qt installation also works)
+cmake -S . -B build-desktop -DSCIMATE_BUILD_DESKTOP=ON \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qtbase
+cmake --build build-desktop --parallel
+ctest --test-dir build-desktop --output-on-failure
+open build-desktop/scimate-desktop.app
+```
+
+Use your Qt installation prefix on other platforms. Linux packages include
+`qt6-base-dev`; run `build-desktop/scimate-desktop` there. Windows produces
+`scimate-desktop.exe` (usually under `Debug/`). The macOS app currently uses
+installed Qt libraries; it is not a self-contained distribution bundle.
+
+In **CLion**, open this repository and add `-DSCIMATE_BUILD_DESKTOP=ON` and
+`-DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qtbase` to a CMake profile. Reload CMake,
+then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
+
+- **New Project from Game** creates a named workspace in a new folder from an
+  existing SCI0 game. It preserves original resources and exports editable PNGs.
+- **Open Project** opens `project.scimate`. Recent projects are remembered.
+  The workspace is movable and does not need the original game folder.
+- Browse/filter resources, inspect script disassembly, and preview view cels
+  including mirrored loops and background/priority/control planes. Modified resources are marked after refresh.
+- **Open Resource Folder** opens the selected view/picture bundle or payload folder.
+  Edit PNGs externally, then **Refresh from Disk** to validate and load changes.
+- **Build Resources to New Folder** re-reads edits, reconstructs resources, and
+  verifies the result. Existing destinations are refused. This builds resource
+  maps/volumes, not script source or a complete runnable game installation.
+
+Creation persists the project immediately; there are no unsaved in-app edits.
+The existing CLI `import` command can rebuild a project folder too. See
+[project format and workflow](docs/projects.md).
 
 ## List resources
 
@@ -74,7 +115,7 @@ This reconstructs the packaged resources, not a complete runnable game folder:
 interpreters, scripts on disk, configuration, patch files, and unreferenced
 volumes are not copied. No automatic format detection, SCI0-with-SCI1-layout,
 SCI1/SCI1.1 support, recompression, resource additions/deletions/renaming,
-script-source editing, cursor editing, previews, or GUI are implemented. A valid reconstruction
+script-source editing, or cursor editing are implemented. A valid reconstruction
 does not prove that edited payloads are meaningful to the SCI engine.
 
 See [round-trip guarantees, limits, and export format](docs/sci0-roundtrip.md).

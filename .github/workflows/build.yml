@@ -1,6 +1,18 @@
 name: Build and test
 on: [push, pull_request]
 jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt and PNG
+        run: sudo apt-get update && sudo apt-get install -y qt6-base-dev libpng-dev
+      - name: Configure desktop and CLI
+        run: cmake -S . -B build -DSCIMATE_BUILD_DESKTOP=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test (offscreen GUI)
+        run: ctest --test-dir build --output-on-failure
   build:
     strategy:
       fail-fast: false

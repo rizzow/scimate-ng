@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Desktop projects
+
+- Add optional `scimate-desktop`, a separate Qt 6 Widgets executable; retain the
+  Qt-free `scimate` CLI and dependency-free core.
+- Create/reopen movable projects with original snapshots and editable exports;
+  remember recent projects and rebuild resources into new output directories.
+- Browse/filter resource records, inspect script disassembly/hex, preview view
+  cels, mirrored loops and background/mask planes, and refresh external PNG/payload edits with validation.
+- Run project I/O on background workers and preserve the open project on errors.
+
 - Retire the experimental decompiler integration; document separately installed
   sci-tools/Snuffer for source recovery. Keep built-in script disassembly.
 

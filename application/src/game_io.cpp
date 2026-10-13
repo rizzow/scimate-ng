@@ -126,8 +126,7 @@ ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
     return summary;
 }
 
-void import_sci0_game(const std::filesystem::path& export_directory,
-                      const std::filesystem::path& destination) {
+Game open_sci0_export(const std::filesystem::path& export_directory) {
     auto game = open_sci0_game(export_directory / "original");
     const auto text = manifest(game);
     const auto saved = read_file(export_directory / "manifest.tsv", text.size());
@@ -165,6 +164,12 @@ void import_sci0_game(const std::filesystem::path& export_directory,
         total += bytes.size();
         game.resources[i].payload = std::move(bytes);
     }
+    return game;
+}
+
+void import_sci0_game(const std::filesystem::path& export_directory,
+                      const std::filesystem::path& destination) {
+    const auto game = open_sci0_export(export_directory);
     const auto rebuilt = rebuild_sci0_game(game);
     create_destination(destination);
     write_game(rebuilt, destination);
