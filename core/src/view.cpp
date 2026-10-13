@@ -29,7 +29,7 @@ void patch(Bytes& b, std::size_t p, std::size_t n) {
     b.at(p) = static_cast<std::uint8_t>(n); b.at(p+1) = static_cast<std::uint8_t>(n >> 8);
 }
 int signed_byte(std::uint8_t n) { return n < 128 ? n : static_cast<int>(n) - 256; }
-void validate(const View& view) {
+void validate(const View& view, bool vga = false) {
     if (view.loops.empty() || view.loops.size() > 50) invalid("expected 1..50 loops");
     std::size_t total = 0;
     for (std::size_t i = 0; i < view.loops.size(); ++i) {
@@ -44,9 +44,9 @@ void validate(const View& view) {
         for (const auto& cel : loop.cels) {
             if (!cel.width || !cel.height || cel.width > 320 || cel.height > 200) invalid("cel dimensions outside 1..320 by 1..200");
             if (cel.x < -128 || cel.x > 127 || cel.y < -128 || cel.y > 127) invalid("placement outside signed-byte range");
-            if (cel.transparent > 15) invalid("transparent index outside EGA palette");
+            if (!vga && cel.transparent > 15) invalid("transparent index outside EGA palette");
             if (cel.pixels.size() != static_cast<std::size_t>(cel.width) * cel.height) invalid("pixel count differs from dimensions");
-            if (std::any_of(cel.pixels.begin(), cel.pixels.end(), [](auto p) { return p > 15; })) invalid("pixel outside EGA palette");
+            if (!vga && std::any_of(cel.pixels.begin(), cel.pixels.end(), [](auto p) { return p > 15; })) invalid("pixel outside EGA palette");
             total += cel.pixels.size();
             if (total > 16 * 1024 * 1024) invalid("decoded pixels exceed 16 MiB limit");
         }
@@ -62,9 +62,16 @@ bool operator==(const ViewLoop& a, const ViewLoop& b) {
 }
 bool same_view(const View& a, const View& b) { return a.version == b.version && a.reserved == b.reserved && a.loops == b.loops; }
 
-View read_sci0_view(const Bytes& b) {
+namespace {
+constexpr unsigned vga_flag = 0x80, vga_repeat = 0x80, vga_skip = 0xc0;
+constexpr unsigned vga_command_mask = 0xc0, vga_run_mask = 0x3f;
+constexpr std::size_t vga_literal_limit = 127, profitable_repeat_length = 3;
+constexpr std::size_t view_header_bytes = 8, ega_cel_header_bytes = 7, vga_cel_header_bytes = 8;
+View read_view(const Bytes& b, bool vga) {
     if (b.size() > 65535) invalid("payload exceeds 65535 bytes");
-    const auto count = word(b, 0), mask = word(b, 2);
+    const auto header = word(b, 0), mask = word(b, 2);
+    if (vga && (header >> 8) != vga_flag) invalid("unsupported SCI1 VGA flags");
+    const auto count = vga ? header & 0xff : header;
     if (count < 1 || count > 50) invalid("unsupported header or loop count");
     if (count < 16 && (mask >> count)) invalid("mirror bits outside loop table");
     View view;
@@ -94,10 +101,11 @@ View read_sci0_view(const Bytes& b) {
         loop.unknown = static_cast<std::uint16_t>(word(b, start + 2));
         for (unsigned c = 0; c < cels; ++c) {
             std::size_t p = word(b, start + 4 + c*2);
-            if (p < 8 + count*2 || p > b.size() || b.size() - p < 7) invalid("cel header outside data");
+            const auto cel_header = vga ? vga_cel_header_bytes : ega_cel_header_bytes;
+            if (p < view_header_bytes + count*2 || p > b.size() || b.size() - p < cel_header) invalid("cel header outside data");
             ViewCel cel;
             cel.width = static_cast<std::uint16_t>(word(b,p)); cel.height = static_cast<std::uint16_t>(word(b,p+2));
-            cel.x = signed_byte(b[p+4]); cel.y = signed_byte(b[p+5]); cel.transparent = b[p+6]; p += 7;
+            cel.x = signed_byte(b[p+4]); cel.y = signed_byte(b[p+5]); cel.transparent = b[p+6]; p += cel_header;
             if (!cel.width || !cel.height || cel.width > 320 || cel.height > 200) invalid("cel dimensions outside supported range");
             const auto pixels = static_cast<std::size_t>(cel.width) * cel.height;
             total += pixels;
@@ -106,17 +114,30 @@ View read_sci0_view(const Bytes& b) {
             while (cel.pixels.size() < pixels) {
                 if (p == b.size()) invalid("truncated cel RLE");
                 const auto command = b[p++];
-                const auto run = static_cast<std::size_t>(command >> 4);
+                const auto kind = command & vga_command_mask;
+                const auto run = static_cast<std::size_t>(vga ? (kind < vga_repeat ? command : command & vga_run_mask) : command >> 4);
+                if (!run && vga) invalid("zero-length VGA cel RLE command");
                 if (run > pixels - cel.pixels.size()) invalid("cel RLE exceeds pixel count");
-                cel.pixels.insert(cel.pixels.end(), run, static_cast<std::uint8_t>(command & 15));
+                if (!vga) cel.pixels.insert(cel.pixels.end(), run, static_cast<std::uint8_t>(command & 15));
+                else if (kind < vga_repeat) {
+                    if (run > b.size()-p) invalid("truncated VGA literal run");
+                    cel.pixels.insert(cel.pixels.end(),b.begin()+p,b.begin()+p+run); p += run;
+                } else if (kind == vga_skip) cel.pixels.insert(cel.pixels.end(),run,cel.transparent);
+                else {
+                    if (p == b.size()) invalid("truncated VGA repeat run");
+                    cel.pixels.insert(cel.pixels.end(),run,b[p++]);
+                }
             }
             loop.cels.push_back(std::move(cel));
         }
     }
-    validate(view);
+    validate(view,vga);
     view.original = b;
     return view;
 }
+} // namespace
+View read_sci0_view(const Bytes& b) { return read_view(b,false); }
+View read_sci1_vga_view(const Bytes& b) { return read_view(b,true); }
 
 Bytes write_sci0_view(const View& view) {
     validate(view);
@@ -157,5 +178,62 @@ Bytes write_sci0_view(const View& view) {
     if (b.size() > 65535) invalid("encoded view exceeds 65535 bytes");
     if (!same_view(view,read_sci0_view(b))) invalid("encoded view verification failed");
     return b;
+}
+Bytes write_sci1_vga_view(const View& view) {
+    validate(view,true);
+    Bytes bytes;
+    put(bytes,static_cast<unsigned>(view.loops.size()) | (vga_flag << 8));
+    unsigned mirror_mask = 0;
+    for (std::size_t i = 0; i < view.loops.size(); ++i)
+        if (view.loops[i].mirror_of >= 0) mirror_mask |= 1u << i;
+    put(bytes,mirror_mask);
+    put(bytes,1); // SCI1 VGA format version.
+    put(bytes,0); // Shared game palette; no embedded palette.
+    bytes.resize(view_header_bytes+view.loops.size()*2);
+    std::vector<std::size_t> offsets(view.loops.size());
+    for (std::size_t i = 0; i < view.loops.size(); ++i) {
+        const auto& loop = view.loops[i];
+        if (loop.mirror_of >= 0) continue;
+        offsets[i] = bytes.size();
+        put(bytes,static_cast<unsigned>(loop.cels.size())); put(bytes,loop.unknown);
+        const auto table = bytes.size(); bytes.resize(table+loop.cels.size()*2);
+        for (std::size_t c = 0; c < loop.cels.size(); ++c) {
+            const auto& cel = loop.cels[c];
+            patch(bytes,table+c*2,bytes.size());
+            put(bytes,cel.width); put(bytes,cel.height);
+            bytes.push_back(static_cast<std::uint8_t>(cel.x));
+            bytes.push_back(static_cast<std::uint8_t>(cel.y));
+            bytes.push_back(cel.transparent); bytes.push_back(0);
+            // Each run is bounded by the six-bit VGA run field. Transparent
+            // runs carry no literal colour and preserve the cel's clear index.
+            std::size_t cursor = 0;
+            while (cursor < cel.pixels.size()) {
+                const auto colour = cel.pixels[cursor];
+                std::size_t run = 1;
+                while (run < vga_run_mask && cursor+run < cel.pixels.size() && cel.pixels[cursor+run] == colour) ++run;
+                if (colour == cel.transparent || run >= profitable_repeat_length) {
+                    bytes.push_back(static_cast<std::uint8_t>((colour == cel.transparent ? vga_skip : vga_repeat) | run));
+                    if (colour != cel.transparent) bytes.push_back(colour);
+                    cursor += run;
+                } else {
+                    const auto start = cursor++;
+                    while (cursor-start < vga_literal_limit && cursor < cel.pixels.size()) {
+                        const auto next = cel.pixels[cursor];
+                        if (next == cel.transparent ||
+                            (cursor+2 < cel.pixels.size() && next == cel.pixels[cursor+1] && next == cel.pixels[cursor+2])) break;
+                        ++cursor;
+                    }
+                    bytes.push_back(static_cast<std::uint8_t>(cursor-start));
+                    bytes.insert(bytes.end(),cel.pixels.begin()+start,cel.pixels.begin()+cursor);
+                }
+            }
+            if (bytes.size() > 65535) invalid("encoded VGA view exceeds 65535 bytes");
+        }
+    }
+    for (std::size_t i = 0; i < view.loops.size(); ++i)
+        patch(bytes,view_header_bytes+i*2,view.loops[i].mirror_of >= 0 ? offsets[static_cast<std::size_t>(view.loops[i].mirror_of)] : offsets[i]);
+    if (bytes.size() > 65535) invalid("encoded VGA view exceeds 65535 bytes");
+    if (read_sci1_vga_view(bytes).loops != view.loops) invalid("encoded VGA view verification failed");
+    return bytes;
 }
 } // namespace scimate

@@ -3,6 +3,7 @@
 #include "scimate/sci1.hpp"
 #include "scimate/assets.hpp"
 #include "scimate/picture.hpp"
+#include "scimate/view.hpp"
 #include "../core/src/script_internal.hpp"
 #include <iostream>
 
@@ -48,6 +49,20 @@ Game sample() {
     return game;
 }
 void tests() {
+    // Independent VGA cel fixture: literal, repeated colour and transparency.
+    const Bytes view_fixture{1,0x80,0,0,1,0,0,0,10,0,1,0,0,0,16,0,
+        8,0,1,0,0xff,2,255,0,2,17,18,0x83,42,0xc3};
+    const auto fixture_view = read_sci1_vga_view(view_fixture);
+    require(fixture_view.loops[0].cels[0].pixels == Bytes({17,18,42,42,42,255,255,255}) &&
+            fixture_view.loops[0].cels[0].x == -1,"SCI1 VGA mixed RLE decoding failed");
+    auto mirrored_view = fixture_view;
+    ViewLoop mirrored_loop; mirrored_loop.mirror_of = 0;
+    mirrored_view.loops.push_back(mirrored_loop);
+    const auto encoded_view = write_sci1_vga_view(mirrored_view);
+    require(encoded_view[1] == 0x80 && read_sci1_vga_view(encoded_view).loops == mirrored_view.loops,
+            "SCI1 VGA mirror or palette-index encoding failed");
+    auto truncated_view = view_fixture; truncated_view.pop_back();
+    fails([&] { read_sci1_vga_view(truncated_view); },"truncated");
     Picture bitmap_picture;
     bitmap_picture.planes = {Bytes(320*190,1),Bytes(320*190,0),Bytes(320*190,0)};
     bitmap_picture.planes[1].back() = 15; bitmap_picture.planes[2].front() = 4;

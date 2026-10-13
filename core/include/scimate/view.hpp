@@ -7,7 +7,7 @@ struct ViewCel {
     std::uint16_t width = 0, height = 0;
     int x = 0, y = 0;
     std::uint8_t transparent = 0;
-    Bytes pixels; // Top-to-bottom rows, left-to-right EGA indices (0..15).
+    Bytes pixels; // Top-to-bottom rows, left-to-right palette indices.
 };
 struct ViewLoop {
     int mirror_of = -1; // -1 = source loop; mirrors hold no separate cels.
@@ -28,4 +28,8 @@ bool same_view(const View& a, const View& b);
 // 16 MiB total decoded source pixels. Errors throw std::runtime_error.
 View read_sci0_view(const Bytes& payload);
 Bytes write_sci0_view(const View& view);
+// SCI1 VGA views, using the game's shared palette. Placement, transparent
+// indices and mirrored loops are retained. Original EGA bytes are never reused.
+View read_sci1_vga_view(const Bytes& payload);
+Bytes write_sci1_vga_view(const View& view);
 } // namespace scimate
