@@ -2,6 +2,7 @@
 #include "game_fixtures.hpp"
 #include "scimate/sci1.hpp"
 #include "scimate/assets.hpp"
+#include "scimate/picture.hpp"
 #include "../core/src/script_internal.hpp"
 #include <iostream>
 
@@ -47,6 +48,18 @@ Game sample() {
     return game;
 }
 void tests() {
+    Picture bitmap_picture;
+    bitmap_picture.planes = {Bytes(320*190,1),Bytes(320*190,0),Bytes(320*190,0)};
+    bitmap_picture.planes[1].back() = 15; bitmap_picture.planes[2].front() = 4;
+    const auto vga_picture = write_sci1_vga_picture(bitmap_picture,ega_picture_palette());
+    require(vga_picture[0] == 0xfe && vga_picture[1] == 2 && vga_picture[1286] == 0xfe && vga_picture[1287] == 1,
+            "SCI1 VGA palette/bitmap commands are missing");
+    require(vga_picture[1293] == 0x40 && vga_picture[1294] == 1 && vga_picture[1295] == 190 &&
+            vga_picture[1299] == 255 && vga_picture[1301] == 0xbf && vga_picture[1302] == 1,
+            "SCI1 VGA cel header/run encoding is invalid");
+    require(vga_picture.back() == 0xff,"SCI1 VGA picture terminator missing");
+    bitmap_picture.planes[0][0] = 255;
+    fails([&] { write_sci1_vga_picture(bitmap_picture,ega_picture_palette()); },"transparency");
     auto volume_query = sample();
     volume_query.resources.push_back(resource(ResourceType::script,70,
         {7,0,8,0,1,0,12,0,2,0,15,0,0x3f,2,0x7a,0x39,8,0x8d,1,0x43,0x31,4,0x48,0,0}));
