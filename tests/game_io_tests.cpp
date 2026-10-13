@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "game_fixtures.hpp"
 #include "scimate/game_io.hpp"
+#include "scimate/sci1_io.hpp"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -79,6 +80,17 @@ void tests(const fs::path& root) {
     export_sci0_game(empty, root / "empty-export");
     import_sci0_game(root / "empty-export", root / "empty-rebuilt");
     require(open_sci0_game(root / "empty-rebuilt").resources.empty(), "empty game roundtrip");
+
+    const auto ega = root / "large-ega-map";
+    fs::create_directory(ega);
+    // Duplicate map records are valid and retain map order. Reuse one empty
+    // stored resource to exercise the map limit without a large volume fixture.
+    Bytes large_map(11000 * 6, 0);
+    large_map.insert(large_map.end(), 6, 0xff);
+    write(ega / "resource.map", large_map);
+    write(ega / "resource.000", {0, 0, 4, 0, 0, 0, 0, 0});
+    require(open_sci1_game(ega, scimate::Sci1Format::sci1_ega).resources.size() == 11000,
+            "SCI1 EGA filesystem loader rejected a valid map larger than 64 KiB");
 }
 } // namespace
 

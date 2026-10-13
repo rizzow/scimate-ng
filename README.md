@@ -158,6 +158,9 @@ The existing CLI `import` command can rebuild a project folder too. See
 
 ## List resources
 
+SCI1 EGA filesystem loading accepts packed maps up to the core's 16 MiB limit;
+the 16-bit map limit applies only to SCI1/SCI1.1 directory-map formats.
+
 ```sh
 ./build/scimate list /path/to/game/resource.map
 ```

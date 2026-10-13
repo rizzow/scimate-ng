@@ -6,7 +6,10 @@
 namespace scimate {
 Game open_sci1_game(const std::filesystem::path& directory, Sci1Format format) {
     GameFiles files;
-    files.map = detail::read_file(directory/"resource.map",65535);
+    // Packed EGA maps have no 16-bit directory offsets; use the same bound as
+    // the core reader instead of rejecting valid maps larger than 64 KiB.
+    files.map = detail::read_file(directory / "resource.map",
+        format == Sci1Format::sci1_ega ? max_map_bytes : 65535);
     std::size_t total = files.map.size();
     for (const auto& entry : read_sci1_map(files.map,format)) {
         if (files.volumes.count(entry.volume)) continue;
