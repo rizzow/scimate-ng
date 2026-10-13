@@ -2,6 +2,7 @@
 #include "scimate/resource_map.hpp"
 #include "scimate/game_io.hpp"
 #include "scimate/script.hpp"
+#include "scimate/view_io.hpp"
 
 #include <array>
 #include <fstream>
@@ -17,10 +18,13 @@ constexpr std::string_view usage =
     "       scimate disassemble --format sci0 <decoded-script.bin>\n"
     "       scimate export --format sci0 <game-directory> <new-export-directory>\n"
     "       scimate import --format sci0 <export-directory> <new-game-directory>\n"
+    "       scimate view-export --format sci0 <decoded-view.bin> <new-view-directory>\n"
+    "       scimate view-import --format sci0 <view-directory> <new-view.bin>\n"
     "Lists type, number, volume, and byte offset (decimal) in map order.\n"
     "list reads only the map; inspect validates volumes and decodes SCI0 methods 0/1/2.\n"
     "export writes payloads and originals; import rebuilds payload edits into a new directory.\n"
     "export also writes scripts/*.asm (or *.error.txt); these listings are not importable source.\n"
+    "export/import includes editable view PNGs and placement metadata under views/.\n"
     "SCI0 only; no format detection, recompression, resource ID edits, or engine validation.\n";
 
 std::vector<std::uint8_t> read_file(const char* path, bool script = false) {
@@ -50,13 +54,22 @@ int main(int argc, char** argv) {
     const bool disassemble = command == "disassemble";
     const bool exporting = command == "export";
     const bool importing = command == "import";
-    if ((!listing && !inspect && !disassemble && !exporting && !importing) ||
-        argc != ((exporting || importing) ? 6 : 5) ||
+    const bool view_export = command == "view-export";
+    const bool view_import = command == "view-import";
+    if ((!listing && !inspect && !disassemble && !exporting && !importing && !view_export && !view_import) ||
+        argc != ((exporting || importing || view_export || view_import) ? 6 : 5) ||
         std::string_view(argv[2]) != "--format" || std::string_view(argv[3]) != "sci0") {
         std::cerr << usage;
         return 2;
     }
     try {
+        if (view_export || view_import) {
+            if (view_export) scimate::export_sci0_view_file(argv[4],argv[5]);
+            else scimate::import_sci0_view_file(argv[4],argv[5]);
+            std::cout << (view_export ? "Exported editable view: " : "Encoded and verified view: ") << argv[5] << '\n';
+            if (!std::cout) throw std::runtime_error("failed to write result");
+            return 0;
+        }
         if (disassemble) {
             std::cout << scimate::disassemble_sci0_script(read_file(argv[4], true));
             if (!std::cout) throw std::runtime_error("failed to write disassembly");
@@ -67,6 +80,8 @@ int main(int argc, char** argv) {
                 const auto summary = scimate::export_sci0_game(argv[4], argv[5]);
                 std::cout << "Scripts: " << summary.script_listings << " readable listings, "
                           << summary.script_errors << " errors (see scripts/*.error.txt).\n";
+                std::cout << "Views: " << summary.editable_views << " editable PNG bundles, "
+                          << summary.view_errors << " errors (see views/*.error.txt).\n";
             }
             else scimate::import_sci0_game(argv[4], argv[5]);
             std::cout << (exporting ? "Exported to " : "Rebuilt and verified: ") << argv[5] << '\n';

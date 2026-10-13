@@ -48,6 +48,21 @@ GPL-2.0-or-later notice, retained in the adapted file. The new bounded parser an
 formatter do not import the decompiler, compiler, application globals, packed
 native reads, source formatter, or Windows dependencies.
 
+The EGA view implementation in `core/src/view.cpp` adapts `ReadCelFrom`,
+`ReadLoopFrom`, `ViewReadFromVersioned`, `WriteCelTo`, `WriteLoopTo`, and the EGA
+branches of `ReadImageDataWorker`/`WriteImageData` from
+`SCICompanionLib/Src/Resources/View.cpp`, at the same reference revision. The
+Philip Fortier GPL-2.0-or-later notice is retained. New code uses bounded reads,
+top-down palette-index buffers, explicit signed offsets, and portable models;
+it does not import GDI/DIB storage, global application state, or Windows APIs.
+The EGA header word used as a VGA palette pointer is preserved as reserved data
+when the palette flag is absent, matching the reference's dispatch behavior.
+
+PNG conversion uses the externally installed libpng library (PNG Reference
+Library/libpng license) and its zlib dependency (zlib license). Neither library
+is vendored or relicensed by this project. CMake discovers them only for the
+application layer. SCI view parsing/encoding remains dependency-free.
+
 The original copyright/license notice is retained in the adapted source.
 `COPYING` is copied verbatim from `SCICompanion/Files/COPYING2`. New source files
 use SPDX GPL-2.0-or-later identifiers for compatibility with this adaptation;

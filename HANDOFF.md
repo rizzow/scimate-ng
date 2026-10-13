@@ -2,6 +2,17 @@
 
 Date: 2026-10-13
 
+## Editable view implementation update
+
+SCI0 EGA views now export as editable indexed PNG/metadata bundles and import
+through the full game reconstruction workflow. Individual `view-export` and
+`view-import` commands are also available. Use explicit `--format sci0` selection.
+The application layer now requires libpng 1.6; the core still does not.
+See `docs/sci0-views.md` for editing rules, conflict behavior, and limits.
+All 383 LSL3 view entries exported as 5,258 source-frame PNGs, and an unchanged
+import reproduced its map and four volumes exactly. Cursors, picture planes,
+high-level script decompilation, and compilation remain future work.
+
 ## Script inspection implementation update
 
 Exports now include human-readable SCI0 disassembly under `scripts/*.asm`, with

@@ -2,11 +2,18 @@
 
 ## Unreleased
 
-### SCI0 EGA view core
+### Editable SCI0 EGA views
 
-- Add bounded view decoding/encoding, mirror relationships, EGA pixels,
-  transparency, signed placement, and exact unchanged-byte preservation.
-- Preserve reserved EGA header data and cover malformed inputs and size limits.
+- Add portable view/cel reading and writing with bounded EGA RLE, placement,
+  transparency, loop mirroring, unknown-header preservation, and unchanged-byte
+  retention. Unsupported VGA/extended formats fail explicitly.
+- Export editable indexed PNG frames and metadata in game exports; import PNG,
+  size, placement, and transparent-index edits through the existing rebuild
+  pipeline. Reject unsupported colors/alpha and conflicting raw/image edits.
+- Add `view-export` and `view-import` subcommands for individual decoded views.
+- Use libpng only in the application layer; core-only builds remain independent.
+- Add view codec, palette/alpha, PNG, malformed-input, mirroring, exact/edited
+  round-trip, conflict, and full CLI workflow tests.
 
 ### Human-readable SCI0 script export
 

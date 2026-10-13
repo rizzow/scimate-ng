@@ -6,7 +6,12 @@ dependencies. The desktop editor is future work.
 
 ## Build and test
 
-Requires CMake 3.20+ and a C++17 compiler:
+Requires CMake 3.20+ and a C++17 compiler. The CLI/application layer also needs
+libpng 1.6 and zlib; the core alone still has no external dependencies.
+
+On macOS: `brew install libpng`. On Debian/Ubuntu: install `libpng-dev`.
+On Windows: install `libpng:x64-windows` through vcpkg and pass its CMake
+toolchain file when configuring. CMake does not download dependencies.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -33,7 +38,8 @@ With a multi-configuration generator, the executable is in `build/Debug/`
 
 Output is a tab-separated table of resource type name, number, volume number,
 and byte offset. Numbers are decimal. Entries retain map order and duplicates.
-No volume files are required; maps referring to `resource.001` work without
+Select SCI0 explicitly with `--format sci0`. No volume files are
+required for listing; maps referring to `resource.001` work without
 assuming a `resource.000`. The CLI reads at most 16 MiB and validates the entire
 map before printing a table. Exit codes: 0 success, 1 read/parse/output error,
 2 usage error. `--help` describes the supported scope.
@@ -55,7 +61,8 @@ SCI0 compression methods 0 (stored), 1 (LZW), and 2 (Huffman) are supported.
 Exports contain `manifest.tsv`, ordinal `payloads/*.bin` files, and snapshots
 of the original map and referenced volumes under `original/`. Payloads are raw
 decoded bytes, not standalone SCI patch files. Keep the manifest and snapshots
-unchanged; modify only payload files. Duplicate resource IDs remain separate.
+unchanged; modify payloads or the supported editable view bundles below.
+Duplicate resource IDs remain separate.
 
 Unchanged imports preserve the original map and referenced volumes byte-for-byte,
 including unused bytes within those volumes. Edited imports recalculate offsets,
@@ -67,10 +74,31 @@ This reconstructs the packaged resources, not a complete runnable game folder:
 interpreters, scripts on disk, configuration, patch files, and unreferenced
 volumes are not copied. No automatic format detection, SCI0-with-SCI1-layout,
 SCI1/SCI1.1 support, recompression, resource additions/deletions/renaming,
-payload-format editing, previews, or GUI are implemented. A valid reconstruction
+script-source editing, picture/cursor editing, previews, or GUI are implemented. A valid reconstruction
 does not prove that edited payloads are meaningful to the SCI engine.
 
 See [round-trip guarantees, limits, and export format](docs/sci0-roundtrip.md).
+
+## Edit sprites
+
+Game exports include `views/NNNNNNN/` bundles with indexed PNGs, `view.tsv`, and
+the original view bytes. Edit source-frame PNGs in an image editor, then run
+`scimate import` on the game export. Pixel colors must match the EGA palette
+and transparency must be binary. Resize frames in the PNG; edit positioning
+and the transparent index in `view.tsv`. Mirrored loops follow their source.
+
+For a single decoded view:
+
+```sh
+./build/scimate view-export --format sci0 view.bin new-view-folder
+# Edit new-view-folder/loop-0-cel-0.png, etc.
+./build/scimate view-import --format sci0 new-view-folder edited-view.bin
+```
+
+Unchanged image imports preserve the original bytes. Conflicting edits to a
+view's binary payload and PNG bundle are rejected. See [editable view workflow,
+limits, and manifest rules](docs/sci0-views.md). Cursors and picture planes are
+separate future work.
 
 ## Read scripts
 

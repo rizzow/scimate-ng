@@ -14,9 +14,11 @@ else()
 endif()
 
 if(SCIMATE_BUILD_APPLICATION OR SCIMATE_BUILD_CLI)
-  add_library(scimate_application application/src/game_io.cpp)
+  find_package(PNG 1.6 REQUIRED)
+  add_library(scimate_application application/src/game_io.cpp application/src/view_io.cpp)
   target_include_directories(scimate_application PUBLIC application/include)
   target_link_libraries(scimate_application PUBLIC scimate_core)
+  target_link_libraries(scimate_application PRIVATE PNG::PNG)
   set_target_properties(scimate_application PROPERTIES CXX_EXTENSIONS OFF)
 endif()
 
@@ -43,6 +45,9 @@ if(BUILD_TESTING)
     add_executable(game_io_tests tests/game_io_tests.cpp)
     target_link_libraries(game_io_tests PRIVATE scimate_application)
     add_test(NAME game_io COMMAND game_io_tests ${CMAKE_CURRENT_BINARY_DIR}/io-fixtures)
+    add_executable(view_io_tests tests/view_io_tests.cpp)
+    target_link_libraries(view_io_tests PRIVATE scimate_application PNG::PNG)
+    add_test(NAME view_io COMMAND view_io_tests ${CMAKE_CURRENT_BINARY_DIR}/view-fixtures)
   endif()
   if(SCIMATE_BUILD_CLI)
     add_test(NAME cli COMMAND ${CMAKE_COMMAND}
@@ -55,5 +60,10 @@ if(BUILD_TESTING)
       -DFIXTURE_WRITER=$<TARGET_FILE:game_io_tests>
       -DFIXTURE_DIR=${CMAKE_CURRENT_BINARY_DIR}/pipeline-fixtures
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/pipeline_cli.cmake)
+    add_test(NAME view_cli COMMAND ${CMAKE_COMMAND}
+      -DCLI=$<TARGET_FILE:scimate>
+      -DFIXTURE_WRITER=$<TARGET_FILE:view_io_tests>
+      -DFIXTURE_DIR=${CMAKE_CURRENT_BINARY_DIR}/view-cli-fixtures
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/view_cli.cmake)
   endif()
 endif()

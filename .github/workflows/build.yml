@@ -9,8 +9,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install PNG (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpng-dev
+      - name: Install PNG (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libpng
+      - name: Install PNG (Windows)
+        if: runner.os == 'Windows'
+        run: '& "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install libpng:x64-windows'
       - name: Configure
+        if: runner.os != 'Windows'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
       - name: Build
         run: cmake --build build --config Release
       - name: Test

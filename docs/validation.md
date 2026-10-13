@@ -1,5 +1,32 @@
 # Validation
 
+## Editable SCI0 EGA views
+
+The completed workflow passed all nine suites in Release and ASan/UBSan builds
+on Apple Silicon macOS. The four core-only suites passed without libpng.
+Strict conversion-warning checks passed for the new core/application sources.
+An isolated build of the PNG feature commit also passed all nine suites.
+
+Read-only input from `/Users/breght/Games/LSL3` produced 383 editable view
+bundles containing 5,258 PNG frames, with zero view export errors. A separate
+Python PNG/RLE comparison checked every frame's dimensions, palette indices,
+and transparency. Unchanged export/import preserved the resource map and all
+four volumes byte-for-byte. Changing one exported cel, importing, and exporting
+again changed exactly one of 985 decoded resource payloads; the other 984 were
+unchanged. The changed payload matched standalone view import output.
+
+The same export produced 178 script disassemblies and six error sidecars for
+unsupported or rejected script layouts. These are assembly listings, not
+reconstructed source code. The local template exported two views (19 PNGs)
+without errors and retained byte-identical map/volume files after import.
+
+Synthetic tests cover RLE, mirrors, placement, transparency, all palette colors,
+empty loops, reserved headers, malformed data, PNG edits and validation,
+metadata constraints, conflicting binary/image edits, original snapshot checks,
+and standalone/full-game CLI workflows. Original game files were not modified;
+local output remains in ignored build directories. Gameplay and remote
+Windows/Linux CI were not tested.
+
 ## LSL3 local game validation
 
 Validated `/Users/breght/Games/LSL3` read-only with explicit SCI0 selection.

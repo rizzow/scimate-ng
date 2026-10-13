@@ -43,6 +43,7 @@ original/resource.map
 original/resource.NNN        # one per referenced volume
 payloads/0000000.bin         # map ordinal, not resource number
 payloads/0000001.bin
+views/0000002/               # supported view PNGs, view.tsv, original.bin
 scripts/0000000.asm          # if this ordinal is a supported script
 scripts/0000001.error.txt    # if this script cannot be disassembled
 ...
@@ -62,8 +63,13 @@ SCI Companion's standalone resource/patch format. Regular input files are
 required; symlinked files are rejected.
 
 Script inspection sidecars and their failure behavior are described in
-[human-readable script export](sci0-scripts.md). Import ignores these sidecars;
-only binary payload edits affect reconstruction.
+[human-readable script export](sci0-scripts.md). Import ignores these script sidecars;
+changing them does not affect reconstruction.
+
+Supported view bundles are editable inputs, unlike script listings. See
+[view PNG import](sci0-views.md): changes are encoded into a view payload before
+rebuilding, and conflicting binary/image edits fail. Binary-only legacy exports
+continue to work without view bundles.
 
 ## Guarantees
 
@@ -100,5 +106,7 @@ validation by Sierra's interpreter, ScummVM, or the Windows editor.
   before retrying. Export writes its manifest last; reconstruction writes its
   map last. Originals remain untouched.
 
-Payload content is opaque. The tools validate storage structure and decoding,
-not scripts, view structures, text encodings, or gameplay correctness.
+Raw payload content is otherwise opaque. View PNG import additionally validates
+view structures, pixels, and metadata. Script listings provide bounded
+disassembly; text encoding, higher-level script semantics, and gameplay are
+not validated.
