@@ -9,8 +9,8 @@ Bytes import_sci0_text_table(const std::string& table);
 struct AssetExportSummary {
   bool editable = false, conversion_error = false;
 };
-// All SCI0 resource types: supported editable formats, otherwise a binary
-// bundle.
+// All SCI0 resource types: standard media/text formats, semantic JSON records,
+// or explicitly labelled byte-level JSON for layouts with unknown semantics.
 AssetExportSummary export_sci0_asset(ResourceId id, const Bytes &payload,
                                      const std::filesystem::path &destination);
 Bytes import_sci0_asset(const std::filesystem::path &directory,

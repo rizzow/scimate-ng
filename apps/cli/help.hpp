@@ -35,7 +35,8 @@ Export and import individual resources
   Type-specific export: scimate <type>-export <decoded.bin> <new-bundle>
   Type-specific import: scimate <type>-import <bundle> <new-decoded.bin>
   Parser vocabulary: use resource-export vocab 0 and resource-import.
-  Other resource layouts remain available as binary bundles.
+  Scripts, vocabularies, and instrument banks use JSON with generated schemas.
+  Unknown layouts use explicitly labelled byte-level JSON.
 
 Options
   -h, --help       Show help for the selected command.
@@ -45,7 +46,7 @@ Options
 Examples
   scimate inspect ./game
   scimate export ./game ./workspace
-  # Edit workspace PNGs, MIDI/WAV files, tables, or binary payloads.
+  # Edit workspace PNGs, MIDI/WAV files, tables, or resource.json.
   scimate import ./workspace ./rebuilt-game
   scimate sound-export sound.bin ./sound-bundle
   scimate help resource-export
@@ -86,10 +87,10 @@ Create a new workspace containing:
   views/                     Editable sprite PNGs and placement metadata.
   pictures/                  Background, priority, and control-mask PNGs.
   assets/                    MIDI/WAV, font/cursor PNGs, text/vocabulary tables,
-                             and binary bundles for other layouts.
+                             and JSON records with generated schemas.
   scripts/                   Inspection-only assembly listings.
 
-Unsupported editable formats retain raw payloads and conversion diagnostics.
+Unknown layouts expose byte-level JSON and conversion diagnostics.
 Keep the manifest and original snapshots unchanged. Duplicate IDs stay separate.
 The destination must not exist; the source game is unchanged.
 
@@ -148,12 +149,15 @@ Example: scimate disassemble ./workspace/payloads/0000000.bin
         body = R"(Usage: scimate resource-export [--format sci0] <type> <number>
                                <decoded.bin> <new-bundle>
 
-Export one decoded payload using an editable format when supported, or a binary
-bundle otherwise. The type is one of:
+Export one decoded payload as standard media/text or structured JSON.
+The type is one of:
   view, pic, script, text, sound, memory, vocab, font, cursor, patch
 The resource number is decimal, 0..2047. Vocabulary 0 uses an editable parser
-dictionary; other vocabulary layouts remain binary. Unsupported conversions
-include conversion.error.txt and retain payload.bin for editing.
+dictionary; known vocabulary, script, and instrument-bank layouts use named JSON
+records. Edit resource.json; resource.schema.json describes fields and ranges.
+Script edits preserve instruction widths, addresses, and string byte lengths.
+Unknown layouts use labelled byte records; engine semantics are not validated.
+Unsupported media conversions also include conversion.error.txt.
 
 Keep asset.tsv and original.bin unchanged. The destination must not exist.
 Input is a decoded payload, not a compressed record or standalone patch file.
@@ -219,7 +223,9 @@ Edit sound.mid, channels.tsv, and sample.wav when present. SCI0 late sounds use
 a 33-byte header and 60 ticks/second. MIDI import accepts formats 0/1 with PPQN
 timing and tempo changes. Preserve channel 15 loop/cue messages used by scripts.
 PCM WAV must remain unsigned 8-bit mono with a sample rate of 1..65,535 Hz.
-Early SCI0 and SCI1 sound layouts retain binary bundles with diagnostics.
+Early SCI0 17-byte headers are supported when late-header parsing fails;
+their voice/device fields are packed nibbles (0..15). Ambiguous inputs prefer
+the late header. Unsupported sound layouts use byte-level JSON with diagnostics.
 )";
         if (type == "font") body += R"(
 Edit glyph-N.png and font.tsv. Glyphs use opaque black/white pixels; update
@@ -238,7 +244,7 @@ Edit strings.tsv. Text uses sequential indices and byte-preserving ASCII escapes
 changes indices referenced by scripts; character encodings are not guessed.
 )";
         if (type != "view" && type != "picture") {
-            body += "\nKeep asset.tsv and original.bin unchanged. Unsupported layouts use payload.bin.\n";
+            body += "\nKeep asset.tsv and original.bin unchanged. Unknown layouts use resource.json.\n";
             if (exporting) body += "This alias records number 0; use resource-export for another resource number.\n";
         }
         body += "\nInput/output payloads are decoded bytes, not compressed records or patch files.\n";

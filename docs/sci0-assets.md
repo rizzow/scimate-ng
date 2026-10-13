@@ -9,14 +9,16 @@ with the existing resource reconstruction workflow.
 
 | Type | Editable files | Supported layout |
 | --- | --- | --- |
-| Sound | `sound.mid`, `channels.tsv`, optional `sample.wav` | SCI0 late, 33-byte header |
+| Sound | `sound.mid`, `channels.tsv`, optional `sample.wav` | SCI0 late 33-byte or early 17-byte header |
 | Font | `font.tsv`, `glyph-N.png` | Offset table and monochrome glyphs |
 | Cursor | `cursor.tsv`, `cursor.png` | SCI0 16×16 two-mask cursor |
 | Text | `strings.tsv` | NUL-terminated byte strings |
 | Vocabulary 0 | `words.tsv` | SCI0 parser dictionary with shared prefixes |
-| Script, other vocabularies, memory, patch | `payload.bin` | Binary editing |
+| Script, known vocabularies, supported patch banks | `resource.json`, `resource.schema.json` | Named structured records |
+| Memory, unknown/malformed layouts | `resource.json`, `resource.schema.json` | Explicit byte-level records |
 
-Unsupported/malformed layouts retain a binary bundle with `conversion.error.txt`.
+Unsupported media conversions retain byte-level JSON with `conversion.error.txt`.
+See [structured resource editing](structured-resources.md) for JSON layouts and limits.
 Raw payloads under `payloads/` remain available for every resource. Script `.asm`
 listings are still inspection-only; source compilation is not implemented.
 The desktop's **Open Resource Folder** opens the selected bundle. Edit externally,
@@ -63,8 +65,10 @@ unsigned 8-bit mono PCM. Import requires this format and a sample rate of
 1..65,535 Hz; it accepts standard RIFF chunks and padding. It does not resample
 or quantize. Edits update the sample rate/length while preserving unknown sample
 header fields, repeated stop markers, and trailing bytes. Adding a PCM section
-to a MIDI-only sound is not supported. Early SCI0 17-byte headers and SCI1 sound
-layouts require binary editing; there is no automatic sound-version detection.
+to a MIDI-only sound is not supported. Early SCI0 17-byte headers are tried when
+late-header parsing fails; ambiguous payloads prefer the late layout. Early
+voice/device fields are packed nibbles (0..15), rather than byte pairs.
+Unsupported SCI1 sound layouts use byte-level JSON.
 
 ## Fonts and cursors
 
@@ -90,8 +94,8 @@ from zero; adding/removing rows changes the indices referenced by scripts.
 Dictionary rows contain `word`, `class`, and `group`. Words are sorted 7-bit byte
 strings up to 255 bytes; class and group are 0..4095. Duplicate words are retained.
 Import rebuilds shared prefixes and the alphabet offset table. Vocabulary
-resources other than number 0 have different engine-specific layouts and are
-exported as binary bundles. No semantic validation of grammar/class/group choices
+resources other than number 0 have different engine-specific layouts; known
+layouts use structured JSON. No semantic validation of grammar/class/group choices
 or script references is performed.
 
 ## Preservation and bounds

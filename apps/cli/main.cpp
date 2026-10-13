@@ -44,7 +44,7 @@ constexpr std::string_view usage =
     "export writes payloads and originals; import rebuilds payload edits into a new directory.\n"
     "export also writes scripts/*.asm (or *.error.txt); these listings are not importable source.\n"
     "export/import includes editable view PNGs and placement metadata under views/.\n"
-    "export/import includes MIDI/WAV sounds, font/cursor PNGs, text/vocabulary tables, and binary assets/.\n"
+    "export/import includes MIDI/WAV, font/cursor PNGs, tables, and structured JSON under assets/.\n"
     "export/import includes background, priority, and control PNGs under pictures/.\n"
     "SCI1 means SCI1 late containers; sci11 means SCI1.1 containers (compression 0/1/2).\n"
     "Editing remains SCI0 only; no format detection, recompression, resource ID edits, or engine validation.\n";
@@ -244,7 +244,7 @@ int main(int argc, char** argv) {
                 std::cout << "Pictures: " << summary.editable_pictures << " editable PNG bundles, "
                           << summary.picture_errors << " errors (see pictures/*.error.txt).\n";
                 std::cout << "Other resources: " << summary.editable_assets << " editable bundles, "
-                          << summary.binary_assets << " binary bundles, " << summary.asset_errors << " conversion diagnostics (see assets/).\n";
+                          << summary.binary_assets << " byte-level bundles, " << summary.asset_errors << " conversion diagnostics (see assets/).\n";
                 std::cout << "Views: " << summary.editable_views << " editable PNG bundles, "
                           << summary.view_errors << " errors (see views/*.error.txt).\n";
             }

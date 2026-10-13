@@ -63,7 +63,7 @@ void tests(const fs::path &root) {
     const auto path = root / std::to_string(i);
     const auto result =
         export_sci0_asset(assets[i].first, assets[i].second, path);
-    require(result.editable == (i < 5), "incorrect representation");
+    require(result.editable == (i < 5 || i == 6), "incorrect representation");
     ResourceId id{};
     require(import_sci0_asset(path, &id) == assets[i].second &&
                 id.type == assets[i].first.type &&
@@ -102,15 +102,20 @@ void tests(const fs::path &root) {
   write(root / "4/words.tsv", Bytes(v.begin(), v.end()));
   require(read_sci0_vocabulary(import_sci0_asset(root / "4"))[1].group == 4,
           "vocabulary edit");
-  write(root / "5/payload.bin", {8, 9});
-  require(import_sci0_asset(root / "5") == Bytes({8, 9}),
-          "binary fallback edit");
+  auto opaque_bytes = read(root / "5/resource.json");
+  auto opaque = std::string(opaque_bytes.begin(), opaque_bytes.end());
+  const auto value = opaque.find("\"value\": 0");
+  require(value != std::string::npos, "missing byte record");
+  opaque.replace(value, 10, "\"value\": 8");
+  write(root / "5/resource.json", Bytes(opaque.begin(), opaque.end()));
+  require(import_sci0_asset(root / "5") == Bytes({8, 0, 1, 0}),
+          "byte-level JSON edit");
   game.map.insert(game.map.end(), 6, 255);
   fs::create_directory(root / "game");
   write(root / "game/resource.map", game.map);
   write(root / "game/resource.001", game.volumes[1]);
   auto summary = export_sci0_game(root / "game", root / "export");
-  require(summary.editable_assets == 5 && summary.binary_assets == 5 &&
+  require(summary.editable_assets == 6 && summary.binary_assets == 4 &&
               summary.asset_errors == 1,
           "whole game summary");
   import_sci0_game(root / "export", root / "unchanged");
@@ -139,7 +144,9 @@ void tests(const fs::path &root) {
   auto m = std::string(manifest.begin(), manifest.end());
   m.replace(m.find("midi"), 4, "raw");
   write(root / "0/asset.tsv", Bytes(m.begin(), m.end()));
-  fails([&] { import_sci0_asset(root / "0"); }, "representation");
+  write(root / "0/payload.bin", sound);
+  require(import_sci0_asset(root / "0") == sound,
+          "legacy raw bundle compatibility");
   auto fields = read(root / "1/font.tsv");
   fields[fields.size() - 2] = 'x';
   write(root / "1/font.tsv", fields);

@@ -107,6 +107,11 @@ ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& de
             if (supported) {
                 export_sci0_view(game.resources[i].payload,destination / "views" / stem);
                 ++summary.editable_views;
+            } else {
+                const auto result = export_sci0_asset(game.resources[i].entry.id,game.resources[i].payload,destination / "assets" / stem);
+                if (result.editable) ++summary.editable_assets;
+                else ++summary.binary_assets;
+                if (result.conversion_error) ++summary.asset_errors;
             }
         }
         if (game.resources[i].entry.id.type == ResourceType::pic) {
@@ -122,6 +127,11 @@ ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& de
             if (supported) {
                 export_sci0_picture(game.resources[i].payload,destination / "pictures" / stem);
                 ++summary.editable_pictures;
+            } else {
+                const auto result = export_sci0_asset(game.resources[i].entry.id,game.resources[i].payload,destination / "assets" / stem);
+                if (result.editable) ++summary.editable_assets;
+                else ++summary.binary_assets;
+                if (result.conversion_error) ++summary.asset_errors;
             }
         }
         if (game.resources[i].entry.id.type != ResourceType::view && game.resources[i].entry.id.type != ResourceType::pic) {
