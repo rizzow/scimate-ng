@@ -4,6 +4,13 @@
 
 ### Desktop projects
 
+- Show loading phases, per-resource progress and elapsed time; reuse decoded games
+  during creation instead of importing freshly exported PNGs again.
+- Use platform controls, type filtering, view-loop playback, resizable previews,
+  and selected-resource binary/PNG/disassembly exports.
+- Preview numbered text strings, export lossless TSV, and save validated text
+  edits atomically with external-change and conflicting-representation checks.
+
 - Add optional `scimate-desktop`, a separate Qt 6 Widgets executable; retain the
   Qt-free `scimate` CLI and dependency-free core.
 - Create/reopen movable projects with original snapshots and editable exports;

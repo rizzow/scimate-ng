@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "project_fixture.hpp"
 #include "scimate/project.hpp"
+#include "scimate/asset_io.hpp"
+#include "scimate/assets.hpp"
 #include <chrono>
 #include <iostream>
 
@@ -39,7 +41,7 @@ int main(int argc, char** argv) {
         }
         require(last == created.game.resources.size(), "export progress never completes");
         require(created.name == "Larry's \"project\"", "project name changed");
-        require(created.game.resources.size() == 6, "resources missing");
+        require(created.game.resources.size() == 7, "resources missing");
         fails([&] { create_project(source, workspace, "overwrite"); }, "already exists");
         const auto moved = root / "moved project";
         fs::rename(workspace, moved); fs::rename(source, root / "unavailable source");
@@ -53,6 +55,41 @@ int main(int argc, char** argv) {
         build_project(moved, root / "edited build");
         require(open_sci0_game(root / "edited build").resources[0].payload == Bytes({'n','e','w'}), "edits not built");
         fails([&] { build_project(moved, root / "edited build"); }, "already exists");
+        auto textProject = open_project(moved);
+        const auto originalText = textProject.game.resources[6].payload;
+        const auto newText = write_sci0_text({"Hello\nLarry", "", std::string("\x82\\\t", 3)});
+        const auto table = export_sci0_text_table(newText);
+        require(import_sci0_text_table(table) == newText, "escaped text round-trip differs");
+        require(import_sci0_text_table("index\ttext\n").empty(), "empty text table failed");
+        fails([&] { import_sci0_text_table("index\ttext\n1\twrong\n"); }, "indices");
+        fails([&] { import_sci0_text_table("index\ttext\n0\tbad\\x00\n"); }, "NUL");
+        fails([&] { import_sci0_text_table("index\ttext\n0\tbad\\q\n"); }, "escape");
+        fails([&] { prepare_project_text_edit(textProject, 3, table); }, "text resource");
+        auto edit = prepare_project_text_edit(textProject, 6, table);
+        require(edit.destination == moved / "assets/0000006/strings.tsv" && edit.modified, "wrong text edit destination");
+        project_fixture::write(edit.destination, edit.contents);
+        fails([&] { prepare_project_text_edit(textProject, 6, table); }, "changed on disk");
+        textProject = open_project(moved);
+        require(textProject.game.resources[6].payload == newText, "text edit not loaded");
+        build_project(moved, root / "text build");
+        require(open_sci0_game(root / "text build").resources[6].payload == newText, "text edit not built");
+        project_fixture::write(moved / "payloads/0000006.bin", newText);
+        fails([&] { prepare_project_text_edit(textProject, 6, table); }, "Both binary");
+        project_fixture::write(moved / "payloads/0000006.bin", originalText);
+        edit = prepare_project_text_edit(textProject, 6, export_sci0_text_table(originalText));
+        require(!edit.modified, "restoring text still marked modified");
+        project_fixture::write(edit.destination, edit.contents);
+        project_fixture::write(moved / "payloads/0000006.bin", newText);
+        textProject = open_project(moved);
+        edit = prepare_project_text_edit(textProject, 6, export_sci0_text_table(originalText));
+        require(edit.destination == moved / "payloads/0000006.bin", "binary edit route lost");
+        project_fixture::write(edit.destination, edit.contents);
+        fs::remove_all(moved / "assets/0000006"); // Older projects have payloads only.
+        textProject = open_project(moved);
+        edit = prepare_project_text_edit(textProject, 6, table);
+        require(edit.destination == moved / "payloads/0000006.bin", "legacy text edit failed");
+        project_fixture::write(edit.destination, edit.contents);
+        require(open_project(moved).game.resources[6].payload == newText, "legacy text edit not loaded");
         project_fixture::write(moved / "manifest.tsv", {'b','a','d'});
         fails([&] { open_project(moved); }, "manifest");
         project_fixture::write(moved / "project.scimate", {'b','a','d'});

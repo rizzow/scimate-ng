@@ -3,6 +3,9 @@
 #include "scimate/resource_game.hpp"
 #include <filesystem>
 namespace scimate {
+// Lossless, numbered ASCII TSV; non-ASCII bytes use \xHH escapes.
+std::string export_sci0_text_table(const Bytes& payload);
+Bytes import_sci0_text_table(const std::string& table);
 struct AssetExportSummary {
   bool editable = false, conversion_error = false;
 };

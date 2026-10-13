@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
 #include "scimate/script.hpp"
+#include "scimate/asset_io.hpp"
 #include "scimate/view.hpp"
 #include "scimate/picture.hpp"
 #include <QtWidgets>
@@ -139,11 +140,20 @@ MainWindow::MainWindow() {
     playTimer_ = new QTimer(this); playTimer_->setInterval(120);
     connect(playTimer_, &QTimer::timeout, this, &MainWindow::advanceCel);
     connect(play_, &QPushButton::toggled, this, [this](bool active) { play_->setText(active ? "Pause" : "Play loop"); if (active) playTimer_->start(); else playTimer_->stop(); });
+    editText_ = new QPushButton("Edit text…"); editText_->setObjectName("editText"); editText_->hide();
+    controls->addWidget(editText_); connect(editText_, &QPushButton::clicked, this, &MainWindow::editText);
     inspectorLayout->addLayout(controls);
     auto* previewSplit = new QSplitter(Qt::Vertical); previewSplit->setObjectName("previewSplitter"); previewSplit->setHandleWidth(7); previewSplit->setChildrenCollapsible(false);
     auto* scroll = new QScrollArea; scroll->setWidgetResizable(true); scroll->setMinimumHeight(80);
     image_ = new QLabel("Select a resource to preview"); image_->setAlignment(Qt::AlignCenter); image_->setMinimumHeight(60);
-    image_->setStyleSheet("background: #202c38; color: #a9b8c7; padding: 12px;"); scroll->setWidget(image_); previewSplit->addWidget(scroll);
+    image_->setStyleSheet("background: #202c38; color: #a9b8c7; padding: 12px;"); scroll->setWidget(image_);
+    previewStack_ = new QStackedWidget; previewStack_->addWidget(scroll);
+    strings_ = new QTableWidget(0, 2); strings_->setObjectName("textStrings");
+    strings_->setHorizontalHeaderLabels({"String", "Text"}); strings_->verticalHeader()->hide();
+    strings_->horizontalHeader()->setStretchLastSection(true); strings_->setColumnWidth(0, 60);
+    strings_->setEditTriggers(QAbstractItemView::NoEditTriggers); strings_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    strings_->setWordWrap(true); strings_->setAlternatingRowColors(true);
+    previewStack_->addWidget(strings_); previewSplit->addWidget(previewStack_);
     details_ = new QPlainTextEdit; details_->setObjectName("details"); details_->setReadOnly(true); details_->setMinimumHeight(80);
     details_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont)); details_->setPlaceholderText("Resource details, script disassembly and binary previews appear here.");
     previewSplit->addWidget(details_); previewSplit->setStretchFactor(0, 3); previewSplit->setStretchFactor(1, 1); previewSplit->setSizes({420, 170});
@@ -282,6 +292,7 @@ void MainWindow::newProjectDialog() {
 
 void MainWindow::preview() {
     play_->setChecked(false); play_->setEnabled(false); export_->setEnabled(false);
+    editText_->hide(); strings_->setRowCount(0); previewStack_->setCurrentIndex(0);
     previewImage_ = {}; previewView_ = {}; previewPicture_ = {};
     selectedView_.clear(); selectedPicture_.clear(); cels_->clear(); cels_->hide(); image_->clear(); details_->clear();
     const auto selected = proxy_->mapToSource(table_->currentIndex());
@@ -309,6 +320,18 @@ void MainWindow::preview() {
             description += "Editable folder: pictures/" + stem(index) + "\nMask colors represent EGA indices 0–15.\nPreview reflects the last successful refresh.\n";
             cels_->addItems({"Visual background", "Priority mask", "Control mask"});
             cels_->show(); previewCel();
+        } else if (resource.entry.id.type == scimate::ResourceType::text) {
+            const auto value = QString::fromStdString(scimate::export_sci0_text_table(resource.payload));
+            const auto rows = value.split('\n');
+            strings_->setRowCount(rows.size() - 2);
+            for (int row = 1; row < rows.size() - 1; ++row) {
+                const auto fields = rows[row].split('\t');
+                strings_->setItem(row - 1, 0, new QTableWidgetItem(fields[0]));
+                strings_->setItem(row - 1, 1, new QTableWidgetItem(fields[1]));
+            }
+            strings_->resizeRowsToContents(); previewStack_->setCurrentWidget(strings_); editText_->show();
+            description += QString("\n%1 numbered strings. Edit text… saves directly to the project.\n").arg(strings_->rowCount());
+            description += "Text is shown losslessly: \\n, \\r, \\t, \\\\ and \\xHH byte escapes.\nString indices are script references; keep their order. Export as TSV for external editing.";
         } else if (resource.entry.id.type == scimate::ResourceType::script) {
             description += "\n" + QString::fromStdString(scimate::disassemble_sci0_script(resource.payload, resource.entry.id.number));
         } else {
@@ -386,7 +409,9 @@ void MainWindow::exportSelected(const QString& destination, const QString& forma
     else if (format == "png" && !previewImage_.isNull()) {
         QBuffer buffer(&data); buffer.open(QIODevice::WriteOnly);
         if (!previewImage_.save(&buffer, "PNG")) throw std::runtime_error("Could not encode preview PNG.");
-    } else if (format == "asm" && resource.entry.id.type == scimate::ResourceType::script)
+    } else if (format == "tsv" && resource.entry.id.type == scimate::ResourceType::text)
+        data = QByteArray::fromStdString(scimate::export_sci0_text_table(resource.payload));
+    else if (format == "asm" && resource.entry.id.type == scimate::ResourceType::script)
         data = QByteArray::fromStdString(scimate::disassemble_sci0_script(resource.payload, resource.entry.id.number));
     else throw std::runtime_error("This export format is not available for the selected resource.");
     QSaveFile output(destination);
@@ -402,18 +427,56 @@ void MainWindow::exportResource() {
     QStringList filters{binaryFilter};
     if (!previewImage_.isNull()) filters << (resource.entry.id.type == scimate::ResourceType::pic ? "Selected picture plane (*.png)" : "Selected view cel (*.png)");
     if (resource.entry.id.type == scimate::ResourceType::script) filters << "Script disassembly (*.asm)";
+    if (resource.entry.id.type == scimate::ResourceType::text && editText_->isVisible()) filters << "Numbered text strings (*.tsv)";
     const auto name = QString::fromStdString(std::string(scimate::resource_type_name(resource.entry.id.type))) + "-" + QString::number(resource.entry.id.number);
     QFileDialog dialog(this, "Export selected resource");
     dialog.setAcceptMode(QFileDialog::AcceptSave); dialog.setNameFilters(filters);
     dialog.setDefaultSuffix("bin"); dialog.selectFile(name);
     connect(&dialog, &QFileDialog::filterSelected, &dialog, [&dialog](const QString& filter) {
-        dialog.setDefaultSuffix(filter.contains("*.png") ? "png" : filter.contains("*.asm") ? "asm" : "bin");
+        dialog.setDefaultSuffix(filter.contains("*.png") ? "png" : filter.contains("*.asm") ? "asm" : filter.contains("*.tsv") ? "tsv" : "bin");
     });
     if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty()) return;
     const auto selectedFilter = dialog.selectedNameFilter();
-    const auto format = selectedFilter.contains("*.png") ? "png" : selectedFilter.contains("*.asm") ? "asm" : "bin";
+    const auto format = selectedFilter.contains("*.png") ? "png" : selectedFilter.contains("*.asm") ? "asm" : selectedFilter.contains("*.tsv") ? "tsv" : "bin";
     const auto filename = dialog.selectedFiles().first();
     try {
         exportSelected(filename, format); statusBar()->showMessage("Exported " + filename, 10000);
     } catch (const std::exception& error) { QMessageBox::critical(this, "Export failed", QString::fromUtf8(error.what())); }
+}
+
+void MainWindow::saveSelectedText(const QString& table) {
+    const auto selected = proxy_->mapToSource(table_->currentIndex());
+    if (busy_ || !project_ || !selected.isValid()) throw std::runtime_error("Select a text resource first.");
+    const auto record = static_cast<std::size_t>(selected.row());
+    const auto edit = scimate::prepare_project_text_edit(*project_, record, table.toStdString());
+    QSaveFile output(text(edit.destination));
+    if (!output.open(QIODevice::WriteOnly) ||
+        output.write(reinterpret_cast<const char*>(edit.contents.data()), static_cast<qint64>(edit.contents.size())) != static_cast<qint64>(edit.contents.size()) || !output.commit())
+        throw std::runtime_error(("Could not save text: " + output.errorString()).toStdString());
+    project_->game.resources.at(record).payload = edit.payload;
+    model_->item(static_cast<int>(record), 3)->setData(static_cast<int>(edit.payload.size()), Qt::DisplayRole);
+    model_->item(static_cast<int>(record), 4)->setText(edit.modified ? "Modified" : "Original");
+    preview(); statusBar()->showMessage("Text saved to " + text(edit.destination), 10000);
+}
+
+void MainWindow::editText() {
+    const auto selected = proxy_->mapToSource(table_->currentIndex());
+    if (!project_ || !selected.isValid()) return;
+    QDialog dialog(this); dialog.setWindowTitle("Edit text resource"); dialog.resize(760, 480);
+    QVBoxLayout layout(&dialog);
+    auto* hint = new QLabel("Keep the index/text header and a tab between each index and string. Indices must start at zero.\n"
+                           "Preserve string order: scripts refer to these indices. Use \\n, \\r, \\t, \\\\ or \\xHH escapes.\n"
+                           "Save writes immediately to the project; Cancel discards this dialog's edits.");
+    hint->setWordWrap(true); layout.addWidget(hint);
+    auto* editor = new QPlainTextEdit; editor->setObjectName("textEditor");
+    editor->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    editor->setPlainText(QString::fromStdString(scimate::export_sci0_text_table(project_->game.resources.at(selected.row()).payload)));
+    layout.addWidget(editor);
+    QDialogButtonBox buttons(QDialogButtonBox::Save | QDialogButtonBox::Cancel); layout.addWidget(&buttons);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, [&] {
+        try { saveSelectedText(editor->toPlainText()); dialog.accept(); }
+        catch (const std::exception& error) { QMessageBox::warning(&dialog, "Text not saved", QString::fromUtf8(error.what())); }
+    });
+    dialog.exec();
 }

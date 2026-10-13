@@ -12,6 +12,8 @@
 #include <QProgressBar>
 #include <QMessageBox>
 #include <QTableView>
+#include <QTableWidget>
+#include "scimate/asset_io.hpp"
 #include <QTemporaryDir>
 
 class DesktopTests : public QObject {
@@ -36,7 +38,7 @@ private slots:
         auto* filter = window.findChild<QLineEdit*>("resourceFilter");
         auto* details = window.findChild<QPlainTextEdit*>("details");
         QVERIFY(table && filter && details);
-        QCOMPARE(table->model()->rowCount(), 6);
+        QCOMPARE(table->model()->rowCount(), 7);
         auto* types = window.findChild<QComboBox*>("resourceType");
         QVERIFY(types); types->setCurrentIndex(types->findData("view"));
         QCOMPARE(table->model()->rowCount(), 1);
@@ -66,10 +68,21 @@ private slots:
         QVERIFY(details->toPlainText().contains("Mask colors"));
         window.exportSelected(temp.path() + "/mask.png", "png");
         QCOMPARE(QImage(temp.path() + "/mask.png").size(), QSize(320, 190));
-        filter->setText("text"); QCOMPARE(table->model()->rowCount(), 2);
-        table->selectRow(0); QVERIFY(details->toPlainText().contains("Hexadecimal"));
+        filter->setText("text"); QCOMPARE(table->model()->rowCount(), 3);
+        table->selectRow(0); QVERIFY(details->toPlainText().contains("Preview unavailable"));
         window.exportSelected(temp.path() + "/text.bin", "bin");
         QFile exportedText(temp.path() + "/text.bin"); QVERIFY(exportedText.open(QIODevice::ReadOnly)); QCOMPARE(exportedText.readAll(), QByteArray("old"));
+        QVERIFY(window.findChild<QPushButton*>("editText")->isHidden());
+        table->selectRow(2);
+        auto* strings = window.findChild<QTableWidget*>("textStrings");
+        QCOMPARE(strings->rowCount(), 3); QCOMPARE(strings->item(0, 1)->text(), QString("Hello"));
+        QVERIFY(window.findChild<QPushButton*>("editText")->isVisible());
+        window.exportSelected(temp.path() + "/strings.tsv", "tsv");
+        QFile tsv(temp.path() + "/strings.tsv"); QVERIFY(tsv.open(QIODevice::ReadOnly));
+        QCOMPARE(tsv.readAll(), QByteArray("index\ttext\n0\tHello\n1\tWorld\n2\t\n"));
+        window.saveSelectedText("index\ttext\n0\tHello Larry\n1\tWorld\n2\t\n");
+        QCOMPARE(strings->item(0, 1)->text(), QString("Hello Larry"));
+        QVERIFY(scimate::open_project(window.project()->directory).game.resources[6].payload == window.project()->game.resources[6].payload);
         filter->setText("script"); table->selectRow(1);
         window.exportSelected(temp.path() + "/script.asm", "asm");
         QFile listing(temp.path() + "/script.asm"); QVERIFY(listing.open(QIODevice::ReadOnly)); QVERIFY(listing.readAll().contains("ret"));
@@ -80,7 +93,7 @@ private slots:
         QVERIFY(png.save(pngPath));
         window.openProject(temp.path() + "/workspace");
         QTRY_VERIFY_WITH_TIMEOUT(!window.busy(), 10000);
-        filter->setText("Modified"); QCOMPARE(table->model()->rowCount(), 2);
+        filter->setText("Modified"); QCOMPARE(table->model()->rowCount(), 3);
         window.buildProject(temp.path() + "/built");
         QTRY_VERIFY_WITH_TIMEOUT(!window.busy(), 10000);
         const auto built = scimate::open_sci0_game(std::filesystem::u8path((temp.path() + "/built").toUtf8().constData()));

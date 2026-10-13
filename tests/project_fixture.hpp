@@ -22,6 +22,7 @@ inline void create(const std::filesystem::path& directory) {
     fixture::record(files, 5, 1, 0, static_cast<unsigned>(view.size()), view);
     fixture::record(files, 0x1003, 1, 0, 7, {2,0,5,0,0x48,0,0});
     fixture::record(files, 0x0806, 1, 0, 1, {0xff});
+    fixture::record(files, 0x1808, 1, 0, 13, {'H','e','l','l','o',0,'W','o','r','l','d',0,0});
     files.map.insert(files.map.end(), 6, 0xff);
     write(directory / "resource.map", files.map);
     for (const auto& volume : files.volumes) write(directory / scimate::volume_filename(volume.first), volume.second);

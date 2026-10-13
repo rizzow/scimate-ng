@@ -31,14 +31,30 @@ differs from the original snapshot, including imported PNG edits.
 View previews decode the loaded resource and include mirrored loops. The cel
 selector shows loop/cel numbers, and the preview tooltip includes dimensions
 and placement. Picture previews select the visual, priority, or control plane. Script previews disassemble the loaded bytecode; other resource
-types show at most 512 bytes in hexadecimal. Unsupported previews report a
+types show at most 512 bytes in hexadecimal, except text resources, which show
+a numbered string table. Unsupported previews report a
 diagnostic without preventing other resources from being inspected.
 
-Open Resource Folder opens a selected view or picture's PNG bundle, or the payload folder
-for other resources. Save changes in an external editor, then Refresh from Disk.
+Open Resource Folder opens the selected resource’s editable bundle, or its payload
+folder for older projects. Save changes in an external editor, then Refresh from Disk.
 PNG palette/transparency constraints and binary-versus-PNG conflict detection
 are identical to the [CLI workflow](sci0-views.md). A refresh validates the whole
 workspace, so any malformed edit must be corrected before it can be reloaded.
+
+Text resources support **Edit text…** and TSV export. The editor uses the CLI’s
+`index`/`text` table: one zero-based index and escaped string per row, separated
+by a tab. Keep indices/order stable because scripts refer to them. Empty strings
+are retained. Newlines, carriage returns, tabs, backslashes, and non-ASCII bytes
+use `\n`, `\r`, `\t`, `\\`, and `\xHH`; no character encoding is guessed.
+Embedded NULs, malformed escapes, and nonconsecutive indices are rejected.
+
+Save atomically replaces the authoritative text table (or binary payload for
+older projects / existing binary edits), updates the preview and Modified status,
+and makes the change available to CLI and GUI builds. Cancel discards dialog
+changes. Saving refuses stale on-disk content or edits in both binary and asset
+files; refresh or restore one representation before retrying. This is an optimistic
+conflict check, not a lock against simultaneous external writes. Malformed text
+reports a diagnostic and remains available for binary export.
 
 Build Resources to New Folder reads the latest on-disk changes even without a
 refresh, verifies reconstruction, writes a new map and referenced volumes, and

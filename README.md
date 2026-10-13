@@ -69,13 +69,19 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
 - Loading shows the current phase, resource counts and elapsed time. Controls use
   the platform Qt style, including native dropdown arrows. Modified resources are
   marked after refresh.
+- **Text resources** show numbered strings and support **Edit text…** with immediate
+  project saves and **Export… → Numbered text strings (*.tsv)**. The editor uses
+  the same lossless escaped TSV as the CLI; preserve indices referenced by scripts.
+  Malformed text remains exportable as binary. External changes and conflicting
+  binary/table edits are checked before saving.
 - **Open Resource Folder** opens the selected resource bundle or payload folder.
   Edit PNGs externally, then **Refresh from Disk** to validate and load changes.
 - **Build Resources to New Folder** re-reads edits, reconstructs resources, and
   verifies the result. Existing destinations are refused. This builds resource
   maps/volumes, not script source or a complete runnable game installation.
 
-Creation persists the project immediately; there are no unsaved in-app edits.
+Creation persists the project immediately. Text edits are saved explicitly from
+the editor; Cancel discards the dialog’s changes.
 The existing CLI `import` command can rebuild a project folder too. See
 [project format and workflow](docs/projects.md).
 

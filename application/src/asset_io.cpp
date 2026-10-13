@@ -158,12 +158,7 @@ std::string prepare(ResourceId id, const Bytes &payload, Files &files) {
     return "cursor";
   }
   if (id.type == ResourceType::text) {
-    auto strings = read_sci0_text(payload);
-    std::ostringstream out;
-    out << "index\ttext\n";
-    for (std::size_t i = 0; i < strings.size(); ++i)
-      out << i << '\t' << escape(strings[i]) << '\n';
-    files["strings.tsv"] = bytes(out.str());
+    files["strings.tsv"] = bytes(export_sci0_text_table(payload));
     return "text";
   }
   if (id.type == ResourceType::vocab && id.number == 0) {
@@ -248,15 +243,7 @@ Bytes load(ResourceId id, const std::string &representation,
   }
   if (representation == "text") {
     check(id.type == ResourceType::text);
-    auto input = table(path / "strings.tsv");
-    check(row(input) == std::vector<std::string>({"index", "text"}));
-    std::vector<std::string> strings;
-    while (input.peek() != std::char_traits<char>::eof()) {
-      auto f = row(input);
-      check(f.size() == 2 && f[0] == std::to_string(strings.size()));
-      strings.push_back(unescape(f[1]));
-    }
-    return write_sci0_text(strings);
+    return import_sci0_text_table(text(detail::read_file(path / "strings.tsv", 1024 * 1024)));
   }
   if (representation == "vocab0") {
     check(id.type == ResourceType::vocab && id.number == 0);
@@ -284,6 +271,26 @@ Bytes load(ResourceId id, const std::string &representation,
   throw std::runtime_error("asset manifest: unsupported representation");
 }
 } // namespace
+std::string export_sci0_text_table(const Bytes& payload) {
+  const auto strings = read_sci0_text(payload);
+  std::ostringstream out;
+  out << "index\ttext\n";
+  for (std::size_t i = 0; i < strings.size(); ++i)
+    out << i << '\t' << escape(strings[i]) << '\n';
+  return out.str();
+}
+Bytes import_sci0_text_table(const std::string& value) {
+  check(value.size() <= 1024 * 1024, "text table exceeds 1 MiB limit");
+  std::istringstream input(value);
+  check(row(input) == std::vector<std::string>({"index", "text"}), "text table: expected index/text header");
+  std::vector<std::string> strings;
+  while (input.peek() != std::char_traits<char>::eof()) {
+    auto f = row(input);
+    check(f.size() == 2 && f[0] == std::to_string(strings.size()), "text table: expected consecutive string indices starting at zero");
+    strings.push_back(unescape(f[1]));
+  }
+  return write_sci0_text(strings);
+}
 AssetExportSummary export_sci0_asset(ResourceId id, const Bytes &payload,
                                      const std::filesystem::path &destination) {
   check(unsigned(id.type) <= 9 && id.number <= 2047 && payload.size() <= 65535,

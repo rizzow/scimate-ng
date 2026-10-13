@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "scimate/project.hpp"
 #include "files.hpp"
+#include "scimate/asset_io.hpp"
 #include <iomanip>
 #include <sstream>
 
@@ -46,6 +47,51 @@ Project create_project(const std::filesystem::path& source_game,
 Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress) {
     const auto name = read_name(directory);
     return {std::filesystem::absolute(directory).lexically_normal(), name, open_sci0_export(directory, progress)};
+}
+
+ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t record,
+                                          const std::string& table) {
+    const auto& resource = project.game.resources.at(record);
+    if (resource.entry.id.type != ResourceType::text)
+        throw std::runtime_error("Select a text resource first.");
+    auto payload = import_sci0_text_table(table);
+    const auto original = read_sci0_game(project.game.original).resources.at(record).payload;
+    std::ostringstream name;
+    name << std::setfill('0') << std::setw(7) << record;
+    const auto binary = project.directory / "payloads" / (name.str() + ".bin");
+    const auto raw = detail::read_file(binary, 65535);
+    auto current = raw;
+    auto destination = binary;
+    Bytes contents = payload;
+    const auto bundle = project.directory / "assets" / name.str();
+    if (std::filesystem::exists(bundle)) {
+        if (!std::filesystem::is_directory(std::filesystem::symlink_status(bundle)))
+            throw std::runtime_error("expected asset directory");
+        if (detail::read_file(bundle / "original.bin", 65535) != original)
+            throw std::runtime_error("asset snapshot differs from original resource");
+        ResourceId id{};
+        const auto asset = import_sci0_asset(bundle, &id);
+        if (id.type != resource.entry.id.type || id.number != resource.entry.id.number)
+            throw std::runtime_error("asset identity differs from original resource");
+        if (asset != original) {
+            if (raw != original)
+                throw std::runtime_error("Both binary and asset files are edited. Restore one to its original before editing here.");
+            current = asset;
+        }
+        if (raw == original) {
+            if (std::filesystem::exists(bundle / "strings.tsv")) {
+                destination = bundle / "strings.tsv";
+                const auto normalized = export_sci0_text_table(payload);
+                contents.assign(normalized.begin(), normalized.end());
+            } else {
+                destination = bundle / "payload.bin";
+            }
+        }
+    }
+    if (current != resource.payload)
+        throw std::runtime_error("Text changed on disk. Refresh from Disk before editing again.");
+    const bool modified = payload != original;
+    return {destination, std::move(contents), std::move(payload), modified};
 }
 
 void build_project(const std::filesystem::path& directory,

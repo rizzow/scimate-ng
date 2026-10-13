@@ -10,6 +10,17 @@ struct Project {
     std::string name;
     Game game; // Current validated edits; original retains the source snapshots.
 };
+// Validates a text edit and chooses one authoritative file without creating
+// conflicting binary/table edits. Caller must write atomically immediately
+// after preparation; this is an optimistic check, not a cross-process lock.
+struct ProjectTextEdit {
+    std::filesystem::path destination;
+    Bytes contents;
+    Bytes payload;
+    bool modified = false;
+};
+ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t record,
+                                          const std::string& table);
 Project create_project(const std::filesystem::path& source_game,
                        const std::filesystem::path& new_directory,
                        const std::string& name, const ProgressCallback& progress = {});

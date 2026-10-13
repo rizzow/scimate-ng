@@ -22,6 +22,8 @@ class QTableView;
 class QCloseEvent;
 class QPushButton;
 class QTimer;
+class QTableWidget;
+class QStackedWidget;
 
 class MainWindow : public QMainWindow {
 public:
@@ -30,6 +32,7 @@ public:
     void createProject(const QString& source, const QString& directory, const QString& name);
     void buildProject(const QString& destination);
     void exportSelected(const QString& destination, const QString& format);
+    void saveSelectedText(const QString& table);
     bool busy() const { return busy_; }
     const scimate::Project* project() const { return project_.get(); }
 protected:
@@ -45,6 +48,7 @@ private:
     void showFolder();
     void exportResource();
     void advanceCel();
+    void editText();
     ProjectPtr project_;
     bool busy_ = false;
     QAction *new_, *open_, *refresh_, *build_, *folder_, *close_;
@@ -53,7 +57,9 @@ private:
     QWidget *progressPanel_;
     QTimer *progressTimer_, *playTimer_;
     QElapsedTimer elapsed_;
-    QPushButton *play_, *export_;
+    QPushButton *play_, *export_, *editText_;
+    QTableWidget* strings_;
+    QStackedWidget* previewStack_;
     QLineEdit* filter_;
     QComboBox *cels_, *types_;
     QPlainTextEdit* details_;
