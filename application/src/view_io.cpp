@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "scimate/view_io.hpp"
 #include "files.hpp"
+#include "scimate/workspace.hpp"
+#include "scimate/output.hpp"
+#include "scimate/format_constants.hpp"
+#include "tables.hpp"
 #include <png.h>
 #include <array>
 #include <charconv>
@@ -8,12 +12,6 @@
 
 namespace scimate {
 namespace {
-constexpr std::array<std::array<std::uint8_t, 3>,16> ega{{
-    {{0,0,0}},{{0,0,170}},{{0,170,0}},{{0,170,170}},
-    {{170,0,0}},{{170,0,170}},{{170,85,0}},{{170,170,170}},
-    {{85,85,85}},{{85,85,255}},{{85,255,85}},{{85,255,255}},
-    {{255,85,85}},{{255,85,255}},{{255,255,85}},{{255,255,255}}
-}};
 struct Png {
     png_image image{};
     Png() { image.version = PNG_IMAGE_VERSION; }
@@ -27,32 +25,13 @@ std::string filename(std::size_t loop, std::size_t cel) {
 }
 std::string header = "SCIMATE-SCI0-VIEW\t1";
 std::string columns = "kind\tloop\tcel_or_source\tx\ty\ttransparent\tfile";
-std::vector<std::string> fields(std::istream& input) {
-    std::string line;
-    if (!std::getline(input,line)) throw std::runtime_error("view manifest: missing row");
-    if (!line.empty() && line.back() == '\r') line.pop_back();
-    std::vector<std::string> result;
-    std::size_t begin = 0;
-    for (;;) {
-        auto end = line.find('\t',begin);
-        result.push_back(line.substr(begin,end == std::string::npos ? end : end-begin));
-        if (end == std::string::npos) break;
-        begin = end+1;
-    }
-    return result;
-}
-void expect(bool condition) { if (!condition) throw std::runtime_error("view manifest: invalid structure or metadata"); }
-int integer(const std::string& s, int min, int max) {
-    int value = 0;
-    auto result = std::from_chars(s.data(),s.data()+s.size(),value);
-    if (result.ec != std::errc{} || result.ptr != s.data()+s.size() || value < min || value > max)
-        throw std::runtime_error("view manifest: integer outside allowed range");
-    return value;
-}
+std::vector<std::string> fields(std::istream& input) { return table_detail::row(input, "view manifest"); }
+void expect(bool condition) { scimate::require(condition, "view manifest: invalid structure or metadata"); }
+int integer(const std::string& s, int min, int max) { return table_detail::integer(s, min, max, "view manifest"); }
 } // namespace
 
 static Bytes encode_png(const ViewCel& cel, bool opaque) {
-    if (!cel.width || !cel.height || cel.width > 320 || cel.height > 200 || (!opaque && cel.transparent > 15) ||
+    if (!cel.width || !cel.height || cel.width > format::picture_width || cel.height > format::max_cel_height || (!opaque && cel.transparent > 15) ||
         cel.pixels.size() != static_cast<std::size_t>(cel.width)*cel.height)
         throw std::runtime_error("PNG: invalid cel dimensions/palette");
     for (auto pixel : cel.pixels) if (pixel > 15) throw std::runtime_error("PNG: invalid EGA pixel");
@@ -61,7 +40,7 @@ static Bytes encode_png(const ViewCel& cel, bool opaque) {
     p.image.format = PNG_FORMAT_RGBA_COLORMAP; p.image.colormap_entries = 16;
     std::array<std::uint8_t,64> palette{};
     for (std::size_t i = 0; i < 16; ++i) {
-        for (std::size_t c = 0; c < 3; ++c) palette[i*4+c] = ega[i][c];
+        for (std::size_t c = 0; c < 3; ++c) palette[i*4+c] = (format::ega_rgb[i] >> (8 * (2-c))) & 255;
         palette[i*4+3] = !opaque && i == cel.transparent ? 0 : 255;
     }
     png_alloc_size_t size = 0;
@@ -73,10 +52,10 @@ static Bytes encode_png(const ViewCel& cel, bool opaque) {
 }
 
 static ViewCel decode_png(const Bytes& bytes, std::uint8_t transparent, bool opaque) {
-    if (bytes.size() > 16*1024*1024 || (!opaque && transparent > 15)) throw std::runtime_error("PNG: input/palette limit exceeded");
+    if (bytes.size() > format::max_interchange_bytes || (!opaque && transparent > 15)) throw std::runtime_error("PNG: input/palette limit exceeded");
     Png p;
     if (!png_image_begin_read_from_memory(&p.image,bytes.data(),bytes.size())) png_error(p);
-    if (!p.image.width || !p.image.height || p.image.width > 320 || p.image.height > 200)
+    if (!p.image.width || !p.image.height || p.image.width > format::picture_width || p.image.height > format::max_cel_height)
         throw std::runtime_error("PNG: dimensions must be 1..320 by 1..200");
     if (bytes.size() < 25 || bytes[24] > 8) throw std::runtime_error("PNG: 16-bit channels are unsupported");
     p.image.format = PNG_FORMAT_RGBA;
@@ -90,7 +69,7 @@ static ViewCel decode_png(const Bytes& bytes, std::uint8_t transparent, bool opa
         if (rgba[i+3] != 255) throw std::runtime_error("PNG: partial alpha is not representable in SCI0");
         int index = -1;
         for (int c = 0; c < 16; ++c)
-            if (rgba[i] == ega[static_cast<std::size_t>(c)][0] && rgba[i+1] == ega[static_cast<std::size_t>(c)][1] && rgba[i+2] == ega[static_cast<std::size_t>(c)][2]) { index = c; break; }
+            if (rgba[i] == ((format::ega_rgb[static_cast<std::size_t>(c)] >> 16) & 255) && rgba[i+1] == ((format::ega_rgb[static_cast<std::size_t>(c)] >> 8) & 255) && rgba[i+2] == (format::ega_rgb[static_cast<std::size_t>(c)] & 255)) { index = c; break; }
         if (index < 0) throw std::runtime_error("PNG: color is outside the EGA palette (no automatic quantization)");
         if (!opaque && index == transparent) throw std::runtime_error("PNG: opaque pixel uses the designated transparent color");
         cel.pixels.push_back(static_cast<std::uint8_t>(index));
@@ -103,19 +82,19 @@ ViewCel decode_cel_png(const Bytes& bytes, std::uint8_t transparent) { return de
 Bytes encode_ega_png(const ViewCel& image) { return encode_png(image,true); }
 ViewCel decode_ega_png(const Bytes& bytes) { return decode_png(bytes,15,true); }
 Bytes encode_picture_plane_png(const Bytes& pixels) {
-    ViewCel cel; cel.width=320; cel.height=190; cel.pixels=pixels;
+    ViewCel cel; cel.width=format::picture_width; cel.height=format::picture_height; cel.pixels=pixels;
     return encode_png(cel,true);
 }
 Bytes decode_picture_plane_png(const Bytes& bytes) {
     auto cel=decode_png(bytes,0,true);
-    if(cel.width!=320 || cel.height!=190) throw std::runtime_error("picture PNG: dimensions must be 320x190");
+    if(cel.width!=format::picture_width || cel.height!=format::picture_height) throw std::runtime_error("picture PNG: dimensions must be 320x190");
     return cel.pixels;
 }
 
 void export_sci0_view(const Bytes& payload, const std::filesystem::path& destination) {
     const auto view = read_sci0_view(payload);
     detail::create_destination(destination);
-    detail::write_file(destination / "original.bin",payload);
+    detail::write_file(destination / workspace_detail::original_file,payload);
     std::ostringstream text;
     text << header << '\n' << columns << '\n';
     for (std::size_t l = 0; l < view.loops.size(); ++l) {
@@ -134,7 +113,7 @@ void export_sci0_view(const Bytes& payload, const std::filesystem::path& destina
 }
 
 Bytes import_sci0_view(const std::filesystem::path& directory) {
-    auto view = read_sci0_view(detail::read_file(directory / "original.bin",65535));
+    auto view = read_sci0_view(detail::read_file(directory / workspace_detail::original_file,65535));
     const auto manifest = detail::read_file(directory / "view.tsv",1024*1024);
     std::istringstream input(std::string(manifest.begin(),manifest.end()));
     expect(fields(input) == std::vector<std::string>({"SCIMATE-SCI0-VIEW","1"}));
@@ -152,13 +131,12 @@ Bytes import_sci0_view(const std::filesystem::path& directory) {
             expect(row[0] == "cel" && row[1] == std::to_string(l) && row[2] == std::to_string(c) && row[6] == filename(l,c));
             const auto x = integer(row[3],-128,127), y = integer(row[4],-128,127);
             const auto transparent = static_cast<std::uint8_t>(integer(row[5],0,15));
-            auto cel = decode_cel_png(detail::read_file(directory / filename(l,c),16*1024*1024),transparent);
+            auto cel = decode_cel_png(detail::read_file(directory / filename(l,c),format::max_interchange_bytes),transparent);
             cel.x = x; cel.y = y;
             loop.cels[c] = std::move(cel);
         }
     }
-    std::string extra;
-    if (std::getline(input,extra)) throw std::runtime_error("view manifest: unexpected trailing row");
+    table_detail::end(input, "view manifest");
     return write_sci0_view(view);
 }
 
@@ -167,8 +145,6 @@ void export_sci0_view_file(const std::filesystem::path& payload, const std::file
 }
 void import_sci0_view_file(const std::filesystem::path& directory, const std::filesystem::path& payload) {
     const auto bytes = import_sci0_view(directory);
-    if (std::filesystem::exists(std::filesystem::symlink_status(payload))) throw std::runtime_error("destination already exists: " + payload.string());
-    detail::write_file(payload,bytes);
-    if (detail::read_file(payload,65535) != bytes) throw std::runtime_error("saved view verification failed");
+    write_new_file(payload, bytes);
 }
 } // namespace scimate

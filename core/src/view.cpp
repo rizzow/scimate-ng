@@ -14,20 +14,16 @@
 // SCI0 EGA layout/RLE adapted from Resources/View.cpp; see docs/provenance.md.
 #include "scimate/view.hpp"
 #include <algorithm>
+#include "binary.hpp"
+#include "scimate/format_constants.hpp"
 #include <string>
 
 namespace scimate {
 namespace {
 [[noreturn]] void invalid(const char* message) { throw std::runtime_error(std::string("SCI0 view: ") + message); }
-unsigned word(const Bytes& b, std::size_t p) {
-    if (p > b.size() || b.size() - p < 2) invalid("truncated word");
-    return b[p] | (static_cast<unsigned>(b[p+1]) << 8);
-}
-void put(Bytes& b, unsigned n) { b.push_back(static_cast<std::uint8_t>(n)); b.push_back(static_cast<std::uint8_t>(n >> 8)); }
-void patch(Bytes& b, std::size_t p, std::size_t n) {
-    if (n > 65535) invalid("16-bit offset/size limit exceeded");
-    b.at(p) = static_cast<std::uint8_t>(n); b.at(p+1) = static_cast<std::uint8_t>(n >> 8);
-}
+unsigned word(const Bytes& b, std::size_t p) { return binary_detail::read(b, p, 2, "SCI0 view: truncated word"); }
+void put(Bytes& b, unsigned n) { binary_detail::append(b, n, 2, "SCI0 view: 16-bit offset/size limit exceeded"); }
+void patch(Bytes& b, std::size_t p, std::size_t n) { binary_detail::patch_word(b, p, n, "SCI0 view: 16-bit offset/size limit exceeded"); }
 int signed_byte(std::uint8_t n) { return n < 128 ? n : static_cast<int>(n) - 256; }
 void validate(const View& view, bool vga = false) {
     if (view.loops.empty() || view.loops.size() > 50) invalid("expected 1..50 loops");
@@ -42,13 +38,13 @@ void validate(const View& view, bool vga = false) {
         }
         if (loop.cels.size() > 128) invalid("more than 128 cels in a loop");
         for (const auto& cel : loop.cels) {
-            if (!cel.width || !cel.height || cel.width > 320 || cel.height > 200) invalid("cel dimensions outside 1..320 by 1..200");
+            if (!cel.width || !cel.height || cel.width > format::picture_width || cel.height > format::max_cel_height) invalid("cel dimensions outside 1..320 by 1..200");
             if (cel.x < -128 || cel.x > 127 || cel.y < -128 || cel.y > 127) invalid("placement outside signed-byte range");
             if (!vga && cel.transparent > 15) invalid("transparent index outside EGA palette");
             if (cel.pixels.size() != static_cast<std::size_t>(cel.width) * cel.height) invalid("pixel count differs from dimensions");
             if (!vga && std::any_of(cel.pixels.begin(), cel.pixels.end(), [](auto p) { return p > 15; })) invalid("pixel outside EGA palette");
             total += cel.pixels.size();
-            if (total > 16 * 1024 * 1024) invalid("decoded pixels exceed 16 MiB limit");
+            if (total > format::max_interchange_bytes) invalid("decoded pixels exceed 16 MiB limit");
         }
     }
 }
@@ -106,10 +102,10 @@ View read_view(const Bytes& b, bool vga) {
             ViewCel cel;
             cel.width = static_cast<std::uint16_t>(word(b,p)); cel.height = static_cast<std::uint16_t>(word(b,p+2));
             cel.x = signed_byte(b[p+4]); cel.y = signed_byte(b[p+5]); cel.transparent = b[p+6]; p += cel_header;
-            if (!cel.width || !cel.height || cel.width > 320 || cel.height > 200) invalid("cel dimensions outside supported range");
+            if (!cel.width || !cel.height || cel.width > format::picture_width || cel.height > format::max_cel_height) invalid("cel dimensions outside supported range");
             const auto pixels = static_cast<std::size_t>(cel.width) * cel.height;
             total += pixels;
-            if (total > 16 * 1024 * 1024) invalid("decoded pixels exceed 16 MiB limit");
+            if (total > format::max_interchange_bytes) invalid("decoded pixels exceed 16 MiB limit");
             cel.pixels.reserve(pixels);
             while (cel.pixels.size() < pixels) {
                 if (p == b.size()) invalid("truncated cel RLE");

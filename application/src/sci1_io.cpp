@@ -2,6 +2,7 @@
 #include "scimate/sci1_io.hpp"
 #include "scimate/game_io.hpp"
 #include "files.hpp"
+#include "scimate/workspace.hpp"
 #include <algorithm>
 #include <cctype>
 #include <map>
@@ -26,7 +27,7 @@ std::map<std::string,Bytes> collect_auxiliary_files(const std::filesystem::path&
     for (const auto& volume : migration.files.volumes) bytes += volume.second.size();
     for (const auto& reference : migration.auxiliary_file_references) {
         const auto name = folded_filename(reference);
-        if (name == "resource.map" || name == "migration-report.txt" || copied.count(name)) continue;
+        if (name == workspace_detail::map_file || name == "migration-report.txt" || copied.count(name)) continue;
         const auto extension = std::filesystem::path(name).extension().string();
         const bool volume = name.size() == 12 && name.compare(0,9,"resource.") == 0 &&
             std::all_of(name.begin()+9,name.end(),[](unsigned char ch) { return ch >= '0' && ch <= '9'; });
@@ -52,7 +53,7 @@ Game open_sci1_game(const std::filesystem::path& directory, Sci1Format format) {
     GameFiles files;
     // Packed EGA maps have no 16-bit directory offsets; use the same bound as
     // the core reader instead of rejecting valid maps larger than 64 KiB.
-    files.map = detail::read_file(directory / "resource.map",
+    files.map = detail::read_file(directory / workspace_detail::map_file,
         format == Sci1Format::sci1_ega ? max_map_bytes : 65535);
     std::size_t total = files.map.size();
     for (const auto& entry : read_sci1_map(files.map,format)) {
@@ -70,7 +71,7 @@ void migrate_sci0_to_sci1_directory(const std::filesystem::path& source,
     detail::create_destination(destination);
     for (const auto& volume : result.files.volumes)
         detail::write_file(destination/volume_filename(volume.first),volume.second);
-    detail::write_file(destination/"resource.map",result.files.map);
+    detail::write_file(destination/workspace_detail::map_file,result.files.map);
     for (const auto& file : auxiliary) detail::write_file(destination/file.first,file.second);
     detail::write_file(destination/"migration-report.txt",Bytes(result.report.begin(),result.report.end()));
 }

@@ -7,12 +7,13 @@
 // Distributed without any warranty; see COPYING.
 // Based on SCI Studio by Brian Provinciano.
 #include "scimate/picture.hpp"
+#include "scimate/format_constants.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
 namespace scimate {
 namespace {
-constexpr int width = 320, height = 190, pixels = width*height;
+constexpr int width = format::picture_width, height = format::picture_height, pixels = width*height;
 const std::uint8_t default_palette[40] = {
  0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0x88,
  0x88,0x01,0x02,0x03,0x04,0x05,0x06,0x88,0x88,0xf9,0xfa,0xfb,0xfc,0xfd,0xfe,0xff,

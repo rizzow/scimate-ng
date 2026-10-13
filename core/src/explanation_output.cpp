@@ -54,7 +54,7 @@ std::string format_explanation_text(const GameExplanation& report) {
     std::ostringstream out;
     out << "SCI0 explanation (static heuristics; game execution is not simulated)\n"
         << "Labels: [fact] decoded data; [likely] convention/pattern; [unresolved] insufficient evidence.\n"
-        << "Duplicate resource IDs: " << report.shadowed_entries << " shadowed entries; last map entry wins.\n";
+        << "Duplicate resource IDs: " << report.shadowed_entries << " shadowed entries; first map entry wins.\n";
     std::function<void(const ExplanationNode&, unsigned)> write = [&](const auto& node, unsigned depth) {
         out << std::string(depth * 2, ' ');
         if (node.confidence != ExplanationConfidence::none) out << '[' << confidence(node.confidence) << "] ";

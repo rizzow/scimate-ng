@@ -5,6 +5,7 @@
 #include "scimate/picture_io.hpp"
 #include "scimate/asset_io.hpp"
 #include "files.hpp"
+#include "scimate/workspace.hpp"
 
 #include <iomanip>
 #include <sstream>
@@ -25,9 +26,7 @@ std::string resource_label(const Resource& resource) {
 }
 
 std::string payload_filename(std::size_t index) {
-    std::ostringstream name;
-    name << std::setfill('0') << std::setw(7) << index << ".bin";
-    return name.str();
+    return workspace_detail::record_stem(index) + ".bin";
 }
 
 std::string manifest(const Game& game) {
@@ -46,7 +45,7 @@ std::string manifest(const Game& game) {
 void write_game(const GameFiles& files, const std::filesystem::path& directory) {
     for (const auto& volume : files.volumes)
         write_file(directory / volume_filename(volume.first), volume.second);
-    write_file(directory / "resource.map", files.map);
+    write_file(directory / workspace_detail::map_file, files.map);
 }
 } // namespace
 
@@ -59,7 +58,7 @@ std::string volume_filename(std::uint8_t number) {
 Game open_sci0_game(const std::filesystem::path& directory, const ProgressCallback& progress) {
     report(progress, "Reading resource map", 0, 0, directory.string());
     GameFiles files;
-    files.map = read_file(directory / "resource.map", max_map_bytes);
+    files.map = read_file(directory / workspace_detail::map_file, max_map_bytes);
     std::size_t total = files.map.size();
     const auto entries = read_sci0_map(files.map);
     for (const auto& entry : entries) {
@@ -162,8 +161,13 @@ ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& de
     return summary;
 }
 
-Game open_sci0_export(const std::filesystem::path& export_directory, const ProgressCallback& progress) {
+Game open_sci0_export(const std::filesystem::path& export_directory, const ProgressCallback& progress,
+                      std::vector<Bytes>* original_payloads) {
     auto game = open_sci0_game(export_directory / "original", progress);
+    if (original_payloads) {
+        original_payloads->clear();
+        for (const auto& resource : game.resources) original_payloads->push_back(resource.payload);
+    }
     const auto text = manifest(game);
     const auto saved = read_file(export_directory / "manifest.tsv", text.size());
     if (saved != Bytes(text.begin(), text.end()))
@@ -177,40 +181,31 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
         if (game.resources[i].entry.id.type == ResourceType::view && std::filesystem::exists(view_directory)) {
             if (!std::filesystem::is_directory(std::filesystem::symlink_status(view_directory)))
                 throw std::runtime_error("expected view directory: " + view_directory.string());
-            if (read_file(view_directory / "original.bin",65535) != original)
+            if (read_file(view_directory / workspace_detail::original_file,65535) != original)
                 throw std::runtime_error("view snapshot differs from original resource");
             auto edited = import_sci0_view(view_directory);
-            if (edited != original) {
-                if (bytes != original && bytes != edited) throw std::runtime_error("conflicting binary and PNG edits for record " + std::to_string(i));
-                bytes = std::move(edited);
-            }
+            bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
         }
         const auto picture_directory = export_directory / "pictures" / std::filesystem::path(payload_filename(i)).stem();
         if (game.resources[i].entry.id.type == ResourceType::pic && std::filesystem::exists(picture_directory)) {
             if (!std::filesystem::is_directory(std::filesystem::symlink_status(picture_directory)))
                 throw std::runtime_error("expected picture directory: " + picture_directory.string());
-            if (read_file(picture_directory / "original.bin",65535) != original)
+            if (read_file(picture_directory / workspace_detail::original_file,65535) != original)
                 throw std::runtime_error("picture snapshot differs from original resource");
             auto edited = import_sci0_picture(picture_directory);
-            if (edited != original) {
-                if (bytes != original && bytes != edited) throw std::runtime_error("conflicting binary and PNG edits for record " + std::to_string(i));
-                bytes = std::move(edited);
-            }
+            bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
         }
         const auto asset_directory = export_directory / "assets" / std::filesystem::path(payload_filename(i)).stem();
         if (std::filesystem::exists(asset_directory)) {
             if (!std::filesystem::is_directory(std::filesystem::symlink_status(asset_directory)))
                 throw std::runtime_error("expected asset directory: " + asset_directory.string());
-            if (read_file(asset_directory / "original.bin",65535) != original)
+            if (read_file(asset_directory / workspace_detail::original_file,65535) != original)
                 throw std::runtime_error("asset snapshot differs from original resource");
             ResourceId id{};
             auto edited = import_sci0_asset(asset_directory, &id);
             if (id.type != game.resources[i].entry.id.type || id.number != game.resources[i].entry.id.number)
                 throw std::runtime_error("asset identity differs from original resource");
-            if (edited != original) {
-                if (bytes != original && bytes != edited) throw std::runtime_error("conflicting binary and asset edits for record " + std::to_string(i));
-                bytes = std::move(edited);
-            }
+            bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
         }
         if (bytes.size() > max_decoded_bytes - total) throw std::runtime_error("decoded game exceeds 256 MiB limit");
         total += bytes.size();

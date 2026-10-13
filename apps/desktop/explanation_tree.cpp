@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "explanation_tree.hpp"
 #include <QSignalBlocker>
+#include <QAbstractItemModel>
 #include <functional>
 #include <set>
 
@@ -24,6 +25,9 @@ QString label(const scimate::ExplanationNode& node) {
 }
 
 ExplanationTree::ExplanationTree(QWidget* parent) : QTreeWidget(parent) {
+    connect(model(), &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+        resourceNodes_.clear(); referencesRoot_ = nullptr;
+    });
     setObjectName("explanationTree");
     setHeaderLabel("Static analysis · fact / likely / unresolved");
     setWordWrap(true);

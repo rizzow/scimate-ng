@@ -68,9 +68,9 @@ Sound read_sci0_sound(const Bytes &payload, unsigned header_bytes) {
   payload_limit(payload);
   Reader r(payload);
   Sound s;
-  require(header_bytes == 17 || header_bytes == 33, "sound: header must be 17 or 33 bytes");
+  require(header_bytes == format::early_sound_header_bytes || header_bytes == format::late_sound_header_bytes, "sound: header must be 17 or 33 bytes");
   s.header = r.take(header_bytes);
-  require(s.header[0] == 0 || (header_bytes == 33 && s.header[0] == 2),
+  require(s.header[0] == 0 || (header_bytes == format::late_sound_header_bytes && s.header[0] == 2),
           "sound: unsupported SCI0 sample flag/header");
   unsigned status = 0;
   std::uint32_t tick = 0;
@@ -137,8 +137,8 @@ Sound read_sci0_sound(const Bytes &payload, unsigned header_bytes) {
   return s;
 }
 Bytes write_sci0_sound(const Sound &s) {
-  require((s.header.size() == 17 || s.header.size() == 33) &&
-              (s.header[0] == 0 || (s.header.size() == 33 && s.header[0] == 2)) &&
+  require((s.header.size() == format::early_sound_header_bytes || s.header.size() == format::late_sound_header_bytes) &&
+              (s.header[0] == 0 || (s.header.size() == format::late_sound_header_bytes && s.header[0] == 2)) &&
               s.end_tick <= max_tick,
           "sound: invalid header/end tick");
   std::uint32_t tick = 0;
@@ -231,7 +231,7 @@ Bytes encode_sound_midi(const Sound &s) {
   return out;
 }
 void decode_sound_midi(const Bytes &midi, Sound &s) {
-  require(midi.size() <= 16 * 1024 * 1024, "MIDI: input limit exceeded");
+  require(midi.size() <= format::max_interchange_bytes, "MIDI: input limit exceeded");
   Reader r(midi);
   expect_tag(r, "MThd");
   require(r.be(4) == 6, "MIDI: header length must be six");
@@ -354,7 +354,7 @@ Bytes encode_sound_wave(const Sound &s) {
   return out;
 }
 void decode_sound_wave(const Bytes &wave, Sound &s) {
-  require(wave.size() <= 16 * 1024 * 1024 && !s.sample_header.empty(),
+  require(wave.size() <= format::max_interchange_bytes && !s.sample_header.empty(),
           "WAV: input limit or sample layout unsupported");
   Reader r(wave);
   expect_tag(r, "RIFF");

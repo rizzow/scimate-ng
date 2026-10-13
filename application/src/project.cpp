@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "scimate/project.hpp"
 #include "files.hpp"
+#include "scimate/workspace.hpp"
 #include "scimate/asset_io.hpp"
 #include <iomanip>
 #include <sstream>
@@ -15,7 +16,7 @@ void validate_name(const std::string& name) {
 }
 
 std::string read_name(const std::filesystem::path& directory) {
-    const auto bytes = detail::read_file(directory / "project.scimate", 4096);
+    const auto bytes = detail::read_file(directory / workspace_detail::project_file, 4096);
     std::istringstream input(std::string(bytes.begin(), bytes.end()));
     std::string header, name;
     std::getline(input, header);
@@ -48,15 +49,19 @@ Project create_project(const std::filesystem::path& source_game,
     std::ostringstream descriptor;
     descriptor << "SCIMATE-PROJECT 1\n" << std::quoted(name) << '\n';
     const auto text = descriptor.str();
-    detail::write_file(new_directory / "project.scimate", Bytes(text.begin(), text.end()));
+    detail::write_file(new_directory / workspace_detail::project_file, Bytes(text.begin(), text.end()));
     // The newly written exports represent this game exactly. Do not decode all
     // PNGs and re-render pictures just to reopen what we have just exported.
-    return {std::filesystem::absolute(new_directory).lexically_normal(), name, std::move(game)};
+    std::vector<Bytes> originals;
+    for (const auto& resource : game.resources) originals.push_back(resource.payload);
+    return {std::filesystem::absolute(new_directory).lexically_normal(), name, std::move(game), std::move(originals)};
 }
 
 Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress) {
     const auto name = read_name(directory);
-    return {std::filesystem::absolute(directory).lexically_normal(), name, open_sci0_export(directory, progress)};
+    std::vector<Bytes> originals;
+    auto game = open_sci0_export(directory, progress, &originals);
+    return {std::filesystem::absolute(directory).lexically_normal(), name, std::move(game), std::move(originals)};
 }
 
 ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t record,
@@ -65,32 +70,29 @@ ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t re
     if (resource.entry.id.type != ResourceType::text)
         throw std::runtime_error("Select a text resource first.");
     auto payload = import_sci0_text_table(table);
-    const auto original = read_sci0_game(project.game.original).resources.at(record).payload;
+    const auto original = project.original_payloads.size() == project.game.resources.size()
+        ? project.original_payloads.at(record) : read_sci0_game(project.game.original).resources.at(record).payload;
     if (payload != original && payload.size() > max_stored_payload)
         throw std::runtime_error("Edited text exceeds the SCI0 uncompressed payload limit of 65531 bytes.");
-    std::ostringstream name;
-    name << std::setfill('0') << std::setw(7) << record;
-    const auto binary = project.directory / "payloads" / (name.str() + ".bin");
+    const auto name = workspace_detail::record_stem(record);
+    const auto binary = project.directory / "payloads" / (name + ".bin");
     const auto raw = detail::read_file(binary, 65535);
     auto current = raw;
     auto destination = binary;
     Bytes contents = payload;
-    const auto bundle = project.directory / "assets" / name.str();
+    std::vector<std::pair<std::filesystem::path, Bytes>> related_writes;
+    const auto bundle = project.directory / "assets" / name;
     if (std::filesystem::exists(bundle)) {
         if (!std::filesystem::is_directory(std::filesystem::symlink_status(bundle)))
             throw std::runtime_error("expected asset directory");
-        if (detail::read_file(bundle / "original.bin", 65535) != original)
+        if (detail::read_file(bundle / workspace_detail::original_file, 65535) != original)
             throw std::runtime_error("asset snapshot differs from original resource");
         ResourceId id{};
         const auto asset = import_sci0_asset(bundle, &id);
         if (id.type != resource.entry.id.type || id.number != resource.entry.id.number)
             throw std::runtime_error("asset identity differs from original resource");
-        if (asset != original) {
-            if (raw != original)
-                throw std::runtime_error("Both binary and asset files are edited. Restore one to its original before editing here.");
-            current = asset;
-        }
-        if (raw == original) {
+        current = workspace_detail::reconcile(original, raw, asset, "text record " + std::to_string(record));
+        if (raw == original || raw == asset) {
             if (std::filesystem::exists(bundle / "strings.tsv")) {
                 destination = bundle / "strings.tsv";
                 const auto normalized = export_sci0_text_table(payload);
@@ -101,11 +103,28 @@ ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t re
                 throw std::runtime_error("This text bundle uses another representation. Edit it in the resource folder and refresh.");
             }
         }
+        if (raw != original && asset != original && payload != current)
+            related_writes.emplace_back(binary, original);
     }
     if (current != resource.payload)
         throw std::runtime_error("Text changed on disk. Refresh from Disk before editing again.");
     const bool modified = payload != original;
-    return {destination, std::move(contents), std::move(payload), modified};
+    return {destination, std::move(contents), std::move(payload), modified, std::move(related_writes)};
+}
+
+std::vector<bool> project_modified_records(const Project& project) {
+    std::vector<Bytes> fallback;
+    const auto* originals = &project.original_payloads;
+    if (originals->size() != project.game.resources.size()) {
+        const auto original = read_sci0_game(project.game.original);
+        for (const auto& resource : original.resources) fallback.push_back(resource.payload);
+        originals = &fallback;
+    }
+    scimate::require(originals->size() == project.game.resources.size(), "project resource count differs from original");
+    std::vector<bool> modified;
+    for (std::size_t i = 0; i < originals->size(); ++i)
+        modified.push_back(project.game.resources[i].payload != originals->at(i));
+    return modified;
 }
 
 void build_project(const std::filesystem::path& directory,

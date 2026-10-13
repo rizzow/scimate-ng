@@ -3,6 +3,7 @@
 #include "scimate/project.hpp"
 #include "scimate/asset_io.hpp"
 #include "scimate/assets.hpp"
+#include "scimate/output.hpp"
 #include <chrono>
 #include <iostream>
 
@@ -79,28 +80,29 @@ int main(int argc, char** argv) {
         fails([&] { prepare_project_text_edit(textProject, 3, table); }, "text resource");
         auto edit = prepare_project_text_edit(textProject, 6, table);
         require(edit.destination == moved / "assets/0000006/strings.tsv" && edit.modified, "wrong text edit destination");
-        project_fixture::write(edit.destination, edit.contents);
+        { auto writes = edit.related_writes; writes.emplace_back(edit.destination, edit.contents); replace_files(writes); }
         fails([&] { prepare_project_text_edit(textProject, 6, table); }, "changed on disk");
         textProject = open_project(moved);
         require(textProject.game.resources[6].payload == newText, "text edit not loaded");
         build_project(moved, root / "text build");
         require(open_sci0_game(root / "text build").resources[6].payload == newText, "text edit not built");
         project_fixture::write(moved / "payloads/0000006.bin", newText);
-        fails([&] { prepare_project_text_edit(textProject, 6, table); }, "Both binary");
-        project_fixture::write(moved / "payloads/0000006.bin", originalText);
+        edit = prepare_project_text_edit(textProject, 6, table);
+        require(edit.related_writes.empty(), "matching edits should not require a reset for an unchanged save");
         edit = prepare_project_text_edit(textProject, 6, export_sci0_text_table(originalText));
+        require(edit.related_writes.size() == 1, "matching dual edits must reset the redundant binary when changed");
         require(!edit.modified, "restoring text still marked modified");
-        project_fixture::write(edit.destination, edit.contents);
+        { auto writes = edit.related_writes; writes.emplace_back(edit.destination, edit.contents); replace_files(writes); }
         project_fixture::write(moved / "payloads/0000006.bin", newText);
         textProject = open_project(moved);
         edit = prepare_project_text_edit(textProject, 6, export_sci0_text_table(originalText));
         require(edit.destination == moved / "payloads/0000006.bin", "binary edit route lost");
-        project_fixture::write(edit.destination, edit.contents);
+        { auto writes = edit.related_writes; writes.emplace_back(edit.destination, edit.contents); replace_files(writes); }
         fs::remove_all(moved / "assets/0000006"); // Older projects have payloads only.
         textProject = open_project(moved);
         edit = prepare_project_text_edit(textProject, 6, table);
         require(edit.destination == moved / "payloads/0000006.bin", "legacy text edit failed");
-        project_fixture::write(edit.destination, edit.contents);
+        { auto writes = edit.related_writes; writes.emplace_back(edit.destination, edit.contents); replace_files(writes); }
         require(open_project(moved).game.resources[6].payload == newText, "legacy text edit not loaded");
         project_fixture::write(moved / "manifest.tsv", {'b','a','d'});
         fails([&] { open_project(moved); }, "manifest");

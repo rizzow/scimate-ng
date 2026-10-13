@@ -28,7 +28,7 @@ inline void write_file(const std::filesystem::path& path, const Bytes& bytes) {
         if (!bytes.empty()) stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
         stream.close();
     } catch (const std::ios_base::failure&) {
-        throw std::runtime_error("failed to write: " + path.string());
+        std::throw_with_nested(std::runtime_error("failed to write: " + path.string()));
     }
 }
 

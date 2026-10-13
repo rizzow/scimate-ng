@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include "scimate/format_constants.hpp"
 #include "scimate/resource_game.hpp"
 namespace scimate {
 struct SoundEvent {
@@ -18,7 +19,7 @@ struct Sound {
   std::size_t sample_prefix = 0;
   Bytes original;
 };
-Sound read_sci0_sound(const Bytes &payload, unsigned header_bytes = 33);
+Sound read_sci0_sound(const Bytes &payload, unsigned header_bytes = format::late_sound_header_bytes);
 Bytes write_sci0_sound(const Sound &sound);
 // Standard MIDI format 0/1, PPQN timing; tempo maps converted to SCI's 60 Hz
 // clock.

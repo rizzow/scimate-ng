@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "preferences.hpp"
+#include "diagnostics.hpp"
 #include <QtWidgets>
 
 namespace preferences {
@@ -60,7 +61,7 @@ bool showDialog(QWidget* parent) {
         else if (value.startsWith("~/")) value = QDir::home().filePath(value.mid(2));
         const QFileInfo info(value);
         if (value.isEmpty() || !QDir::isAbsolutePath(value) || (info.exists() && !info.isDir())) {
-            QMessageBox::warning(&dialog, "Invalid project directory", "Enter an absolute folder path, or choose a folder with Browse.");
+            desktop_detail::show_error(&dialog, "Invalid project directory", "Enter an absolute folder path, or choose a folder with Browse.", scimate::LogLevel::warning);
             return;
         }
         QSettings settings;

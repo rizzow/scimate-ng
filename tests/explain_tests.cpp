@@ -124,15 +124,17 @@ void tests() {
     const auto callAnalysis = analyze_sci0_game(calls);
     require(references(callAnalysis, 21, ResourceType::script, 20) == 1, "calle script reference");
     require(references(callAnalysis, 21, ResourceType::script, 0) == 1, "callb script reference");
-    // Last map entry must shadow earlier startup data, even if malformed.
+    // First map entry retains runtime semantics even if a later duplicate is malformed.
     resource(game, ResourceType::script, 0, {2,0,3,0,0,0});
     report = explain_sci0_game(game);
-    lacks(report, "Opening-room candidate 100"); has(report, "1 shadowed entries"); has(report, "Diagnostics (partial analysis)");
-    require(references(analyze_sci0_game(game), 0, ResourceType::script, 10) == 0, "shadowed script references survived");
+    has(report, "Opening-room candidate 100"); has(report, "1 shadowed entries");
+    require(references(analyze_sci0_game(game), 0, ResourceType::script, 10) > 0, "first script references were shadowed");
     // A selector number cannot confer semantics without its vocabulary.
-    resource(game, ResourceType::vocab, 997, {});
+    for (auto& entry : game.resources)
+        if (entry.entry.id.type == ResourceType::vocab && entry.entry.id.number == 997) entry.payload.clear();
     report = explain_sci0_game(game); has(report, "Selector names unavailable"); lacks(report, "Player view:");
-    resource(game, ResourceType::view, 42, {});
+    for (auto& entry : game.resources)
+        if (entry.entry.id.type == ResourceType::view && entry.entry.id.number == 42) entry.payload.clear();
     report = explain_sci0_game(game); has(report, "view 42: SCI0 view:");
     // Dynamic arguments, incomplete packets, branches, and calls must never
     // manufacture a constant startup target from unrelated stack literals.

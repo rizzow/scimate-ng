@@ -20,7 +20,8 @@ std::string volume_filename(std::uint8_t number);
 Game open_sci0_game(const std::filesystem::path& directory, const ProgressCallback& progress = {});
 
 // Validate the manifest/snapshots and load current payload and PNG edits.
-Game open_sci0_export(const std::filesystem::path& directory, const ProgressCallback& progress = {});
+Game open_sci0_export(const std::filesystem::path& directory, const ProgressCallback& progress = {},
+                      std::vector<Bytes>* original_payloads = nullptr);
 
 struct ExportSummary {
     std::size_t script_listings = 0;

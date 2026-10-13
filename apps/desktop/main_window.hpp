@@ -43,6 +43,7 @@ protected:
     void closeEvent(QCloseEvent* event) override;
 private:
     void buildInterface();
+    void finishOperation();
     using ProjectPtr = std::shared_ptr<scimate::Project>;
     void run(const QString& message, std::function<ProjectPtr(const scimate::ProgressCallback&)> operation, bool explain = false);
     void installExplanation(const scimate::GameExplanation& analysis);

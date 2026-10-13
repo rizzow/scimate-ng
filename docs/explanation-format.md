@@ -23,7 +23,7 @@ The root has these fields:
 | `analysis` | `static`; references do not establish execution or reachability. |
 | `focus` | A resource ID or `null`. Focus filters evidence nodes and text references. |
 | `shadowed_entries` | Number of duplicate map entries superseded by later entries. |
-| `resources` | Effective resource IDs, with last map entry winning. |
+| `resources` | Effective resource IDs, with first map entry winning. |
 | `nodes` | Hierarchical evidence nodes. |
 | `references` | Whole-game reference graph, including when focus is supplied. |
 | `diagnostics` | Strings explaining skipped malformed resources or ambiguous class definitions. |
@@ -69,5 +69,5 @@ flow, and external patch files are not indexed. An empty reverse lookup means
 no recognized static reference, never proof that a resource is unused.
 
 Malformed scripts/views produce partial analysis and diagnostics. Duplicate IDs
-use only the last map entry, including when that entry is malformed. JSON output
+use only the first map entry, including when that entry is malformed. JSON output
 is deterministic for the same loaded game and focus.

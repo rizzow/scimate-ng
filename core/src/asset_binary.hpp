@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "scimate/resource_game.hpp"
+#include "scimate/diagnostics.hpp"
+#include "scimate/format_constants.hpp"
 #include <string>
+#include "binary.hpp"
 namespace scimate::asset_detail {
 inline void require(bool value, const char *message) {
-  if (!value)
-    throw std::runtime_error(message);
+  scimate::require(value, message);
 }
 struct Reader {
   const Bytes &bytes;
@@ -21,16 +23,14 @@ struct Reader {
     return bytes[pos++];
   }
   std::uint32_t le(unsigned n) {
-    std::uint32_t v = 0;
-    for (unsigned i = 0; i < n; ++i)
-      v |= std::uint32_t(byte()) << (i * 8);
-    return v;
+    require(n <= remaining(), "asset: truncated input");
+    const auto value = binary_detail::read(bytes, pos, n, "asset: truncated input");
+    pos += n; return value;
   }
   std::uint32_t be(unsigned n) {
-    std::uint32_t v = 0;
-    while (n--)
-      v = (v << 8) | byte();
-    return v;
+    require(n <= remaining(), "asset: truncated input");
+    const auto value = binary_detail::read(bytes, pos, n, "asset: truncated input", true);
+    pos += n; return value;
   }
   Bytes take(std::size_t n) {
     require(n <= remaining(), "asset: truncated input");
@@ -40,16 +40,12 @@ struct Reader {
   }
 };
 inline void put(Bytes &out, std::uint32_t value, unsigned n, bool big = false) {
-  for (unsigned i = 0; i < n; ++i)
-    out.push_back(value >> ((big ? n - 1 - i : i) * 8));
+  binary_detail::append(out, value, n, "asset: integer size limit exceeded", big);
 }
 inline void word_at(Bytes &out, std::size_t pos, unsigned value) {
-  require(pos + 2 <= out.size() && value <= 65535,
-          "asset: offset/size limit exceeded");
-  out[pos] = value & 255;
-  out[pos + 1] = value >> 8;
+  binary_detail::patch_word(out, pos, value, "asset: offset/size limit exceeded");
 }
 inline void payload_limit(const Bytes &b) {
-  require(b.size() <= 65535, "asset: payload exceeds 65535-byte limit");
+  require(b.size() <= format::max_payload_bytes, "asset: payload exceeds 65535-byte limit");
 }
 } // namespace scimate::asset_detail

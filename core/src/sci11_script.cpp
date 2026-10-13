@@ -3,6 +3,7 @@
 #include "scimate/sci11_script.hpp"
 #include "script_internal.hpp"
 #include <queue>
+#include "binary.hpp"
 
 namespace scimate {
 namespace {
@@ -15,12 +16,10 @@ std::uint16_t narrow(std::size_t value) {
 }
 void put(Bytes& bytes, std::size_t value) {
     auto v = narrow(value);
-    bytes.push_back(static_cast<std::uint8_t>(v)); bytes.push_back(static_cast<std::uint8_t>(v >> 8));
+    binary_detail::append(bytes, v, 2, "SCI1.1 script/heap transform: word overflow");
 }
 void patch(Bytes& bytes, std::size_t slot, std::size_t value) {
-    auto v = narrow(value);
-    if (slot > bytes.size() || bytes.size()-slot < 2) invalid("pointer slot outside resource");
-    bytes[slot] = static_cast<std::uint8_t>(v); bytes[slot+1] = static_cast<std::uint8_t>(v >> 8);
+    binary_detail::patch_word(bytes, slot, value, "SCI1.1 script/heap transform: pointer slot/address outside resource");
 }
 std::uint16_t lookup(const Addresses& addresses, std::size_t old, const char* context) {
     auto found = addresses.find(narrow(old));

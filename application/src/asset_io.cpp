@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "scimate/asset_io.hpp"
 #include "files.hpp"
+#include "scimate/workspace.hpp"
+#include "scimate/output.hpp"
+#include "tables.hpp"
+#include "asset_representation.hpp"
+#include "scimate/format_constants.hpp"
 #include "scimate/assets.hpp"
 #include "scimate/picture_io.hpp"
 #include "scimate/sound.hpp"
@@ -9,45 +14,23 @@
 #include <algorithm>
 #include <charconv>
 #include <map>
+#include <optional>
 #include <sstream>
 namespace scimate {
 namespace {
+using asset_detail::Representation;
 using Files = std::map<std::string, Bytes>;
 void check(bool ok, const char *error =
                         "asset manifest: invalid structure or metadata") {
-  if (!ok)
-    throw std::runtime_error(error);
+  scimate::require(ok, error);
 }
 Bytes bytes(const std::string &s) { return Bytes(s.begin(), s.end()); }
 std::string text(const Bytes &b) { return std::string(b.begin(), b.end()); }
-unsigned integer(const std::string &s, unsigned max = 65535) {
-  unsigned value = 0;
-  auto r = std::from_chars(s.data(), s.data() + s.size(), value);
-  check(r.ec == std::errc{} && r.ptr == s.data() + s.size() && value <= max,
-        "asset table: integer outside allowed range");
-  return value;
+unsigned integer(const std::string &s, unsigned max = format::max_payload_bytes) {
+  return table_detail::integer(s, 0u, max, "asset table");
 }
-std::vector<std::string> row(std::istream &input) {
-  std::string line;
-  check(bool(std::getline(input, line)), "asset table: missing row");
-  if (!line.empty() && line.back() == '\r')
-    line.pop_back();
-  std::vector<std::string> fields;
-  std::size_t begin = 0;
-  for (;;) {
-    auto end = line.find('\t', begin);
-    fields.push_back(
-        line.substr(begin, end == std::string::npos ? end : end - begin));
-    if (end == std::string::npos)
-      break;
-    begin = end + 1;
-  }
-  return fields;
-}
-void end(std::istream &input) {
-  std::string extra;
-  check(!std::getline(input, extra), "asset table: unexpected trailing row");
-}
+std::vector<std::string> row(std::istream &input) { return table_detail::row(input, "asset table"); }
+void end(std::istream &input) { table_detail::end(input, "asset table"); }
 std::istringstream table(const std::filesystem::path &path) {
   return std::istringstream(text(detail::read_file(path, 1024 * 1024)));
 }
@@ -110,33 +93,46 @@ std::string unescape(const std::string &s) {
   }
   return out;
 }
-std::string descriptor(ResourceId id, const std::string &representation) {
+std::string descriptor(ResourceId id, Representation representation) {
   return "SCIMATE-SCI0-ASSET\t1\ntype\tnumber\trepresentation\n" +
          std::to_string(unsigned(id.type)) + "\t" + std::to_string(id.number) +
-         "\t" + representation + "\n";
+         "\t" + std::string(asset_detail::representation_name(representation)) + "\n";
 }
 std::string glyph_name(std::size_t index) {
   return "glyph-" + std::to_string(index) + ".png";
 }
 Sound editable_sound(const Bytes& payload) {
-  try { return read_sci0_sound(payload); }
-  catch (const std::runtime_error&) { return read_sci0_sound(payload,17); }
+  std::optional<Sound> late, early;
+  std::string late_error, early_error;
+  try { late = read_sci0_sound(payload, format::late_sound_header_bytes); }
+  catch (const std::runtime_error&) { late_error = exception_message(std::current_exception()); }
+  try { early = read_sci0_sound(payload, format::early_sound_header_bytes); }
+  catch (const std::runtime_error&) { early_error = exception_message(std::current_exception()); }
+  scimate::require(bool(late) != bool(early), late ? "sound: ambiguous early/late layout; edit byte-level JSON" :
+      "sound: no supported early/late layout; late: " + late_error + "; early: " + early_error);
+  return late ? std::move(*late) : std::move(*early);
 }
-std::string prepare(ResourceId id, const Bytes &payload, Files &files) {
+bool json_bundle(ResourceId id, const Bytes& payload, Files& files) {
+  const auto bundle = export_resource_json_bundle(id, payload);
+  files["resource.json"] = bytes(bundle.json);
+  files["resource.schema.json"] = bytes(bundle.schema);
+  return bundle.semantic;
+}
+Representation prepare(ResourceId id, const Bytes &payload, Files &files, bool& json_semantic) {
   if (id.type == ResourceType::sound) {
     const auto sound = editable_sound(payload);
     files["sound.mid"] = encode_sound_midi(sound);
     std::ostringstream channels;
     channels << "channel\tvoices\tdevices\n";
     for (unsigned i = 0; i < 16; ++i) {
-      const bool early = sound.header.size()==17;
+      const bool early = sound.header.size()==format::early_sound_header_bytes;
       channels << i << '\t' << (early ? unsigned(sound.header[1+i]>>4) : unsigned(sound.header[1+i*2])) << '\t'
                << (early ? unsigned(sound.header[1+i]&15) : unsigned(sound.header[2+i*2])) << '\n';
     }
     files["channels.tsv"] = bytes(channels.str());
     if (!sound.sample_header.empty())
       files["sample.wav"] = encode_sound_wave(sound);
-    return sound.header.size()==17 ? "midi-early" : sound.sample_header.empty() ? "midi" : "midi-pcm";
+    return sound.header.size()==format::early_sound_header_bytes ? Representation::midi_early : sound.sample_header.empty() ? Representation::midi : Representation::midi_pcm;
   }
   if (id.type == ResourceType::font) {
     auto font = read_sci0_font(payload);
@@ -155,18 +151,18 @@ std::string prepare(ResourceId id, const Bytes &payload, Files &files) {
       files[glyph_name(i)] = encode_ega_png(glyph);
     }
     files["font.tsv"] = bytes(meta.str());
-    return "font";
+    return Representation::font;
   }
   if (id.type == ResourceType::cursor) {
     auto cursor = read_sci0_cursor(payload);
     files["cursor.png"] = encode_cel_png(cursor.image);
     files["cursor.tsv"] =
         bytes("hotspot\t" + std::to_string(cursor.hotspot) + "\n");
-    return "cursor";
+    return Representation::cursor;
   }
   if (id.type == ResourceType::text) {
     files["strings.tsv"] = bytes(export_sci0_text_table(payload));
-    return "text";
+    return Representation::text;
   }
   if (id.type == ResourceType::vocab && id.number == 0) {
     auto words = read_sci0_vocabulary(payload);
@@ -175,23 +171,22 @@ std::string prepare(ResourceId id, const Bytes &payload, Files &files) {
     for (const auto &w : words)
       out << escape(w.text) << '\t' << w.word_class << '\t' << w.group << '\n';
     files["words.tsv"] = bytes(out.str());
-    return "vocab0";
+    return Representation::vocabulary;
   }
-  files["resource.json"] = bytes(export_resource_json(id,payload));
-  files["resource.schema.json"] = bytes(resource_json_schema(id,payload));
-  return "json";
+  json_semantic = json_bundle(id, payload, files);
+  return Representation::json;
 }
-Bytes load(ResourceId id, const std::string &representation,
+Bytes load(ResourceId id, Representation representation,
            const Bytes &original, const std::filesystem::path &path) {
-  if (representation == "raw")
+  if (representation == Representation::raw)
     return detail::read_file(path / "payload.bin", 65535);
-  if (representation == "json")
+  if (representation == Representation::json)
     return import_resource_json(id,original,text(detail::read_file(path / "resource.json",16*1024*1024)));
-  if (representation == "midi" || representation == "midi-pcm" || representation == "midi-early") {
+  if (representation == Representation::midi || representation == Representation::midi_pcm || representation == Representation::midi_early) {
     check(id.type == ResourceType::sound);
-    auto sound = read_sci0_sound(original,representation=="midi-early"?17:33);
+    auto sound = read_sci0_sound(original,representation==Representation::midi_early?format::early_sound_header_bytes:format::late_sound_header_bytes);
     check(representation ==
-          (sound.header.size()==17 ? "midi-early" : sound.sample_header.empty() ? "midi" : "midi-pcm"));
+          (sound.header.size()==format::early_sound_header_bytes ? Representation::midi_early : sound.sample_header.empty() ? Representation::midi : Representation::midi_pcm));
     decode_sound_midi(detail::read_file(path / "sound.mid", 16 * 1024 * 1024),
                       sound);
     auto channels = table(path / "channels.tsv");
@@ -200,16 +195,16 @@ Bytes load(ResourceId id, const std::string &representation,
     for (unsigned i = 0; i < 16; ++i) {
       auto f = row(channels);
       check(f.size() == 3 && f[0] == std::to_string(i));
-      if(sound.header.size()==17) sound.header[1+i]=(integer(f[1],15)<<4)|integer(f[2],15);
+      if(sound.header.size()==format::early_sound_header_bytes) sound.header[1+i]=(integer(f[1],15)<<4)|integer(f[2],15);
       else {sound.header[1+i*2]=integer(f[1],255);sound.header[2+i*2]=integer(f[2],255);}
     }
     end(channels);
-    if (representation == "midi-pcm")
+    if (representation == Representation::midi_pcm)
       decode_sound_wave(
           detail::read_file(path / "sample.wav", 16 * 1024 * 1024), sound);
     return write_sci0_sound(sound);
   }
-  if (representation == "font") {
+  if (representation == Representation::font) {
     check(id.type == ResourceType::font);
     auto font = read_sci0_font(original);
     auto meta = table(path / "font.tsv");
@@ -239,7 +234,7 @@ Bytes load(ResourceId id, const std::string &representation,
     end(meta);
     return write_sci0_font(font);
   }
-  if (representation == "cursor") {
+  if (representation == Representation::cursor) {
     check(id.type == ResourceType::cursor);
     auto cursor = read_sci0_cursor(original);
     auto meta = table(path / "cursor.tsv");
@@ -251,11 +246,11 @@ Bytes load(ResourceId id, const std::string &representation,
         detail::read_file(path / "cursor.png", 16 * 1024 * 1024), 3);
     return write_sci0_cursor(cursor);
   }
-  if (representation == "text") {
+  if (representation == Representation::text) {
     check(id.type == ResourceType::text);
     return import_sci0_text_table(text(detail::read_file(path / "strings.tsv", 1024 * 1024)));
   }
-  if (representation == "vocab0") {
+  if (representation == Representation::vocabulary) {
     check(id.type == ResourceType::vocab && id.number == 0);
     auto input = table(path / "words.tsv");
     check(row(input) == std::vector<std::string>({"word", "class", "group"}));
@@ -270,11 +265,11 @@ Bytes load(ResourceId id, const std::string &representation,
       return original;
     return write_sci0_vocabulary(words);
   }
-  if (representation == "view") {
+  if (representation == Representation::view) {
     check(id.type == ResourceType::view);
     return import_sci0_view(path);
   }
-  if (representation == "picture") {
+  if (representation == Representation::picture) {
     check(id.type == ResourceType::pic);
     return import_sci0_picture(path);
   }
@@ -303,37 +298,38 @@ Bytes import_sci0_text_table(const std::string& value) {
 }
 AssetExportSummary export_sci0_asset(ResourceId id, const Bytes &payload,
                                      const std::filesystem::path &destination) {
-  check(unsigned(id.type) <= 9 && id.number <= 2047 && payload.size() <= 65535,
+  check(unsigned(id.type) <= format::last_sci0_resource_type && id.number <= format::max_sci0_resource_number && payload.size() <= format::max_payload_bytes,
         "asset: invalid SCI0 identity/payload size");
   Files files;
-  std::string representation, diagnostic;
+  Representation representation = Representation::raw;
+  std::string diagnostic;
+  bool json_semantic = false;
   AssetExportSummary summary;
   try {
     if (id.type == ResourceType::view) {
       read_sci0_view(payload);
-      representation = "view";
+      representation = Representation::view;
     } else if (id.type == ResourceType::pic) {
       read_sci0_picture(payload);
-      representation = "picture";
+      representation = Representation::picture;
     } else
-      representation = prepare(id, payload, files);
+      representation = prepare(id, payload, files, json_semantic);
   } catch (const std::runtime_error &error) {
-    representation = "json";
+    representation = Representation::json;
     files.clear();
-    files["resource.json"] = bytes(export_resource_json(id,payload));
-    files["resource.schema.json"] = bytes(resource_json_schema(id,payload));
+    json_semantic = json_bundle(id, payload, files);
     diagnostic = error.what();
     summary.conversion_error = true;
   }
-  summary.editable = representation != "raw" &&
-      (representation != "json" || resource_json_is_semantic(id,payload));
-  if (representation == "view")
+  summary.editable = representation != Representation::raw &&
+      (representation != Representation::json || json_semantic);
+  if (representation == Representation::view)
     export_sci0_view(payload, destination);
-  else if (representation == "picture")
+  else if (representation == Representation::picture)
     export_sci0_picture(payload, destination);
   else {
     detail::create_destination(destination);
-    detail::write_file(destination / "original.bin", payload);
+    detail::write_file(destination / workspace_detail::original_file, payload);
     for (const auto &file : files)
       detail::write_file(destination / file.first, file.second);
   }
@@ -355,41 +351,44 @@ Bytes import_sci0_asset(const std::filesystem::path &directory,
   auto f = row(input);
   check(f.size() == 3);
   end(input);
-  ResourceId resource{ResourceType(integer(f[0], 9)),
-                      std::uint16_t(integer(f[1], 2047))};
-  auto original = detail::read_file(directory / "original.bin", 65535);
-  std::string expected;
+  ResourceId resource{ResourceType(integer(f[0], format::last_sci0_resource_type)),
+                      std::uint16_t(integer(f[1], format::max_sci0_resource_number))};
+  auto original = detail::read_file(directory / workspace_detail::original_file, 65535);
+  const auto representation = asset_detail::parse_representation(f[2]);
+  Representation expected = Representation::raw;
   try {
     if (resource.type == ResourceType::view) {
       read_sci0_view(original);
-      expected = "view";
+      expected = Representation::view;
     } else if (resource.type == ResourceType::pic) {
       read_sci0_picture(original);
-      expected = "picture";
+      expected = Representation::picture;
     } else if (resource.type == ResourceType::sound) {
-      const auto sound=editable_sound(original);
-      expected = sound.header.size()==17 ? "midi-early" : sound.sample_header.empty() ? "midi" : "midi-pcm";
+      const auto sound = (representation == Representation::midi || representation == Representation::midi_pcm || representation == Representation::midi_early)
+          ? read_sci0_sound(original, representation == Representation::midi_early ? format::early_sound_header_bytes : format::late_sound_header_bytes)
+          : editable_sound(original);
+      expected = sound.header.size()==format::early_sound_header_bytes ? Representation::midi_early : sound.sample_header.empty() ? Representation::midi : Representation::midi_pcm;
     } else if (resource.type == ResourceType::font) {
       read_sci0_font(original);
-      expected = "font";
+      expected = Representation::font;
     } else if (resource.type == ResourceType::cursor) {
       read_sci0_cursor(original);
-      expected = "cursor";
+      expected = Representation::cursor;
     } else if (resource.type == ResourceType::text) {
       read_sci0_text(original);
-      expected = "text";
+      expected = Representation::text;
     } else if (resource.type == ResourceType::vocab && resource.number == 0) {
       read_sci0_vocabulary(original);
-      expected = "vocab0";
+      expected = Representation::vocabulary;
     } else {
-      expected = "json";
+      expected = Representation::json;
     }
   } catch (const std::runtime_error &) {
-    expected = "json";
+    expected = Representation::json;
   }
-  check(f[2] == expected || f[2] == "raw",
+  check(representation == expected || representation == Representation::raw,
         "asset manifest: representation differs from original resource");
-  auto edited = load(resource, f[2], original, directory);
+  auto edited = load(resource, representation, original, directory);
   check(edited.size() <= 65535, "asset: payload exceeds 65535-byte limit");
   if (id)
     *id = resource;
@@ -402,10 +401,6 @@ void export_sci0_asset_file(ResourceId id, const std::filesystem::path &payload,
 void import_sci0_asset_file(const std::filesystem::path &directory,
                             const std::filesystem::path &payload) {
   auto bytes = import_sci0_asset(directory);
-  if (std::filesystem::exists(std::filesystem::symlink_status(payload)))
-    throw std::runtime_error("destination already exists: " + payload.string());
-  detail::write_file(payload, bytes);
-  if (detail::read_file(payload, 65535) != bytes)
-    throw std::runtime_error("saved asset verification failed");
+  write_new_file(payload, bytes);
 }
 } // namespace scimate

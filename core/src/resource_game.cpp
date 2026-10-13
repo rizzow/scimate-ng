@@ -16,18 +16,17 @@
 #include "scimate/resource_game.hpp"
 
 #include <set>
+#include "binary.hpp"
 #include <string>
 #include <utility>
 
 namespace scimate {
 namespace {
 std::uint16_t word(const Bytes& bytes, std::size_t offset) {
-    if (offset > bytes.size() || bytes.size() - offset < 2)
-        throw std::runtime_error("truncated resource header");
-    return static_cast<std::uint16_t>(bytes[offset] | (static_cast<unsigned>(bytes[offset + 1]) << 8));
+    return static_cast<std::uint16_t>(binary_detail::read(bytes, offset, 2, "truncated resource header"));
 }
 void append(Bytes& bytes, std::uint32_t value, unsigned count) {
-    for (unsigned i = 0; i < count; ++i) bytes.push_back(static_cast<std::uint8_t>(value >> (i * 8)));
+    binary_detail::append(bytes, value, count, "resource field exceeds encoded width");
 }
 bool same_entry(const ResourceMapEntry& a, const ResourceMapEntry& b) {
     return a.id.type == b.id.type && a.id.number == b.id.number &&

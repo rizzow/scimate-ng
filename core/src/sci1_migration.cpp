@@ -4,6 +4,10 @@
 #include "scimate/sound.hpp"
 #include "scimate/assets.hpp"
 #include "script_internal.hpp"
+#include "vocabulary_names.hpp"
+#include "binary.hpp"
+#include "scimate/resource_lookup.hpp"
+#include "migration_internal.hpp"
 #include "sci_vm.hpp"
 #include "migration_analysis.hpp"
 #include <array>
@@ -11,7 +15,7 @@
 #include <sstream>
 
 namespace scimate {
-namespace {
+namespace migration_detail {
 using namespace script_detail;
 namespace op = sci_vm::opcode;
 namespace kernel0 = sci_vm::sci0_kernel;
@@ -22,12 +26,9 @@ void append_byte_instruction(Bytes& code, unsigned opcode, std::initializer_list
         code.push_back(static_cast<std::uint8_t>(value));
     }
 }
-void put(Bytes& bytes, unsigned value) {
-    bytes.push_back(static_cast<std::uint8_t>(value)); bytes.push_back(static_cast<std::uint8_t>(value >> 8));
-}
+void put(Bytes& bytes, unsigned value) { binary_detail::append(bytes, value, 2, "migration address outside 16-bit script"); }
 void patch(Bytes& bytes, std::size_t offset, unsigned value) {
-    if (value > 65535 || offset > bytes.size() || bytes.size()-offset < 2) throw std::runtime_error("migration address outside 16-bit script");
-    bytes[offset] = static_cast<std::uint8_t>(value); bytes[offset+1] = static_cast<std::uint8_t>(value >> 8);
+    binary_detail::patch_word(bytes, offset, value, "migration address outside 16-bit script");
 }
 // This is a ScummVM compatibility profile, not a native SCI1 sound port.
 // Validate the source ABI and resource encoding independently of the runtime
@@ -39,17 +40,10 @@ void validate_sound_dispatch(const Game& game) {
             selectors = &resource.payload;
     }
     if (!selectors) throw std::runtime_error("SCI0 sound compatibility requires selector vocabulary 997 to verify ScummVM dispatch");
-    const auto& bytes = *selectors;
-    const auto count = unsigned(word(bytes, 0, bytes.size())) + 1;
-    if (count > (bytes.size()-2)/2) throw std::runtime_error("truncated selector vocabulary 997");
-    for (unsigned i = 0; i < count; ++i) {
-        const auto offset = word(bytes, 2+2*i, bytes.size());
-        if (offset < 2+2*count) throw std::runtime_error("selector name overlaps vocabulary 997 offset table");
-        const auto length = word(bytes, offset, bytes.size());
-        if (offset+2u+length > bytes.size()) throw std::runtime_error("truncated selector name in vocabulary 997");
-        if (length == 7 && std::string(bytes.begin()+offset+2, bytes.begin()+offset+2+length) == "nodePtr")
+    const auto names = vocabulary_detail::read_names(*selectors, true);
+    for (const auto& name : names.entries)
+        if (name && std::string(name->begin(), name->end()) == "nodePtr")
             throw std::runtime_error("SCI0 sound compatibility cannot preserve late sound dispatch with nodePtr present; early sound needs a semantic port");
-    }
     std::set<std::uint16_t> seen_sounds;
     for (const auto& resource : game.resources) if (resource.entry.id.type == ResourceType::sound &&
                                                   seen_sounds.insert(resource.entry.id.number).second) {
@@ -106,7 +100,6 @@ void validate_sound_call(const ParsedScript& parsed, std::size_t index) {
         frame/2 > max_args.at(static_cast<unsigned>(subop)))
         throw std::runtime_error("unsupported SCI0 DoSound suboperation/frame at " + std::to_string(call.start));
 }
-using Resources = std::map<std::pair<ResourceType,std::uint16_t>,Resource>;
 ParsedScript parse_migration_script(const Resource& resource) {
     try {
         // Only script 0 changes layout. Other scripts retain every instruction
@@ -337,7 +330,6 @@ Bytes add_file_bridges(const Bytes& original, const ParsedScript& parsed, unsign
     bytes.insert(bytes.end(), code.begin(), code.end()); put(bytes, 0);
     return bytes;
 }
-using ScriptMetadata = std::map<std::uint16_t,ParsedScript>;
 std::vector<std::string> repair_volume_queries(Resources& resources) {
     std::vector<std::string> repaired;
     for (auto& entry : resources) if (entry.first.first == ResourceType::script) {
@@ -359,17 +351,12 @@ std::vector<std::string> repair_volume_queries(Resources& resources) {
     }
     return repaired;
 }
-struct MigrationStats {
-    std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0;
-    std::size_t parser_calls = 0, opaque_exports = 0, unusual_file_frames = 0;
-    std::vector<std::string> legacy_branches;
-};
+
 
 Resources resolve_duplicate_resources(const Game& game) {
     Resources unique;
     // SCI0 ScummVM lookup keeps the first map entry for duplicate IDs.
-    for (const auto& resource : game.resources)
-        unique.emplace(std::make_pair(resource.entry.id.type,resource.entry.id.number),resource);
+    for (const auto& entry : index_resources(game)) unique.emplace(entry.first, *entry.second);
     return unique;
 }
 
@@ -513,68 +500,10 @@ GameFiles write_verified_game(const std::vector<Resource>& output, Sci1Format fo
     return files;
 }
 
-std::string migration_report(std::size_t resource_count, const MigrationStats& stats,
-                              const std::vector<std::string>& selected_fallbacks) {
-    const auto& [scripts,remapped,bridged,sound_calls,parser_calls,opaque_exports,unusual_file_frames,legacy_branches] = stats;
-    std::ostringstream report;
-    report << "SCIMATE experimental generic SCI0 -> SCI1 migration\n"
-           << "Resources: " << resource_count << "; duplicate SCI0 IDs resolved using first map entry (ScummVM semantics).\n"
-           << "Scripts scanned: " << scripts << "; remapped kernel calls: " << remapped << "; file-I/O bridge calls: " << bridged << ".\n"
-           << (parser_calls ? "Target: SCI1 EGA packed-ID map, eight-byte volume headers, uncompressed payloads.\n" : "Target: SCI1 late directory map, nine-byte volume headers, uncompressed payloads.\n")
-           << "Original EGA graphics, game-object name and relative LOFS semantics retained.\n"
-           << "Parser calls retained: " << parser_calls << "; "
-           << (parser_calls ? "word vocabulary 0 converted to 900; grammar 900 -> 901, suffixes 901 -> 902; obsolete SCI0 kernel names omitted.\n" : "no parser resource conversion required.\n")
-           << "Main export expansion relocates absolute addresses; four FileIO bridges appended.\n"
-           << "FileIO bridges forward actual parameters including &rest; unusual encoded frames retained: " << unusual_file_frames << " (runtime signature validation remains required).\n"
-           << "Validated SCI0 late DoSound calls: " << sound_calls << "; kernel remapped to 0x2d.\n"
-           << (sound_calls ? "Sound resources retained after SCI0 late decoding; ScummVM late-sound dispatch verified by vocabulary 997.\n" : "No DoSound compatibility profile required.\n")
-           << "Script layouts, main branches, methods and direct calls validated; opaque uncalled export slots preserved: " << opaque_exports << ".\n"
-           << "Legacy non-main branch targets retained unchanged: " << legacy_branches.size() << "; runtime reachability UNVERIFIED.\n"
-           << "Dynamic export accesses remain unverified; no game-specific assumptions, assets or detection hashes fabricated.\n"
-           << "UNVERIFIED: runtime detection, graphics/sound compatibility, save/restore and gameplay require manual ScummVM validation.\n"
-           << "This is a ScummVM-targeted compatibility candidate, not a claim of original Sierra interpreter compatibility or a general SCI1.1 migration.\n";
-    for (const auto& branch : legacy_branches) report << "UNVERIFIED legacy branch: " << branch << ".\n";
-    for (const auto& fallback : selected_fallbacks) report << "Selected fallback: " << fallback << ".\n";
-    return report.str();
-}
-std::vector<std::string> auxiliary_references(const Game& game) {
-    std::set<std::string> names;
-    for (const auto& resource : game.resources) if (resource.entry.id.type == ResourceType::script) {
-        const auto script = parse_migration_script(resource);
-        for (const auto& section : script.sections) if (section.type == sci_vm::section::strings) {
-            std::size_t cursor = section.start+sci_vm::section_header_bytes;
-            while (cursor < section.end) {
-                const auto start = cursor;
-                while (cursor < section.end && resource.payload[cursor]) ++cursor;
-                const std::string name(resource.payload.begin()+start,resource.payload.begin()+cursor);
-                ++cursor;
-                if (name.empty() || name.size() > 255 || name.find('.') == std::string::npos) continue;
-                bool filename = true;
-                for (const unsigned char ch : name)
-                    if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-                          (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-')) filename = false;
-                if (filename && name != "." && name != "..") names.insert(name);
-            }
-        }
-    }
-    return {names.begin(),names.end()};
-}
-std::string object_layout_diagnostics(const ScriptMetadata& scripts) {
-    std::map<unsigned,std::size_t> classes;
-    for (const auto& entry : scripts) for (const auto& object : entry.second.objects)
-        if (object.is_class) classes.emplace(object.values.at(0),object.values.size());
-    std::ostringstream report;
-    for (const auto& entry : scripts) for (const auto& object : entry.second.objects) if (!object.is_class) {
-        const auto base = classes.find(object.values.at(0));
-        if (base != classes.end() && base->second != object.values.size())
-            report << "Source object layout mismatch: script " << entry.first << " at byte " << object.pointer <<
-                ", instance properties " << object.values.size() << ", base properties " << base->second << "; preserved.\n";
-    }
-    return report.str();
-}
 } // namespace
 
 Sci1Migration migrate_sci0_to_sci1(const Game& game) {
+    using namespace migration_detail;
     auto resources = resolve_duplicate_resources(game);
     if (!resources.count({ResourceType::script,0})) throw std::runtime_error("migration requires script 0");
     const auto volume_repairs = repair_volume_queries(resources);

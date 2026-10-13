@@ -2,17 +2,15 @@
 // DOS SCI1/SCI1.1 layouts checked against ScummVM resource.cpp; see provenance.
 #include "scimate/sci1.hpp"
 #include <set>
+#include "binary.hpp"
 
 namespace scimate {
 namespace {
 unsigned get(const Bytes& bytes, std::size_t offset, unsigned width) {
-    if (offset > bytes.size() || width > bytes.size()-offset) throw std::runtime_error("truncated SCI1 field at byte " + std::to_string(offset));
-    unsigned value = 0;
-    for (unsigned i = 0; i < width; ++i) value |= static_cast<unsigned>(bytes[offset+i]) << (i*8);
-    return value;
+    return binary_detail::read(bytes, offset, width, "truncated SCI1 field at byte " + std::to_string(offset));
 }
 void put(Bytes& bytes, unsigned value, unsigned width) {
-    for (unsigned i = 0; i < width; ++i) bytes.push_back(static_cast<std::uint8_t>(value >> (i*8)));
+    binary_detail::append(bytes, value, width, "SCI1 field exceeds encoded width");
 }
 } // namespace
 std::vector<ResourceMapEntry> read_sci1_map(const Bytes& bytes, Sci1Format format) {

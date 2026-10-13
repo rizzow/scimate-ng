@@ -65,8 +65,10 @@ unsigned 8-bit mono PCM. Import requires this format and a sample rate of
 1..65,535 Hz; it accepts standard RIFF chunks and padding. It does not resample
 or quantize. Edits update the sample rate/length while preserving unknown sample
 header fields, repeated stop markers, and trailing bytes. Adding a PCM section
-to a MIDI-only sound is not supported. Early SCI0 17-byte headers are tried when
-late-header parsing fails; ambiguous payloads prefer the late layout. Early
+to a MIDI-only sound is not supported. Export checks both early SCI0 17-byte and
+late 33-byte layouts. Exactly one must decode successfully; ambiguous payloads
+retain byte-level JSON with a diagnostic. Existing explicit MIDI bundle layouts
+remain importable. Early
 voice/device fields are packed nibbles (0..15), rather than byte pairs.
 Unsupported SCI1 sound layouts use byte-level JSON.
 

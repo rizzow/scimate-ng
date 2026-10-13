@@ -195,7 +195,7 @@ void inspect_sends(unsigned number, const ParsedScript& script, const std::map<u
 
 GameExplanation analyze_sci0_game(const Game& game, std::optional<ResourceId> focus) {
     GameExplanation result;
-    const auto resources = index_resources(game, DuplicatePolicy::last);
+    const auto resources = index_resources(game, DuplicatePolicy::first);
     const auto duplicates = game.resources.size() - resources.size();
     if (focus && !resources.count({focus->type, focus->number})) throw std::runtime_error("requested explain resource was not found");
     std::vector<std::string> diagnostics;

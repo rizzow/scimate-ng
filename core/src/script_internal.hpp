@@ -26,5 +26,11 @@ std::uint16_t target(const Instruction&);
 std::string hex(std::size_t,int=4);
 std::string opcode_name(unsigned);
 std::vector<unsigned> operand_widths(unsigned opcode, unsigned width);
+inline bool relative_operand(unsigned op) { return (op >= 23 && op <= 25) || op == 32 || op == 57 || op == 58; }
+inline bool compatible_opcode(unsigned candidate, unsigned original, unsigned width) {
+    return !opcode_name(candidate).empty() && operand_widths(candidate, width) == operand_widths(original, width) &&
+        relative_operand(candidate) == relative_operand(original) &&
+        ((candidate == 26 || candidate == 28) == (original == 26 || original == 28));
+}
 std::string quoted(const Bytes&,std::size_t,std::size_t);
 }

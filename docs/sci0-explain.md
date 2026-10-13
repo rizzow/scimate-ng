@@ -13,7 +13,7 @@ resource, not a room number. A game overview lists room candidates within script
 
 The command opens the map and volumes, decompresses resources, and performs
 static analysis. It neither executes the game nor modifies its resources.
-Duplicate resource IDs use the last map entry, matching the CLI's game lookup.
+Duplicate resource IDs use the first map entry, matching migration and SCI0 runtime lookup.
 
 ## Evidence and uncertainty
 

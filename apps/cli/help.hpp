@@ -2,6 +2,7 @@
 #pragma once
 
 #include <iostream>
+#include "commands.hpp"
 #include <optional>
 #include <string>
 #include <string_view>
@@ -62,6 +63,7 @@ Exit status: 0 success; 1 input/output or resource error; 2 invalid usage.
 
 inline std::string command_help(std::string_view command, bool sci1 = false,
                                 std::string_view migration_help = {}) {
+    if (!command_spec(command)) return {};
     std::string body;
     bool format_option = true;
     if (command == "list") {
@@ -141,7 +143,7 @@ filters evidence nodes/text output; JSON references always cover the whole game.
 A room candidate is an object, not necessarily its script number. Dynamic IDs,
 runtime timing, reachability, and the first playable room are not proven.
 Malformed individual scripts/views and missing vocabularies produce partial
-reports with diagnostics. Duplicate IDs use the last map entry. No game runs.
+reports with diagnostics. Duplicate IDs use the first map entry. No game runs.
 
 Examples:
   scimate explain ./game
@@ -273,7 +275,7 @@ changes indices referenced by scripts; character encodings are not guessed.
     if (format_option) {
         body += "Formats: ";
         body += sci1 && (command == "list" || command == "inspect")
-            ? "sci0 (default), sci1 (SCI1 late), sci11 (SCI1.1).\n"
+            ? "sci0 (default), sci1 (SCI1 late), sci1-ega (SCI1 EGA), sci11 (SCI1.1).\n"
             : "sci0 (default).\n";
     }
     body += "Exit status: 0 success; 1 input/output or resource error; 2 invalid usage.\n";
