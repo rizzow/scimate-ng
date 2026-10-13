@@ -343,19 +343,10 @@ std::vector<std::string> repair_volume_queries(Resources& resources) {
     for (auto& entry : resources) if (entry.first.first == ResourceType::script) {
         auto& resource = entry.second;
         const auto script = parse_migration_script(resource);
-        for (std::size_t i = 3; i < script.instructions.size(); ++i) {
-            const auto& count = script.instructions[i-3];
-            const auto& command = script.instructions[i-2];
-            const auto& parameter = script.instructions[i-1];
-            const auto& call = script.instructions[i];
-            constexpr unsigned master_volume_command = 8;
-            constexpr unsigned setter_frame_bytes = 2*sci_vm::word_bytes;
-            if (count.opcode != op::push_two || command.opcode != op::push_immediate || command.operands.at(0) != master_volume_command ||
-                parameter.opcode != op::load_temporary_to_stack || call.opcode != op::call_kernel ||
-                call.operands.at(0) != kernel0::do_sound || call.operands.at(1) != setter_frame_bytes ||
-                count.end != command.start || command.end != parameter.start || parameter.end != call.start) continue;
-            if (script.labels.count(command.start) || script.labels.count(parameter.start) || script.labels.count(call.start) ||
-                script.procedures.count(command.start) || script.procedures.count(parameter.start) || script.procedures.count(call.start)) continue;
+        for (std::size_t i = 0; i < script.instructions.size(); ++i) {
+            const auto frame = migration_detail::volume_query_frame(script,i);
+            if (!frame) continue;
+            const auto& [count,parameter,call] = *frame;
             if (!migration_detail::uninitialized_temporary(script,parameter.operands.at(0),parameter.start)) continue;
             auto& payload = resource.payload;
             payload.at(count.start) = static_cast<std::uint8_t>(sci_vm::encoded_opcode(op::push_one));
