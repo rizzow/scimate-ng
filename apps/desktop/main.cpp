@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
+#include <QIcon>
 #include <QApplication>
 #include <QFileInfo>
 #include <QTimer>
 
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
+    QApplication::setWindowIcon(QIcon(":/scimate.png"));
     QCoreApplication::setOrganizationName("SCIMate");
     QCoreApplication::setApplicationName("SCIMate NG");
     MainWindow window;

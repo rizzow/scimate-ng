@@ -73,6 +73,10 @@ supporting generator and update `.clangd`'s `CompilationDatabase` path.
 
 ## Desktop projects
 
+The desktop build includes an application icon for the macOS Finder/Dock and Qt
+windows. Source artwork and regeneration notes live in
+[desktop resources](apps/desktop/resources/README.md).
+
 Text saves reject payloads too large for SCI0's stored-resource format before
 changing project files. Unsupported text-bundle representations require external
 editing rather than saving an unused payload file.

@@ -36,6 +36,16 @@ if(SCIMATE_BUILD_DESKTOP)
   target_link_libraries(scimate_desktop_ui PUBLIC scimate_application Qt6::Widgets Qt6::Concurrent)
   add_executable(scimate-desktop MACOSX_BUNDLE WIN32 apps/desktop/main.cpp)
   target_link_libraries(scimate-desktop PRIVATE scimate_desktop_ui)
+  qt_add_resources(scimate-desktop desktop_icons
+    PREFIX "/"
+    BASE "apps/desktop/resources"
+    FILES apps/desktop/resources/scimate.png)
+  if(APPLE)
+    target_sources(scimate-desktop PRIVATE apps/desktop/resources/scimate.icns)
+    set_source_files_properties(apps/desktop/resources/scimate.icns PROPERTIES
+      MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(scimate-desktop PROPERTIES MACOSX_BUNDLE_ICON_FILE scimate.icns)
+  endif()
   set_target_properties(scimate-desktop PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME "SCIMate NG"
     MACOSX_BUNDLE_GUI_IDENTIFIER "org.scimate.desktop")
