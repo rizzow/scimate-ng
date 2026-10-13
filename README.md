@@ -1,9 +1,16 @@
 # SCIMate NG
 
-A portable successor to SCI Companion, starting with a headless SCI0 resource
-read/write pipeline and a Qt project-management desktop app. The core uses
+A portable successor to SCI Companion with a headless SCI0 resource
+read/write pipeline and an optional Qt project-management desktop app. It also
+provides explicit SCI1/SCI1.1 container inspection and experimental SCI0-to-SCI1
+migration. The core uses
 C++17 and has no Qt or other external dependencies. The `scimate` CLI and
 `scimate-desktop` GUI are separate executables.
+
+Editing and desktop projects currently target SCI0 EGA resources. Script
+disassembly and game explanations aid inspection; script compilation and
+integrated high-level decompilation are not available. Migration output remains
+unverified until tested in ScummVM.
 
 ## Command-line help
 
@@ -48,6 +55,16 @@ cmake -S . -B build-core -DSCIMATE_BUILD_CLI=OFF \
 cmake --build build-core
 ```
 
+GitHub Actions runs Release builds and CTest on macOS, Ubuntu, and Windows for
+pushes and pull requests. A separate Ubuntu job builds the Qt desktop app and
+runs its tests with the offscreen Qt platform. The aggregate **CI** check passes
+only when every build/test job succeeds and can be required in branch protection.
+See [the workflow](.github/workflows/build.yml).
+
+clangd looks for a compilation database in `cmake-build-debug/` via `.clangd`.
+For another build directory, enable `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` with a
+supporting generator and update `.clangd`'s `CompilationDatabase` path.
+
 ## Desktop projects
 
 Project creation keeps the decoded game in memory instead of re-reading every
@@ -91,6 +108,12 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
 - The compact project toolbar leaves more room for resources. The viewer adapts:
   views show animation controls, pictures show plane controls, text shows strings,
   and scripts/binary resources use the full viewer height without an image area.
+- **Explain → Explain / Refresh** (or **Project → Explain Project**) analyzes the
+  loaded project on a background worker using the same engine as `scimate explain`.
+  Expand the tree for scripts/objects, views/loops, startup, transitions and limits;
+  select a branch to read its evidence. Double-click a Script/View entry to inspect
+  that resource. Fact/likely/unresolved labels and diagnostics are preserved.
+  Refresh from Disk first to include external edits; rerun Explain after changes.
 - Filter resources by type and search text; inspect script disassembly and preview
   view cels, mirrored loops, and background/priority/control planes. **Play loop**
   animates the selected view loop. Drag either splitter to resize the browser or preview.
@@ -132,6 +155,9 @@ assuming a `resource.000`. The CLI reads at most 16 MiB and validates the entire
 map before printing a table. Exit codes: 0 success, 1 read/parse/output error,
 2 usage error. `--help` describes the supported scope.
 
+For later containers, pass `--format sci1`, `--format sci1-ega`, or
+`--format sci11` to `list` and `inspect`; formats are selected explicitly.
+
 ## Read, export, edit, and rebuild
 
 ```sh
@@ -149,7 +175,8 @@ SCI0 compression methods 0 (stored), 1 (LZW), and 2 (Huffman) are supported.
 Exports contain `manifest.tsv`, ordinal `payloads/*.bin` files, and snapshots
 of the original map and referenced volumes under `original/`. Payloads are raw
 decoded bytes, not standalone SCI patch files. Keep the manifest and snapshots
-unchanged; modify payloads or the supported editable view and picture bundles below.
+unchanged; modify payloads or the supported editable image, sound, font, cursor,
+text, and vocabulary bundles described below.
 Duplicate resource IDs remain separate.
 
 Unchanged imports preserve the original map and referenced volumes byte-for-byte,
@@ -160,9 +187,12 @@ directories must not exist; neither command overwrites an existing destination.
 
 This reconstructs the packaged resources, not a complete runnable game folder:
 interpreters, scripts on disk, configuration, patch files, and unreferenced
-volumes are not copied. No automatic format detection, SCI0-with-SCI1-layout,
-SCI1/SCI1.1 support, recompression, resource additions/deletions/renaming,
-script-source editing is implemented. A valid reconstruction
+volumes are not copied. The `export`/`import` editing workflow is SCI0 only;
+later-container inspection and experimental migration are separate commands.
+Automatic format detection, SCI0-with-SCI1-layout editing, recompression,
+resource additions/deletions/renaming, and script-source editing are not
+implemented. Changed packaged payloads are limited to 65,531 bytes.
+A valid reconstruction
 does not prove that edited payloads are meaningful to the SCI engine.
 
 See [round-trip guarantees, limits, and export format](docs/sci0-roundtrip.md).
@@ -203,7 +233,7 @@ Our experimental decompiler port has been retired. Disassembly remains built in.
 
 ## Read scripts
 
-Exports now also contain `scripts/NNNNNNN.asm` listings for script resources,
+Exports also contain `scripts/NNNNNNN.asm` listings for script resources,
 using the same ordinal as their payload file. These are human-readable
 disassemblies with opcode mnemonics, branch/call labels, object names and
 properties, method entry points, strings, exports, and locals. Unknown selector,
@@ -239,9 +269,6 @@ constant room transitions, and possible opening rooms. Facts, likely roles, and
 unresolved behavior are labeled separately; no game execution or resource edits.
 See [heuristics, confidence, and limitations](docs/sci0-explain.md).
 
-clangd uses the existing compilation database in `cmake-build-debug/` via
-`.clangd`. If you use another build directory, adjust `CompilationDatabase`.
-
 ## Edit backgrounds and masks
 
 Game exports include `pictures/NNNNNNN/` bundles containing `visual.png`,
@@ -259,20 +286,35 @@ See [picture editing rules and limits](docs/sci0-pictures.md).
 
 ## Experimental SCI1 migration
 
-`scimate list --format sci1|sci11` and `inspect --format sci1|sci11` read DOS
-SCI1 late / SCI1.1 directory-map containers (compression 0/1/2 only). These
-are explicit format choices; SCI1.1 script/heap migration is not implemented.
+`list` and `inspect` accept `--format sci1` for DOS SCI1 late directory maps,
+`--format sci11` for SCI1.1 directory maps, and `--format sci1-ega` for SCI1 EGA
+packed-ID maps. SCI1 late/SCI1.1 decoding supports stored, Huffman, and MSB LZW
+records (methods 0/1/2); the SCI1 EGA profile supports stored payloads.
 
 ```sh
 ./build/scimate migrate --to sci1 /path/to/source-game /path/to/migrated-sci1
-./build/scimate inspect --format sci1 /path/to/migrated-sci1
+# Use the target format reported in migration-report.txt:
+./build/scimate inspect --format sci1-ega /path/to/migrated-sci1
 ```
 
-This experimental format-based converter retains EGA assets, remaps kernel calls,
-and adds file-I/O bridges for an SCI1 late candidate. Parser and SCI0 sound
-adaptations are not implemented and their calls are rejected. Runtime
-compatibility is **unverified**. The proof gate is real-game playback with
-ScummVM reporting SCI1 late before adding VGA artwork. See the
+The source must be an SCI0 game directory, and the destination must be new.
+Migration writes `resource.map`, `resource.000`, and `migration-report.txt`.
+It retains EGA assets, remaps kernel calls, and bridges supported file-I/O calls.
+Parser-bearing games target SCI1 EGA: word vocabulary 0 becomes 900, grammar
+900 moves to 901, and optional suffix vocabulary 901 moves to 902. Other games
+target SCI1 late; inspect those with `--format sci1`.
+
+A limited ScummVM sound compatibility profile retains decoded SCI0 late sound
+resources after validating sound-call frames and vocabulary 997's dispatch
+condition. Unsupported or unproven calls, early sound layouts, and DoAvoider
+are rejected. This does not establish compatibility with Sierra's SCI1 drivers.
+
+The core includes structural SCI0-to-SCI1.1 script/heap splitting and validation,
+but the CLI does not expose complete SCI1.1 game migration. VGA conversion is
+not implemented. Runtime compatibility is **unverified**: successful container
+round-trips do not prove gameplay. The proof gate is real-game playback in
+unmodified ScummVM reporting the intended SCI1 generation, including parser,
+sound, room transitions, and save/restore, before adding VGA artwork. See the
 [manual migration and proof procedure](docs/sci1-migration.md).
 
 ## Edit sounds, fonts, cursors, text, and vocabulary

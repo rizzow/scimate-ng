@@ -13,6 +13,9 @@
 #include <QMessageBox>
 #include <QTableView>
 #include <QTableWidget>
+#include <QTreeWidget>
+#include <QTabWidget>
+#include <QAction>
 #include "scimate/asset_io.hpp"
 #include <QTemporaryDir>
 
@@ -39,6 +42,12 @@ private slots:
         QVERIFY(window.windowTitle().contains("Renamed project"));
         QCOMPARE(scimate::open_project(window.project()->directory).name, std::string("Renamed project"));
         window.renameProject("My project");
+        window.findChild<QAction*>("explainProject")->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(!window.busy(), 10000);
+        auto* explanation = window.findChild<QTreeWidget*>("explanationTree");
+        QVERIFY(explanation && explanation->topLevelItemCount() > 0);
+        QVERIFY(window.findChild<QWidget*>("visualPreview")->isHidden());
+        window.findChild<QTabWidget*>()->setCurrentIndex(0);
         auto* table = window.findChild<QTableView*>("resources");
         auto* filter = window.findChild<QLineEdit*>("resourceFilter");
         auto* details = window.findChild<QPlainTextEdit*>("details");

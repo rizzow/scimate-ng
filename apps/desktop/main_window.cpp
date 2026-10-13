@@ -2,11 +2,13 @@
 #include "main_window.hpp"
 #include "scimate/script.hpp"
 #include "scimate/asset_io.hpp"
+#include "scimate/explain.hpp"
 #include "scimate/view.hpp"
 #include "scimate/picture.hpp"
 #include <QtWidgets>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
+#include <QRegularExpression>
 #include <array>
 #include <mutex>
 
@@ -22,7 +24,7 @@ void rememberDirectory(const QString& key, const QString& directory) {
     if (!directory.isEmpty() && QDir(directory).exists())
         QSettings().setValue("dialogs/" + key, QDir(directory).absolutePath());
 }
-struct Outcome { std::shared_ptr<scimate::Project> project; QString error; std::vector<bool> modified; };
+struct Outcome { std::shared_ptr<scimate::Project> project; QString error; std::vector<bool> modified; QString explanation; };
 struct ProgressState { std::mutex mutex; scimate::OperationProgress value; };
 class ResourceFilter : public QSortFilterProxyModel {
 public:
@@ -70,6 +72,7 @@ MainWindow::MainWindow() {
     recent_ = file->addMenu("Recent Projects");
     close_ = file->addAction("Close Project", this, [this] {
         project_.reset(); model_->removeRows(0, model_->rowCount()); preview();
+        explanation_->clear(); explain_->setEnabled(false);
         heading_->setText("SCIMate NG"); heading_->setToolTip({}); location_->setText("Create a project from an SCI0 game, or open an existing project.");
         setWindowTitle("SCIMate NG");
         refresh_->setEnabled(false); build_->setEnabled(false); folder_->setEnabled(false); close_->setEnabled(false); rename_->setEnabled(false);
@@ -77,6 +80,12 @@ MainWindow::MainWindow() {
     file->addSeparator();
     file->addAction("Quit", this, &QWidget::close)->setShortcut(QKeySequence::Quit);
     auto* projectMenu = menuBar()->addMenu("&Project");
+    explain_ = projectMenu->addAction("Explain Project", this, [this] {
+        if (!project_ || busy_) return;
+        const auto project = project_;
+        run("Explaining project", [project](const scimate::ProgressCallback&) { return project; }, true);
+    });
+    explain_->setObjectName("explainProject");
     rename_ = projectMenu->addAction("Rename Project…", this, [this] {
         if (!project_ || busy_) return;
         bool accepted = false;
@@ -164,7 +173,20 @@ MainWindow::MainWindow() {
     table_->setSelectionBehavior(QAbstractItemView::SelectRows); table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers); table_->verticalHeader()->hide(); table_->verticalHeader()->setDefaultSectionSize(32);
     table_->setShowGrid(false); table_->setAlternatingRowColors(true); table_->horizontalHeader()->setStretchLastSection(true);
-    browser->setMinimumWidth(345); browserLayout->addWidget(table_, 1); splitter->addWidget(browser);
+    browser->setMinimumWidth(345); browserLayout->addWidget(table_, 1);
+    browserTabs_ = new QTabWidget; browserTabs_->addTab(browser, "Resources");
+    auto* explainPage = new QWidget; auto* explainLayout = new QVBoxLayout(explainPage);
+    auto* explainButtons = new QHBoxLayout;
+    explainButtons->addWidget(actionButton(explain_, "Explain / Refresh"));
+    auto* collapse = new QPushButton("Collapse all"); explainButtons->addWidget(collapse);
+    explainLayout->addLayout(explainButtons);
+    explanation_ = new QTreeWidget; explanation_->setObjectName("explanationTree");
+    explanation_->setHeaderLabel("Static analysis · fact / likely / unresolved");
+    explanation_->setWordWrap(true); explainLayout->addWidget(explanation_, 1);
+    auto* explainHint = new QLabel("Explain analyzes the loaded project. Expand branches for evidence; double-click a Script or View entry to inspect its resource.");
+    explainHint->setWordWrap(true); explainLayout->addWidget(explainHint);
+    connect(collapse, &QPushButton::clicked, explanation_, &QTreeWidget::collapseAll);
+    browserTabs_->addTab(explainPage, "Explain"); splitter->addWidget(browserTabs_);
     auto* inspector = new QFrame; inspector->setObjectName("card"); auto* inspectorLayout = new QVBoxLayout(inspector); inspectorLayout->setContentsMargins(14, 14, 14, 14); inspectorLayout->setSpacing(10);
     auto* inspectorHeader = new QHBoxLayout; previewTitle_ = new QLabel("Resource viewer"); previewTitle_->setObjectName("section"); inspectorHeader->addWidget(previewTitle_); inspectorHeader->addStretch();
     inspectorHeader->addWidget(actionButton(folder_, "Open folder"));
@@ -196,18 +218,51 @@ MainWindow::MainWindow() {
     inspectorLayout->addWidget(previewSplit, 1); splitter->addWidget(inspector); splitter->setStretchFactor(0, 2); splitter->setStretchFactor(1, 3); splitter->setSizes({420, 650}); layout->addWidget(splitter, 1);
     auto* note = new QLabel("Edit exported PNGs in your image editor, refresh to review, then build to a new folder."); note->setObjectName("location"); note->setWordWrap(true); layout->addWidget(note);
     setCentralWidget(central);
+    connect(browserTabs_, &QTabWidget::currentChanged, this, [this](int tab) {
+        preview();
+        if (tab == 1) {
+            play_->setChecked(false); play_->hide(); cels_->hide(); editText_->hide(); previewStack_->hide(); export_->setEnabled(false);
+            previewTitle_->setText("Explanation");
+            details_->setPlainText("Click Explain / Refresh to analyze the loaded project, then select a tree entry.\nThis is static analysis; runtime behavior is not proven.");
+        }
+    });
+    connect(explanation_, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem* item) {
+        if (!item) return;
+        play_->setChecked(false); play_->hide(); cels_->hide(); editText_->hide(); previewStack_->hide(); export_->setEnabled(false);
+        previewTitle_->setText("Explanation evidence");
+        QString content;
+        std::function<void(QTreeWidgetItem*, int)> append = [&](QTreeWidgetItem* node, int depth) {
+            content += QString(depth * 2, QChar(' ')) + node->text(0) + '\n';
+            for (int i = 0; i < node->childCount(); ++i) append(node->child(i), depth + 1);
+        };
+        append(item, 0); details_->setPlainText(content);
+    });
+    connect(explanation_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item) {
+        const auto match = QRegularExpression("^\\[fact\\] (Script|View) ([0-9]+):").match(item->text(0));
+        if (!match.hasMatch() || !project_) return;
+        const auto type = match.captured(1) == "Script" ? scimate::ResourceType::script : scimate::ResourceType::view;
+        const auto number = match.captured(2).toUInt();
+        for (std::size_t i = project_->game.resources.size(); i-- > 0;) {
+            const auto id = project_->game.resources[i].entry.id;
+            if (id.type != type || id.number != number) continue;
+            filter_->clear(); types_->setCurrentIndex(0); browserTabs_->setCurrentIndex(0);
+            const auto row = proxy_->mapFromSource(model_->index(static_cast<int>(i), 0));
+            table_->selectRow(row.row()); table_->scrollTo(row); break;
+        }
+    });
     connect(filter_, &QLineEdit::textChanged, proxy_, &QSortFilterProxyModel::setFilterFixedString);
     connect(table_->selectionModel(), &QItemSelectionModel::currentRowChanged, this, [this] { preview(); });
     connect(cels_, &QComboBox::currentIndexChanged, this, [this] { previewCel(); });
-    for (auto* action : {refresh_, folder_, build_, close_, rename_}) action->setEnabled(false);
+    for (auto* action : {refresh_, folder_, build_, close_, rename_, explain_}) action->setEnabled(false);
     updateRecents();
     restoreGeometry(QSettings().value("windowGeometry").toByteArray());
 }
 
-void MainWindow::run(const QString& message, std::function<ProjectPtr(const scimate::ProgressCallback&)> operation) {
+void MainWindow::run(const QString& message, std::function<ProjectPtr(const scimate::ProgressCallback&)> operation, bool explain) {
     if (busy_) return;
     busy_ = true;
-    for (auto* action : {new_, open_, refresh_, folder_, build_, close_, rename_}) action->setEnabled(false);
+    for (auto* action : {new_, open_, refresh_, folder_, build_, close_, rename_, explain_}) action->setEnabled(false);
+    browserTabs_->setEnabled(false);
     recent_->setEnabled(false); progressPanel_->show(); progress_->setRange(0, 0); progressTitle_->setText(message);
     progressDetail_->setText("Starting…"); statusBar()->showMessage(message); elapsed_.start();
     auto state = std::make_shared<ProgressState>();
@@ -227,21 +282,24 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
     });
     progressTimer_->start();
     auto* watcher = new QFutureWatcher<Outcome>(this);
-    connect(watcher, &QFutureWatcher<Outcome>::finished, this, [this, watcher, message] {
+    connect(watcher, &QFutureWatcher<Outcome>::finished, this, [this, watcher, message, explain] {
         const auto result = watcher->result(); watcher->deleteLater(); busy_ = false; progressTimer_->stop(); progressPanel_->hide();
         new_->setEnabled(true); open_->setEnabled(true); recent_->setEnabled(true);
+        browserTabs_->setEnabled(true);
         if (result.error.isEmpty()) {
-            if (result.project) installProject(result.project, result.modified);
+            if (explain) installExplanation(result.explanation);
+            else if (result.project) installProject(result.project, result.modified);
             statusBar()->showMessage(message + QString(" — done in %1 s").arg(elapsed_.elapsed() / 1000.0, 0, 'f', 1), 10000);
         } else {
             statusBar()->showMessage("Operation failed; previous project remains open.");
             QMessageBox::critical(this, "SCIMate", result.error);
         }
-        for (auto* action : {refresh_, folder_, build_, close_, rename_}) action->setEnabled(bool(project_));
+        for (auto* action : {refresh_, folder_, build_, close_, rename_, explain_}) action->setEnabled(bool(project_));
     });
-    watcher->setFuture(QtConcurrent::run([operation = std::move(operation), progress] {
+    watcher->setFuture(QtConcurrent::run([operation = std::move(operation), progress, explain] {
         try {
             auto project = operation(progress);
+            if (explain) return Outcome{project, {}, {}, QString::fromStdString(scimate::explain_sci0_game(project->game))};
             std::vector<bool> modified;
             if (project) {
                 progress({"Preparing resource browser", 0, 0, "Comparing current resources with originals"});
@@ -249,10 +307,30 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
                 for (std::size_t i = 0; i < project->game.resources.size(); ++i)
                     modified.push_back(project->game.resources[i].payload != original.resources[i].payload);
             }
-            return Outcome{std::move(project), {}, std::move(modified)};
+            return Outcome{std::move(project), {}, std::move(modified), {}};
         }
-        catch (const std::exception& error) { return Outcome{{}, QString::fromUtf8(error.what()), {}}; }
+        catch (const std::exception& error) { return Outcome{{}, QString::fromUtf8(error.what()), {}, {}}; }
     }));
+}
+
+void MainWindow::installExplanation(const QString& report) {
+    // Adapt the CLI's indentation-based report; retain every evidence label and
+    // diagnostic verbatim instead of maintaining a second analysis engine.
+    explanation_->clear(); explanation_->setUpdatesEnabled(false);
+    std::vector<std::pair<int, QTreeWidgetItem*>> parents;
+    for (const auto& line : report.split('\n')) {
+        if (line.trimmed().isEmpty()) continue;
+        int indent = 0;
+        while (indent < line.size() && line[indent] == QChar(' ')) ++indent;
+        while (!parents.empty() && parents.back().first >= indent) parents.pop_back();
+        auto* item = new QTreeWidgetItem(QStringList{line.trimmed()});
+        if (parents.empty()) explanation_->addTopLevelItem(item);
+        else parents.back().second->addChild(item);
+        parents.emplace_back(indent, item);
+    }
+    explanation_->expandToDepth(0); explanation_->setUpdatesEnabled(true);
+    browserTabs_->setCurrentIndex(1);
+    if (explanation_->topLevelItemCount()) explanation_->setCurrentItem(explanation_->topLevelItem(0));
 }
 
 void MainWindow::renameProject(const QString& value) {
@@ -285,6 +363,7 @@ void MainWindow::buildProject(const QString& destination) {
 }
 
 void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& modified) {
+    explanation_->clear(); browserTabs_->setCurrentIndex(0);
     project_ = std::move(project);
     table_->setUpdatesEnabled(false);
     model_->removeRows(0, model_->rowCount()); filter_->clear(); types_->clear(); types_->addItem("All resource types", "");
