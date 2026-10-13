@@ -100,6 +100,14 @@ inline CompiledGrammar compile_grammar(const GrammarTable& source, GrammarLimits
     const auto start = std::find_if(compiled.productions.begin(),compiled.productions.end(),
         [&](const auto& production) { return production.id == compiled.start_id; });
     if (start == compiled.productions.end()) invalid_parser_table("grammar start rule cannot consume input");
+    for (const auto& production : compiled.productions) {
+        const auto first = production.first_demand();
+        for (std::size_t i = first+1; i < production.symbols.size(); ++i) {
+            const auto kind = production.symbols[i].kind;
+            if (kind == Kind::class_mask || kind == Kind::group_mask)
+                invalid_parser_table("grammar production needs more than one immediate terminal");
+        }
+    }
     return compiled;
 }
 struct CompiledGrammarLayout {

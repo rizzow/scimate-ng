@@ -9,6 +9,7 @@
 #include "../core/src/parser_tables.hpp"
 #include "../core/src/parser_grammar.hpp"
 #include "../core/src/parser_scanner.hpp"
+#include "../core/src/parser_sentence.hpp"
 #include <iostream>
 
 namespace {
@@ -132,6 +133,27 @@ void tests() {
             character_table['-'] == ('-' | parser_detail::token_hyphen) &&
             character_table[','] == ',' && character_table[0x8e] == (0x84 | parser_detail::token_character),
             "portable scanner case folding or delimiter classification differs from SCI0");
+    parser_detail::ScriptBuilder sentence_builder;
+    const auto sentence_grammar = parser_detail::emit_compiled_grammar(sentence_builder,normalized_grammar);
+    const auto sentence_tables = parser_detail::emit_parser_tables(sentence_builder,nested_grammar,suffix_table);
+    const auto sentence_words = parser_detail::emit_lexicon(sentence_builder,{{"look",0x800,12},{"coin",0x100,21}});
+    const auto sentence_resolver = parser_detail::emit_word_resolver(sentence_builder,sentence_words,sentence_tables);
+    const auto sentence_tokens = parser_detail::emit_token_scanner(sentence_builder,sentence_resolver);
+    const auto sentence_rules = parser_detail::emit_rule_selector(sentence_builder,sentence_grammar);
+    const auto sentence_candidates = parser_detail::emit_candidate_procedures(sentence_builder,sentence_grammar);
+    const auto sentence_parser = parser_detail::emit_sentence_parser(sentence_builder,sentence_tokens,sentence_grammar,
+        sentence_rules,sentence_candidates);
+    sentence_builder.export_procedure(sentence_tokens.procedure); sentence_builder.export_procedure(sentence_parser.procedure);
+    const auto sentence_script = script_detail::parse(sentence_builder.finish());
+    bool has_memory = false, has_lists = false;
+    for (const auto& instruction : sentence_script.instructions) if (instruction.opcode == sci_vm::opcode::call_kernel) {
+        require(instruction.operands[0] != 0x24 && instruction.operands[0] != 0x25,
+                "portable sentence parser calls native Parse/Said");
+        if (instruction.operands[0] == 0x72) has_memory = true;
+        if (instruction.operands[0] == 0x2e) has_lists = true;
+    }
+    require(sentence_script.exports.size() == 2 && has_memory && has_lists,
+            "portable sentence parser lacks candidate storage or worklists");
     require(lexicon.count == 2 && lexicon_metadata.exports.size() == 3,"portable parser lexicon exports/deduplication failed");
     bool lexicon_locals = false, lexicon_relocations = false;
     for (const auto& section : lexicon_metadata.sections) {

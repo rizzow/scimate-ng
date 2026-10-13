@@ -58,8 +58,8 @@ An emitted SCI procedure selects matching productions from the normalized table
 using the source class/group masks. Its caller can enumerate alternatives from a
 given index, preserving ambiguity rather than taking the first matching word
 alone. This procedure uses ordinary VM arithmetic and local-variable operations;
-it does not call the native Parse/Said kernels. Sentence traversal, tree storage
-and Said evaluation still need to be connected before VGA export is enabled.
+it does not call the native Parse/Said kernels. Said evaluation and game callback
+integration still need to be connected before VGA export is enabled.
 
 The emitted input scanner and word resolver now use the standard string kernels
 only. The scanner retains SCI0's default OEM case folding and input rules: literal
@@ -71,6 +71,17 @@ script locals, so failure callbacks can safely read them after the routine retur
 The current scanner limits are 255 bytes per word, 64 words and 4096 input bytes;
 failures clear the token count and record a reason instead of truncating input.
 Alternative language/code-page handling still needs an explicit export profile.
+
+The sentence controller now emits SCI code that keeps ordered alternative parses
+in standard interpreter lists. Candidate streams retain tree tags, consumed word
+groups and pending nonterminals. Rule expansion allocates an independent stream;
+failed alternatives are freed and the first complete derivation becomes the
+result. The previous result is released at the next parse. Candidate pointers
+remain in VM registers/list nodes rather than being truncated into raw words.
+The current bounds are 1024 symbols per stream and 512 active candidates; capacity
+failure is distinct from syntax failure. Grammar productions with multiple
+immediate terminals fail export until their execution semantics are supported.
+These emitted routines still require manual runtime validation and export wiring.
 
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This

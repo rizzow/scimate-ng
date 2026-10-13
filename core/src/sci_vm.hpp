@@ -44,9 +44,13 @@ inline constexpr unsigned do_sound = 0x31, do_avoider = 0x55, last = 0x71;
 inline constexpr unsigned removed_file_functions = 4;
 }
 namespace sci1_kernel {
+inline constexpr unsigned memory = 0x72, new_list = 0x2e, dispose_list = 0x2f;
+inline constexpr unsigned new_node = 0x30, first_node = 0x31, next_node = 0x34, node_value = 0x36, add_to_end = 0x39;
+inline constexpr unsigned delete_key = 0x3b;
 inline constexpr unsigned file_io = 0x74, string_compare = 0x45, string_length = 0x46;
 inline constexpr unsigned string_copy = 0x47, string_at = 0x62;
 }
+namespace memory_operation { inline constexpr unsigned allocate = 2, free = 3, copy = 4, peek = 5, poke = 6; }
 namespace file_io { inline constexpr unsigned open = 0, close = 1, read_string = 5, write_string = 6; }
 namespace section { inline constexpr unsigned code = 2, exports = 7, relocations = 8; }
 namespace section { inline constexpr unsigned locals = 10; }
