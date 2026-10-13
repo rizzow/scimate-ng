@@ -17,6 +17,7 @@ unverified until tested in ScummVM.
 Run `scimate` without arguments, or use `scimate --help`, for a grouped command
 overview. Every command supports `--help` and `-h`; `scimate help <command>`
 shows the same command-specific usage, examples, formats, and editing limits.
+Invalid Explain arguments use the same help text as `explain --help`.
 
 ```sh
 ./build/scimate --help

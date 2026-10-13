@@ -18,60 +18,6 @@
 #include <vector>
 
 namespace {
-constexpr std::string_view usage =
-    "Usage: scimate list [--format sci0|sci1|sci1-ega|sci11] <resource.map>\n"
-    "       scimate inspect [--format sci0|sci1|sci1-ega|sci11] <game-directory>\n"
-    "       scimate explain [--format sci0] <game-directory> [view|script <number>]\n"
-    "       scimate disassemble [--format sci0] <decoded-script.bin>\n"
-    "       scimate export [--format sci0] <game-directory> <new-export-directory>\n"
-    "       scimate import [--format sci0] <export-directory> <new-game-directory>\n"
-    "       scimate view-export [--format sci0] <decoded-view.bin> <new-view-directory>\n"
-    "       scimate view-import [--format sci0] <view-directory> <new-view.bin>\n"
-    "       scimate resource-export [--format sci0] <type> <number> <decoded.bin> <new-bundle>\n"
-    "       scimate resource-import [--format sci0] <bundle> <new-decoded.bin>\n"
-    "       scimate sound-export [--format sci0] <decoded-sound.bin> <new-bundle>\n"
-    "       scimate sound-import [--format sci0] <bundle> <new-sound.bin>\n"
-    "       scimate font-export|cursor-export|text-export <decoded.bin> <new-bundle>\n"
-    "       scimate font-import|cursor-import|text-import <bundle> <new-decoded.bin>\n"
-    "       scimate picture-export [--format sci0] <decoded-picture.bin> <new-picture-directory>\n"
-    "       scimate picture-import [--format sci0] <picture-directory> <new-picture.bin>\n"
-    "       scimate migrate [--to sci1] <SCI0-game-directory> <new-SCI1-game-directory>\n"
-    "Run scimate migrate --help for the experimental format-based migration.\n"
-    "Run scimate explain --help for heuristic analysis and limitations.\n"
-    "SCI0 is the default format. Use -- to end options for paths beginning with --.\n"
-    "Lists type, number, volume, and byte offset (decimal) in map order.\n"
-    "list reads only the map; inspect validates volumes and decodes SCI0 methods 0/1/2.\n"
-    "export writes payloads and originals; import rebuilds payload edits into a new directory.\n"
-    "export also writes scripts/*.asm (or *.error.txt); these listings are not importable source.\n"
-    "export/import includes editable view PNGs and placement metadata under views/.\n"
-    "export/import includes MIDI/WAV, font/cursor PNGs, tables, and structured JSON under assets/.\n"
-    "export/import includes background, priority, and control PNGs under pictures/.\n"
-    "SCI1 means SCI1 late containers; sci11 means SCI1.1 containers (compression 0/1/2).\n"
-    "Editing remains SCI0 only; no format detection, recompression, resource ID edits, or engine validation.\n";
-
-constexpr std::string_view explain_help = R"(Usage: scimate explain [--format sci0] <game-directory>
-       scimate explain [--format sci0] <game-directory> view <number>
-       scimate explain [--format sci0] <game-directory> script <number>
-
-Explain SCI0 resources using object metadata and conservative bytecode heuristics.
-Reports rooms, player-view candidates, sprite loops/cels, constant room calls,
-animation-controller clues and possible startup rooms, with evidence and labels.
-A room candidate is an object in a script, not necessarily its script number.
-
-Examples:
-  scimate explain ./LSL3
-  scimate explain ./LSL3 view 42
-  scimate explain ./LSL3 script 0
-
-[fact] means decoded data; [likely] means a convention or pattern;
-[unresolved] means the available evidence is insufficient. Dynamic IDs, first
-playable room, runtime timing and reachability are not proven. No game execution.
-Missing vocabularies and malformed individual scripts/views produce partial
-analysis with diagnostics. Duplicate resource IDs use the last map entry.
-Output goes to stdout. Exit codes: 0 report (possibly partial), 1 input/output
-error or absent focused resource, 2 usage error. SCI0 only. Use -- to end options.
-)";
-
 constexpr std::string_view migrate_help = R"(Usage: scimate migrate [--to sci1] <SCI0-game-directory> <new-SCI1-game-directory>
 
 Experimental format-based export targeting ScummVM's SCI1 runtime paths.
@@ -110,19 +56,6 @@ std::vector<std::uint8_t> read_file(const char* path, bool script = false) {
 
 int main(int argc, char** argv) {
     if (const auto result = scimate::cli::show_help(argc, argv, true, migrate_help)) return *result;
-    if (argc == 2 && std::string_view(argv[1]) == "--help") {
-        std::cout << usage;
-        return 0;
-    }
-    if (argc == 3 && ((std::string_view(argv[1]) == "explain" && std::string_view(argv[2]) == "--help") ||
-                      (std::string_view(argv[1]) == "help" && std::string_view(argv[2]) == "explain"))) {
-        std::cout << explain_help;
-        return 0;
-    }
-    if (argc == 3 && ((std::string_view(argv[1]) == "migrate" && std::string_view(argv[2]) == "--help") ||
-                      (std::string_view(argv[1]) == "help" && std::string_view(argv[2]) == "migrate"))) {
-        std::cout << migrate_help; return 0;
-    }
     const std::string_view command = argc > 1 ? argv[1] : "";
     const bool migrating = command == "migrate";
     const bool listing = command == "list";
@@ -178,7 +111,8 @@ int main(int argc, char** argv) {
                 const auto parsed = std::from_chars(text.data(), text.data()+text.size(), number);
                 if ((kind != "view" && kind != "script") || parsed.ec != std::errc{} ||
                     parsed.ptr != text.data()+text.size() || number > 2047) {
-                    std::cerr << "Focus must be view or script and a decimal number from 0 to 2047.\n" << explain_help;
+                    std::cerr << "Focus must be view or script and a decimal number from 0 to 2047.\n"
+                              << scimate::cli::command_help("explain", true);
                     return 2;
                 }
                 focus = scimate::ResourceId{kind == "view" ? scimate::ResourceType::view : scimate::ResourceType::script,
