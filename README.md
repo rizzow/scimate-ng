@@ -124,3 +124,19 @@ See [supported script layouts and diagnostics](docs/sci0-scripts.md).
 See [format and architecture notes](docs/sci0-map.md),
 [source provenance](docs/provenance.md), and [validation](docs/validation.md).
 Adapted code is GPL-2.0-or-later; see [COPYING](COPYING).
+
+## Explain a game
+
+```sh
+./build/scimate explain /path/to/game
+./build/scimate explain /path/to/game view 42
+./build/scimate explain /path/to/game script 100
+```
+
+Reports evidence for room instances, player-view candidates, sprite animations,
+constant room transitions, and possible opening rooms. Facts, likely roles, and
+unresolved behavior are labeled separately; no game execution or resource edits.
+See [heuristics, confidence, and limitations](docs/sci0-explain.md).
+
+clangd uses the existing compilation database in `cmake-build-debug/` via
+`.clangd`. If you use another build directory, adjust `CompilationDatabase`.

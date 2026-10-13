@@ -13,7 +13,7 @@
 ***************************************************************************/
 // Adapted opcode/layout knowledge from PMachine.cpp, CompiledScript.cpp,
 // Disassembler.cpp. New bounded parser/formatter; see docs/provenance.md.
-#include "scimate/script.hpp"
+#include "script_internal.hpp"
 
 #include <array>
 #include <iomanip>
@@ -23,11 +23,11 @@
 #include <utility>
 
 namespace scimate {
-namespace {
+namespace script_detail {
 [[noreturn]] void fail(std::size_t offset, const char* message) {
     throw std::runtime_error("SCI0 script at byte " + std::to_string(offset) + ": " + message);
 }
-std::string hex(std::size_t value, int width = 4) {
+std::string hex(std::size_t value, int width) {
     std::ostringstream out;
     out << std::hex << std::setfill('0') << std::setw(width) << value;
     return out.str();
@@ -49,17 +49,6 @@ std::string quoted(const Bytes& bytes, std::size_t begin, std::size_t end) {
     }
     return text + '"';
 }
-struct Section { std::size_t start, end; unsigned type; };
-struct Instruction {
-    std::size_t start, end;
-    unsigned opcode, width;
-    std::vector<unsigned> operands;
-};
-struct Object {
-    std::size_t pointer;
-    bool is_class;
-    std::vector<unsigned> values, selectors, methods, addresses;
-};
 std::string opcode_name(unsigned op) {
     constexpr std::array<const char*, 64> names{
         "bnot", "add", "sub", "mul", "div", "mod", "shr", "shl", "xor", "and", "or", "neg",
@@ -102,9 +91,7 @@ const char* section_name(unsigned type) {
     };
     return type < names.size() ? names[type] : "unknown";
 }
-} // namespace
-
-std::string disassemble_sci0_script(const Bytes& bytes, std::optional<std::uint16_t> script_number) {
+ParsedScript parse(const Bytes& bytes) {
     if (bytes.size() > 65535) fail(0, "payload exceeds SCI0 size limit");
     std::vector<Section> sections;
     std::size_t cursor = 0;
@@ -202,6 +189,15 @@ std::string disassemble_sci0_script(const Bytes& bytes, std::optional<std::uint1
         }
     }
 
+    return {std::move(sections),std::move(strings),std::move(instructions),std::move(objects),
+            std::move(exports),std::move(boundaries),std::move(labels),std::move(procedures),std::move(object_pointers)};
+}
+} // namespace script_detail
+
+std::string disassemble_sci0_script(const Bytes& bytes, std::optional<std::uint16_t> script_number) {
+    using namespace script_detail;
+    const auto parsed = parse(bytes);
+    const auto& [sections,strings,instructions,objects,exports,boundaries,labels,procedures,object_pointers] = parsed;
     std::ostringstream out;
     out << "; SCIMate SCI0 disassembly: script " << (script_number ? std::to_string(*script_number) : "unspecified") << '\n'
         << "; Inspection only: not decompiled SCI source; import ignores this listing.\n"

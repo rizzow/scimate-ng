@@ -3,7 +3,7 @@ project(scimate_ng VERSION 0.1.0 LANGUAGES CXX)
 
 option(SCIMATE_BUILD_CLI "Build the resource inspection CLI" ON)
 option(SCIMATE_BUILD_APPLICATION "Build filesystem import/export workflows" ${SCIMATE_BUILD_CLI})
-add_library(scimate_core core/src/resource_map.cpp core/src/codecs.cpp core/src/resource_game.cpp core/src/script.cpp core/src/view.cpp)
+add_library(scimate_core core/src/resource_map.cpp core/src/codecs.cpp core/src/resource_game.cpp core/src/script.cpp core/src/view.cpp core/src/explain.cpp)
 target_include_directories(scimate_core PUBLIC core/include)
 target_compile_features(scimate_core PUBLIC cxx_std_17)
 set_target_properties(scimate_core PROPERTIES CXX_EXTENSIONS OFF)
@@ -35,6 +35,9 @@ if(BUILD_TESTING)
   add_executable(resource_game_tests tests/resource_game_tests.cpp)
   target_link_libraries(resource_game_tests PRIVATE scimate_core)
   add_test(NAME resource_game COMMAND resource_game_tests)
+  add_executable(explain_tests tests/explain_tests.cpp)
+  target_link_libraries(explain_tests PRIVATE scimate_core)
+  add_test(NAME explain COMMAND explain_tests)
   add_executable(script_tests tests/script_tests.cpp)
   target_link_libraries(script_tests PRIVATE scimate_core)
   add_test(NAME scripts COMMAND script_tests)
@@ -50,6 +53,10 @@ if(BUILD_TESTING)
     add_test(NAME view_io COMMAND view_io_tests ${CMAKE_CURRENT_BINARY_DIR}/view-fixtures)
   endif()
   if(SCIMATE_BUILD_CLI)
+    add_test(NAME explain_cli COMMAND ${CMAKE_COMMAND}
+      -DCLI=$<TARGET_FILE:scimate>
+      -DFIXTURE_DIR=${CMAKE_CURRENT_BINARY_DIR}/explain-cli-fixtures
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/explain_cli.cmake)
     add_test(NAME cli COMMAND ${CMAKE_COMMAND}
       -DCLI=$<TARGET_FILE:scimate>
       -DFIXTURE_WRITER=$<TARGET_FILE:resource_map_tests>
