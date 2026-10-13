@@ -41,6 +41,17 @@ does not use SCI1.1 split script/heap resources or VGA artwork.
   opaque values unchanged. Dynamic export accesses remain unverified and are
   listed as a manual-validation limitation in the migration report. Errors
   identify the script number and, for direct calls, the instruction offset.
+- Specializes an optional missing-script call only when a verified alternate
+  arm already exists: a direct global load and conditional branch guard an
+  argument-preparation/CALLE/jump arm, followed by a contiguous fallback arm
+  with a call or send and a shared merge point. No method/export or branch may
+  enter the disabled arm separately. The global load becomes an equal-width
+  `ldi 0`, selecting the original fallback with the original false-path
+  accumulator value. Global storage is not modified. The report identifies
+  the script, call, guard and fallback offsets. Missing unguarded dependencies,
+  malformed existing exports, side effects in the optional arm, and alternate
+  entries remain errors. This rule depends on resource availability and code
+  structure, never fixed script/global IDs or a game title.
 - Preserves legacy non-main branch operands even when their targets fall outside
   decoded instructions. These may be compiler artifacts, but their runtime
   reachability is not assumed. Kernel rewrites must preserve all instruction

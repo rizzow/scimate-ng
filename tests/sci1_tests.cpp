@@ -47,6 +47,36 @@ Game sample() {
     return game;
 }
 void tests() {
+    // A missing optional script has an explicit, already implemented fallback.
+    // Resource IDs and guard global are invented; no title-specific rule.
+    auto optional_game = sample();
+    const Bytes optional_code{2,0,24,0,0x81,7,0x31,9,0x76,0x46,0xbc,2,0,0,0,
+                              0x33,6,0x39,97,0x76,0x5c,0x4a,4,0x48,0,0};
+    optional_game.resources.push_back(resource(ResourceType::script,70,optional_code));
+    const auto optional_result = migrate_sci0_to_sci1(optional_game);
+    const auto optional_output = read_sci1_game(optional_result.files,Sci1Format::sci1_late);
+    bool optional_found = false;
+    for (const auto& item : optional_output.resources) if (item.entry.id.type == ResourceType::script && item.entry.id.number == 70) {
+        auto expected = optional_code; expected[4] = 0x35; expected[5] = 0;
+        require(item.payload == expected,"optional fallback changed bytes beyond its guard");
+        optional_found = true;
+    }
+    require(optional_found && optional_result.report.find("missing optional script 700") != std::string::npos,
+            "optional fallback was lost or not reported");
+    auto unsafe_optional = optional_game;
+    unsafe_optional.resources.back().payload[21] = 0x39; // No fallback operation.
+    fails([&] { migrate_sci0_to_sci1(unsafe_optional); },"without a verified fallback");
+    unsafe_optional = optional_game;
+    auto& exposed_arm = unsafe_optional.resources.back().payload;
+    exposed_arm.resize(exposed_arm.size()-2);
+    exposed_arm.insert(exposed_arm.end(),{7,0,8,0,1,0,9,0,0,0});
+    fails([&] { migrate_sci0_to_sci1(unsafe_optional); },"without a verified fallback");
+    unsafe_optional = optional_game;
+    unsafe_optional.resources.push_back(resource(ResourceType::script,700,{0,0}));
+    fails([&] { migrate_sci0_to_sci1(unsafe_optional); },"has no export slot");
+    unsafe_optional = sample();
+    unsafe_optional.resources.push_back(resource(ResourceType::script,70,{2,0,11,0,0x46,0xbc,2,0,0,0,0x48,0,0}));
+    fails([&] { migrate_sci0_to_sci1(unsafe_optional); },"without a verified fallback");
     // Uncalled legacy export slots are metadata, not mandatory procedures.
     auto legacy_exports = sample();
     legacy_exports.resources.push_back(resource(ResourceType::script,41,{7,0,8,0,1,0,0xff,0xff,0,0}));

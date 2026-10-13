@@ -100,7 +100,63 @@ ParsedScript parse_migration_script(const Resource& resource) {
         throw std::runtime_error("script " + std::to_string(resource.entry.id.number) + ": " + error.what());
     }
 }
-std::map<std::uint16_t,ParsedScript> validate_migration_scripts(const Resources& resources) {
+bool select_missing_script_fallback(Resource& resource, const ParsedScript& parsed,
+                                    const Instruction& call, std::string& note) {
+    if (call.opcode != 35) return false;
+    for (std::size_t g = 0; g+1 < parsed.instructions.size(); ++g) {
+        const auto& load = parsed.instructions[g];
+        const auto& branch = parsed.instructions[g+1];
+        if (load.opcode != 64 || branch.opcode != 24 || load.end != branch.start || parsed.procedures.count(branch.start)) continue;
+        const auto fallback = target(branch);
+        if (branch.end > call.start || fallback <= call.end || !parsed.boundaries.count(fallback)) continue;
+        std::size_t last = g+2;
+        auto cursor = branch.end;
+        bool valid = true, saw_call = false;
+        for (; last < parsed.instructions.size() && parsed.instructions[last].start < fallback; ++last) {
+            const auto& inst = parsed.instructions[last];
+            if (inst.start != cursor || parsed.procedures.count(inst.start)) { valid = false; break; }
+            cursor = inst.end;
+            if (inst.start == call.start) { saw_call = true; continue; }
+            if (inst.opcode == 25 && inst.end == fallback && saw_call) continue;
+            // The optional arm may prepare arguments, then call, then jump.
+            // Disable no additional work or unrelated side effects.
+            if (saw_call || !(inst.opcode == 27 || inst.opcode == 28 || inst.opcode == 51 ||
+                inst.opcode == 58 || (inst.opcode >= 59 && inst.opcode <= 62) ||
+                (inst.opcode >= 68 && inst.opcode <= 71))) { valid = false; break; }
+        }
+        if (!valid || !saw_call || cursor != fallback || last == g+2) continue;
+        const auto& jump = parsed.instructions[last-1];
+        if (jump.opcode != 25 || target(jump) <= fallback || !parsed.boundaries.count(target(jump))) continue;
+        const auto merge = target(jump);
+        bool fallback_call = false;
+        cursor = fallback;
+        for (auto i = last; i < parsed.instructions.size() && parsed.instructions[i].start < merge; ++i) {
+            const auto& inst = parsed.instructions[i];
+            if (inst.start != cursor || (inst.opcode >= 23 && inst.opcode <= 25) || inst.opcode == 36) { valid = false; break; }
+            cursor = inst.end;
+            if (inst.opcode == 33 || inst.opcode == 34 || inst.opcode == 35 || inst.opcode == 37 ||
+                inst.opcode == 42 || inst.opcode == 43) fallback_call = true;
+        }
+        if (!valid || cursor != merge || !fallback_call) continue;
+        // An alternate entry into the disabled arm would invalidate the proof.
+        for (const auto& inst : parsed.instructions) if ((inst.opcode >= 23 && inst.opcode <= 25) || inst.opcode == 32) {
+            const auto destination = target(inst);
+            if (destination == branch.start || (destination >= branch.end && destination < fallback)) { valid = false; break; }
+        }
+        if (!valid) continue;
+        // LDI has the same operand width/extent as LAG. Loading zero proves BNT
+        // takes the existing fallback and preserves its accumulator semantics.
+        resource.payload.at(load.start) = static_cast<std::uint8_t>((26u << 1) | (resource.payload.at(load.start) & 1u));
+        resource.payload.at(load.start+1) = 0;
+        if (load.width == 2) resource.payload.at(load.start+2) = 0;
+        note = "script " + std::to_string(resource.entry.id.number) + " at byte " + std::to_string(call.start) +
+            ": missing optional script " + std::to_string(call.operands.at(0)) + "; global " +
+            std::to_string(load.operands.at(0)) + " guard specialized to existing fallback at byte " + std::to_string(fallback);
+        return true;
+    }
+    return false;
+}
+std::map<std::uint16_t,ParsedScript> validate_migration_scripts(Resources& resources, std::vector<std::string>& fallbacks) {
     std::map<std::uint16_t,ParsedScript> scripts;
     for (const auto& entry : resources) if (entry.first.first == ResourceType::script)
         scripts.emplace(entry.first.second,parse_migration_script(entry.second));
@@ -111,11 +167,19 @@ std::map<std::uint16_t,ParsedScript> validate_migration_scripts(const Resources&
         const auto destination = scripts.find(static_cast<std::uint16_t>(script_number));
         const auto context = "script " + std::to_string(entry.first) + " at byte " + std::to_string(inst.start) +
                              ": direct call to script " + std::to_string(script_number) + " export " + std::to_string(export_number);
-        if (destination == scripts.end() || export_number >= destination->second.exports.size())
-            throw std::runtime_error(context + " has no export slot");
+        if (destination == scripts.end()) {
+            std::string note;
+            if (select_missing_script_fallback(resources.at({ResourceType::script,entry.first}),entry.second,inst,note)) {
+                fallbacks.push_back(std::move(note));
+                continue;
+            }
+            throw std::runtime_error(context + " targets a missing script without a verified fallback");
+        }
+        if (export_number >= destination->second.exports.size()) throw std::runtime_error(context + " has no export slot");
         if (!destination->second.boundaries.count(destination->second.exports.at(export_number).second))
             throw std::runtime_error(context + " does not target a decoded instruction");
     }
+    for (auto& entry : scripts) entry.second = parse_migration_script(resources.at({ResourceType::script,entry.first}));
     return scripts;
 }
 void adapt_parser(Resources& resources) {
@@ -248,7 +312,8 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     for (const auto& resource : game.resources) unique.emplace(Key{resource.entry.id.type,resource.entry.id.number}, resource);
     auto main = unique.find({ResourceType::script,0});
     if (main == unique.end()) throw std::runtime_error("migration requires script 0");
-    const auto script_metadata = validate_migration_scripts(unique);
+    std::vector<std::string> selected_fallbacks;
+    const auto script_metadata = validate_migration_scripts(unique,selected_fallbacks);
     const auto& parsed_main = script_metadata.at(0);
     if (parsed_main.exports.empty()) throw std::runtime_error("migration requires main export 0");
     bool main_object = false;
@@ -348,6 +413,7 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
            << "UNVERIFIED: runtime detection, graphics/sound compatibility, save/restore and gameplay require manual ScummVM validation.\n"
            << "This is a ScummVM-targeted compatibility candidate, not a claim of original Sierra interpreter compatibility or a general SCI1.1 migration.\n";
     for (const auto& branch : legacy_branches) report << "UNVERIFIED legacy branch: " << branch << ".\n";
+    for (const auto& fallback : selected_fallbacks) report << "Selected fallback: " << fallback << ".\n";
     result.report = report.str();
     return result;
 }
