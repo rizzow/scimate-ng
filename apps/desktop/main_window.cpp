@@ -229,6 +229,8 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
     busy_ = true;
     for (auto* action : {new_, open_, refresh_, folder_, build_, close_, rename_, explain_}) action->setEnabled(false);
     browserTabs_->setEnabled(false);
+    play_->setChecked(false); play_->setEnabled(false);
+    cels_->setEnabled(false); export_->setEnabled(false); editText_->setEnabled(false);
     recent_->setEnabled(false); progressPanel_->show(); progress_->setRange(0, 0); progressTitle_->setText(message);
     progressDetail_->setText("Starting…"); statusBar()->showMessage(message); elapsed_.start();
     auto state = std::make_shared<ProgressState>();
@@ -261,6 +263,9 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
             QMessageBox::critical(this, "SCIMate", result.error);
         }
         for (auto* action : {refresh_, folder_, build_, close_, rename_, explain_}) action->setEnabled(bool(project_));
+        cels_->setEnabled(true); editText_->setEnabled(true);
+        if (browserTabs_->currentIndex() == 1) previewExplanation();
+        else preview();
     });
     watcher->setFuture(QtConcurrent::run([operation = std::move(operation), progress, explain] {
         try {
@@ -346,6 +351,7 @@ void MainWindow::buildProject(const QString& destination) {
 }
 
 void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& modified) {
+    const QSignalBlocker selectionSignals(table_->selectionModel());
     explanation_->clear(); browserTabs_->setCurrentIndex(0);
     project_ = std::move(project);
     table_->setUpdatesEnabled(false);
@@ -372,7 +378,8 @@ void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& mod
     recent.removeAll(directory); recent.prepend(directory); while (recent.size() > 8) recent.removeLast();
     QSettings().setValue("recentProjects", recent); rememberDirectory("projects", directory); updateRecents();
     table_->setColumnWidth(0, 55); table_->setColumnWidth(1, 60); table_->setColumnWidth(2, 64); table_->setColumnWidth(3, 65);
-    preview(); if (proxy_->rowCount()) { table_->selectRow(0); table_->scrollToTop(); }
+    if (proxy_->rowCount()) { table_->selectRow(0); table_->scrollToTop(); }
+    preview(); // Selection changes are blocked until the replacement model is complete.
 }
 
 void MainWindow::updateRecents() {
@@ -418,14 +425,19 @@ void MainWindow::preview() {
     previewImage_ = {}; previewView_ = {}; previewPicture_ = {};
     selectedView_.clear(); selectedPicture_.clear(); cels_->clear(); cels_->hide(); image_->clear(); details_->clear();
     const auto selected = proxy_->mapToSource(table_->currentIndex());
-    if (!project_ || !selected.isValid()) { details_->setPlainText("Select a resource to inspect."); return; }
+    if (!project_ || !selected.isValid() || static_cast<std::size_t>(selected.row()) >= project_->game.resources.size()) {
+        details_->setPlainText("Select a resource to inspect."); return;
+    }
     const auto index = static_cast<std::size_t>(selected.row());
     const auto& resource = project_->game.resources.at(index);
     export_->setEnabled(true);
     QString description = "Record " + QString::number(index) + " • " + QString::fromUtf8(scimate::resource_type_name(resource.entry.id.type).data()) + " " + QString::number(resource.entry.id.number) +
         "\nPayload: payloads/" + stem(index) + ".bin\n";
-    if (std::filesystem::is_directory(project_->directory / "assets" / stem(index).toStdString()))
+    std::error_code directoryError;
+    if (std::filesystem::is_directory(project_->directory / "assets" / stem(index).toStdString(), directoryError))
         description += "Editable/binary bundle: assets/" + stem(index) + "\nOpen Resource Folder to edit, then Refresh from Disk.\n";
+    if (directoryError && directoryError != std::errc::no_such_file_or_directory)
+        description += "Bundle unavailable: " + QString::fromStdString(directoryError.message()) + "\n";
     try {
         if (resource.entry.id.type == scimate::ResourceType::view) {
             previewView_ = scimate::read_sci0_view(resource.payload); const auto& view = previewView_; selectedView_ = resource.payload;
@@ -502,13 +514,19 @@ void MainWindow::previewCel() {
 }
 
 void MainWindow::showFolder() {
+    if (!project_ || busy_) return;
     auto directory = project_->directory;
     const auto selected = proxy_->mapToSource(table_->currentIndex());
-    if (selected.isValid()) {
+    if (selected.isValid() && (browserTabs_->currentIndex() == 0 || export_->isEnabled())) {
         const auto index = static_cast<std::size_t>(selected.row());
         const auto type = project_->game.resources[index].entry.id.type;
         const auto bundle = directory / (type == scimate::ResourceType::pic ? "pictures" : type == scimate::ResourceType::view ? "views" : "assets") / stem(index).toStdString();
-        directory = std::filesystem::is_directory(bundle) ? bundle : directory / "payloads";
+        std::error_code error;
+        directory = std::filesystem::is_directory(bundle, error) ? bundle : directory / "payloads";
+        if (error && error != std::errc::no_such_file_or_directory) {
+            QMessageBox::warning(this, "Resource folder unavailable", QString::fromStdString(error.message()));
+            return;
+        }
     }
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(text(directory)))) QMessageBox::warning(this, "SCIMate", "Could not open the resource folder.");
 }

@@ -76,6 +76,8 @@ supporting generator and update `.clangd`'s `CompilationDatabase` path.
 Text saves reject payloads too large for SCI0's stored-resource format before
 changing project files. Unsupported text-bundle representations require external
 editing rather than saving an unused payload file.
+Resource controls pause during background operations, and inaccessible bundle
+folders report an error without aborting the desktop application.
 
 Project creation keeps the decoded game in memory instead of re-reading every
 exported PNG. Application workflows expose optional per-phase/resource progress
