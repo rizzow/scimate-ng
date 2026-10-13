@@ -4,6 +4,10 @@
 // Numeric identities belong here; transformations use their semantic names.
 namespace scimate::sci_vm {
 namespace opcode {
+inline constexpr unsigned bitwise_not = 0, negate = 11, logical_not = 12;
+constexpr bool is_accumulator_unary(unsigned value) {
+    return value == bitwise_not || value == negate || value == logical_not;
+}
 inline constexpr unsigned branch_true = 23, branch_false = 24, jump = 25;
 inline constexpr unsigned load_immediate = 26, push_accumulator = 27, push_immediate = 28;
 inline constexpr unsigned call_local = 32, call_kernel = 33, call_base = 34, call_external = 35;

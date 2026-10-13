@@ -47,6 +47,19 @@ Game sample() {
     return game;
 }
 void tests() {
+    // Accumulator-only unary computation preserves an already-pushed sound
+    // argument count and suboperation. Golden opcodes keep fixtures independent.
+    for (const std::uint8_t unary : {std::uint8_t(0x00),std::uint8_t(0x16),std::uint8_t(0x18)}) {
+        auto computed_sound = sample();
+        computed_sound.resources[2].payload = {2,0,13,0,0x7a,0x39,4,unary,0x36,0x43,0x31,4,0x48,0,0};
+        const auto converted = read_sci1_game(migrate_sci0_to_sci1(computed_sound).files,Sci1Format::sci1_late);
+        require(converted.resources[1].payload[7] == unary && converted.resources[1].payload[10] == 0x2d,
+                "computed sound argument changed or kernel was not remapped");
+        // Arithmetic consumes a stack word: treating it like a unary operation
+        // would mistake the consumed suboperation for a preserved frame.
+        computed_sound.resources[2].payload[7] = 0x02; // add
+        fails([&] { migrate_sci0_to_sci1(computed_sound); },"script 20: SCI0 DoSound frame");
+    }
     // A missing optional script has an explicit, already implemented fallback.
     // Resource IDs and guard global are invented; no title-specific rule.
     auto optional_game = sample();

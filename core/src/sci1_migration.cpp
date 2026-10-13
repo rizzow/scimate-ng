@@ -83,7 +83,10 @@ void validate_sound_call(const ParsedScript& parsed, std::size_t index) {
                  inst.opcode == op::increment_property_to_stack || inst.opcode == op::decrement_property_to_stack ||
                  inst.opcode == op::load_offset_to_stack || inst.opcode == op::push_self ||
                  (inst.opcode >= op::load_global_to_stack && inst.opcode <= op::load_parameter_to_stack)) {}
-        else if (inst.opcode == op::load_immediate || inst.opcode == op::load_class || inst.opcode == op::self_id ||
+        // Unary accumulator operations do not consume any stack words. The
+        // computed argument remains unknown, while earlier frame constants
+        // remain available for independent count/suboperation validation.
+        else if (op::is_accumulator_unary(inst.opcode) || inst.opcode == op::load_immediate || inst.opcode == op::load_class || inst.opcode == op::self_id ||
                  inst.opcode == op::property_to_accumulator || inst.opcode == op::load_offset_to_accumulator ||
                  (inst.opcode >= op::load_global_to_accumulator && inst.opcode <= op::load_parameter_to_accumulator)) continue;
         else break;
@@ -367,7 +370,10 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
             }
             if (kernel == kernel0::do_sound) {
                 if (!sound_dispatch_checked) { validate_sound_dispatch(game); sound_dispatch_checked = true; }
-                validate_sound_call(parsed, instruction_index);
+                try { validate_sound_call(parsed, instruction_index); }
+                catch (const std::exception& error) {
+                    throw std::runtime_error("script " + std::to_string(entry.first.second) + ": " + error.what());
+                }
                 ++sound_calls;
             }
             if (kernel > kernel0::last) throw std::runtime_error("unsupported SCI0 kernel ID in script " + std::to_string(entry.first.second));

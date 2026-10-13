@@ -75,6 +75,10 @@ does not use SCI1.1 split script/heap resources or VGA artwork.
   and omit nodePtr, which is ScummVM's documented SCI0 late dispatch condition.
   This condition verifies target dispatch; it does not infer source sound format.
   Dynamic/unproven call frames, early sound and incompatible dispatch fail.
+  Argument computation may include accumulator-only `bnot`, `neg` and `not`:
+  these preserve previously pushed count/suboperation constants. Stack-consuming
+  arithmetic remains unsupported by this conservative backward scan. Errors
+  identify the containing script and instruction offset.
 - Adapts parser-bearing games to SCI1 EGA, the version where unmodified ScummVM
   enables the parser without title-specific exceptions. Parse/Said/SetSynonyms
   calls retain their ABI after argument-frame checks. Word vocabulary 0 becomes
