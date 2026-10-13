@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### SCI0 EGA view core
+
+- Add bounded view decoding/encoding, mirror relationships, EGA pixels,
+  transparency, signed placement, and exact unchanged-byte preservation.
+- Preserve reserved EGA header data and cover malformed inputs and size limits.
+
 ### Human-readable SCI0 script export
 
 - Add portable, bounded disassembly of standard sectioned SCI0 scripts:
