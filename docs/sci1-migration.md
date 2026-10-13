@@ -31,7 +31,8 @@ does not use SCI1.1 split script/heap resources or VGA artwork.
 
 `scimate migrate --to sci1 <source-game-directory> <new-destination>` currently:
 
-- Validates sectioned SCI0 script layouts, method and branch targets, and main export 0's object target,
+- Validates sectioned SCI0 script layouts, method and local-call targets, main-script
+  branches, and main export 0's object target,
   without checking or interpreting the object's name.
 - Preserves opaque, uncalled export slots. SCI export tables can contain data
   addresses or unused legacy values; they do not all identify decoded procedures
@@ -40,6 +41,13 @@ does not use SCI1.1 split script/heap resources or VGA artwork.
   opaque values unchanged. Dynamic export accesses remain unverified and are
   listed as a manual-validation limitation in the migration report. Errors
   identify the script number and, for direct calls, the instruction offset.
+- Preserves legacy non-main branch operands even when their targets fall outside
+  decoded instructions. These may be compiler artifacts, but their runtime
+  reachability is not assumed. Kernel rewrites must preserve all instruction
+  boundaries/extents and branch operands; migration verifies that invariant.
+  Every invalid target is listed in the report as UNVERIFIED. Main-script branch
+  targets remain strict because export expansion moves its addresses. Normal
+  inspection and the SCI1.1 split transform retain strict branch validation.
 - Resolves SCI0 duplicate IDs using first-entry semantics documented by the
   ScummVM SCI0 resource loader.
 - Applies the documented standard SCI0-to-SCI1 kernel numbering transformation.

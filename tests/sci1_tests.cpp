@@ -76,10 +76,28 @@ void tests() {
     // Valid code exports remain callable and are retained unchanged.
     called_legacy.resources[3].payload = {7,0,8,0,1,0,12,0,2,0,5,0,0x48,0,0};
     require(!migrate_sci0_to_sci1(called_legacy).files.map.empty(),"valid CALLE export rejected");
-    // Export permissiveness does not disable branch validation.
+    // Legacy non-main branches survive only with their original layout intact.
     auto bad_branch = sample();
     bad_branch.resources.push_back(resource(ResourceType::script,43,{2,0,7,0,0x33,1,0x48,0,0}));
-    fails([&] { migrate_sci0_to_sci1(bad_branch); },"script 43");
+    bad_branch.resources.push_back(resource(ResourceType::script,45,{2,0,9,0,0x30,0xff,0x7f,0x3a,0x48,0,0}));
+    const auto branch_result = migrate_sci0_to_sci1(bad_branch);
+    const auto branch_output = read_sci1_game(branch_result.files,Sci1Format::sci1_late);
+    bool branch_found = false;
+    for (const auto& item : branch_output.resources) if (item.entry.id.type == ResourceType::script && item.entry.id.number == 43) {
+        require(item.payload == bad_branch.resources[3].payload,"legacy branch bytes changed"); branch_found = true;
+    }
+    require(branch_found && branch_result.report.find("script 43 at byte 4 -> 7") != std::string::npos,
+            "legacy branch lost or omitted from report");
+    require(branch_result.report.find("script 45 at byte 4 -> 32774") != std::string::npos,
+            "out-of-range wide conditional branch omitted from report");
+    fails([&] { scimate::script_detail::parse(bad_branch.resources.back().payload); },"branch/call target");
+    auto bad_main_branch = sample();
+    bad_main_branch.resources[0].payload[12] = 0x33;
+    bad_main_branch.resources[0].payload[13] = 127;
+    fails([&] { migrate_sci0_to_sci1(bad_main_branch); },"script 0");
+    auto bad_local_call = sample();
+    bad_local_call.resources.push_back(resource(ResourceType::script,44,{2,0,8,0,0x41,127,0,0x48,0,0}));
+    fails([&] { migrate_sci0_to_sci1(bad_local_call); },"local call at byte 4");
     auto parser_game = sample();
     parser_game.resources[2].payload = {2,0,14,0,0x43,0x24,4,0x43,0x25,2,0x43,0x26,2,0x48,0,0};
     parser_game.resources.push_back(resource(ResourceType::vocab,0,write_sci0_vocabulary({{"look",0x80,0x123},{"tree",0x10,0x456}})));

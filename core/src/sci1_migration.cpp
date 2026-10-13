@@ -86,7 +86,16 @@ void validate_sound_call(const ParsedScript& parsed, std::size_t index) {
 }
 using Resources = std::map<std::pair<ResourceType,std::uint16_t>,Resource>;
 ParsedScript parse_migration_script(const Resource& resource) {
-    try { return parse(resource.payload,true,false); }
+    try {
+        // Only script 0 changes layout. Other scripts retain every instruction
+        // address, allowing legacy conditional/jump operands to pass through
+        // verbatim without claiming their runtime paths are safe.
+        auto parsed = parse(resource.payload,resource.entry.id.number == 0,false);
+        for (const auto& inst : parsed.instructions)
+            if (inst.opcode == 32 && !parsed.boundaries.count(target(inst)))
+                throw std::runtime_error("local call at byte " + std::to_string(inst.start) + " does not target a decoded instruction");
+        return parsed;
+    }
     catch (const std::exception& error) {
         throw std::runtime_error("script " + std::to_string(resource.entry.id.number) + ": " + error.what());
     }
@@ -250,10 +259,15 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     if (first_export > 252) throw std::runtime_error("main export table cannot accommodate four byte-sized file-I/O bridges");
     std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0, parser_calls = 0, opaque_exports = 0;
     bool sound_dispatch_checked = false;
+    std::vector<std::string> legacy_branches;
     for (auto& entry : unique) if (entry.first.first == ResourceType::script) {
         ++scripts;
         auto& payload = entry.second.payload;
         const auto& parsed = script_metadata.at(entry.first.second);
+        for (const auto& inst : parsed.instructions)
+            if (inst.opcode >= 23 && inst.opcode <= 25 && !parsed.boundaries.count(target(inst)))
+                legacy_branches.push_back("script " + std::to_string(entry.first.second) + " at byte " +
+                    std::to_string(inst.start) + " -> " + std::to_string(target(inst)));
         for (const auto& exported : parsed.exports)
             if (exported.second && !parsed.boundaries.count(exported.second) && !parsed.object_pointers.count(exported.second)) ++opaque_exports;
         for (std::size_t instruction_index = 0; instruction_index < parsed.instructions.size(); ++instruction_index) {
@@ -289,6 +303,21 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     // Reparse after remapping so main-relative operands and references are based
     // on the actual modified bytes before expanding the export table.
     main->second.payload = add_file_bridges(main->second.payload, parse_migration_script(main->second), first_export);
+    // Enforce the invariant that makes preserving legacy branches possible.
+    // Kernel/bridge rewrites are equal length, and no branch operands change.
+    for (const auto& entry : unique) if (entry.first.first == ResourceType::script && entry.first.second != 0) {
+        const auto after = parse_migration_script(entry.second);
+        const auto& before = script_metadata.at(entry.first.second);
+        if (after.boundaries != before.boundaries || after.instructions.size() != before.instructions.size())
+            throw std::runtime_error("migration changed non-main script instruction layout");
+        for (std::size_t i = 0; i < before.instructions.size(); ++i) {
+            const auto& old_inst = before.instructions[i];
+            const auto& new_inst = after.instructions[i];
+            if (old_inst.end != new_inst.end || (old_inst.opcode >= 23 && old_inst.opcode <= 25 &&
+                (old_inst.opcode != new_inst.opcode || old_inst.operands != new_inst.operands)))
+                throw std::runtime_error("migration changed a preserved branch operand or instruction extent");
+        }
+    }
     const auto format = parser_calls ? Sci1Format::sci1_ega : Sci1Format::sci1_late;
     if (parser_calls) adapt_parser(unique);
     std::vector<Resource> output;
@@ -313,10 +342,12 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
            << "Main export expansion relocates absolute addresses; four FileIO bridges appended.\n"
            << "Validated SCI0 late DoSound calls: " << sound_calls << "; kernel remapped to 0x2d.\n"
            << (sound_calls ? "Sound resources retained after SCI0 late decoding; ScummVM late-sound dispatch verified by vocabulary 997.\n" : "No DoSound compatibility profile required.\n")
-           << "Script layouts, branches, methods and direct export calls validated; opaque uncalled export slots preserved: " << opaque_exports << ".\n"
+           << "Script layouts, main branches, methods and direct calls validated; opaque uncalled export slots preserved: " << opaque_exports << ".\n"
+           << "Legacy non-main branch targets retained unchanged: " << legacy_branches.size() << "; runtime reachability UNVERIFIED.\n"
            << "Dynamic export accesses remain unverified; no game-specific assumptions, assets or detection hashes fabricated.\n"
            << "UNVERIFIED: runtime detection, graphics/sound compatibility, save/restore and gameplay require manual ScummVM validation.\n"
            << "This is a ScummVM-targeted compatibility candidate, not a claim of original Sierra interpreter compatibility or a general SCI1.1 migration.\n";
+    for (const auto& branch : legacy_branches) report << "UNVERIFIED legacy branch: " << branch << ".\n";
     result.report = report.str();
     return result;
 }
