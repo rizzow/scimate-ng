@@ -7,6 +7,9 @@
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QImage>
+#include <QPushButton>
+#include <QSplitter>
+#include <QProgressBar>
 #include <QMessageBox>
 #include <QTableView>
 #include <QTemporaryDir>
@@ -25,6 +28,7 @@ private slots:
         project_fixture::create(std::filesystem::u8path(source.toUtf8().constData()));
         MainWindow window; window.show();
         window.createProject(source, temp.path() + "/workspace", "My project");
+        QVERIFY(window.findChild<QWidget*>("progressPanel")->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(!window.busy(), 10000);
         QVERIFY(window.project());
         QCOMPARE(window.project()->name, std::string("My project"));
@@ -33,16 +37,42 @@ private slots:
         auto* details = window.findChild<QPlainTextEdit*>("details");
         QVERIFY(table && filter && details);
         QCOMPARE(table->model()->rowCount(), 6);
-        filter->setText("view"); QCOMPARE(table->model()->rowCount(), 1);
+        auto* types = window.findChild<QComboBox*>("resourceType");
+        QVERIFY(types); types->setCurrentIndex(types->findData("view"));
+        QCOMPARE(table->model()->rowCount(), 1);
+        filter->setText("999999"); QCOMPARE(table->model()->rowCount(), 0);
+        filter->clear(); QCOMPARE(table->model()->rowCount(), 1);
         table->selectRow(0);
         QVERIFY(window.findChild<QComboBox*>("cels")->count() > 0);
         QVERIFY(details->toPlainText().contains("Editable folder"));
+        auto* play = window.findChild<QPushButton*>("playLoop");
+        auto* frames = window.findChild<QComboBox*>("cels");
+        const auto initial = frames->currentIndex(); play->click();
+        QTRY_VERIFY_WITH_TIMEOUT(frames->currentIndex() != initial, 1000);
+        QCOMPARE(frames->currentData().toPoint().x(), 0);
+        play->click(); QVERIFY(!play->isChecked());
+        window.exportSelected(temp.path() + "/cel.png", "png");
+        QCOMPARE(QImage(temp.path() + "/cel.png").size(), QSize(3, 2));
+        window.exportSelected(temp.path() + "/view.bin", "bin");
+        QFile raw(temp.path() + "/view.bin"); QVERIFY(raw.open(QIODevice::ReadOnly));
+        const auto viewBytes = raw.readAll(); QVERIFY(scimate::read_sci0_view(scimate::Bytes(viewBytes.begin(), viewBytes.end())).loops[0].cels.size() == 2);
+        auto* split = window.findChild<QSplitter*>("previewSplitter");
+        QVERIFY(split); const auto before = split->sizes(); split->setSizes({150, 400});
+        QVERIFY(split->sizes() != before); split->setSizes(before);
+        types->setCurrentIndex(0);
         filter->setText("pic"); QCOMPARE(table->model()->rowCount(), 1); table->selectRow(0);
         auto* planes = window.findChild<QComboBox*>("cels"); QCOMPARE(planes->count(), 3);
         planes->setCurrentIndex(2); QCOMPARE(planes->currentText(), QString("Control mask"));
         QVERIFY(details->toPlainText().contains("Mask colors"));
+        window.exportSelected(temp.path() + "/mask.png", "png");
+        QCOMPARE(QImage(temp.path() + "/mask.png").size(), QSize(320, 190));
         filter->setText("text"); QCOMPARE(table->model()->rowCount(), 2);
         table->selectRow(0); QVERIFY(details->toPlainText().contains("Hexadecimal"));
+        window.exportSelected(temp.path() + "/text.bin", "bin");
+        QFile exportedText(temp.path() + "/text.bin"); QVERIFY(exportedText.open(QIODevice::ReadOnly)); QCOMPARE(exportedText.readAll(), QByteArray("old"));
+        filter->setText("script"); table->selectRow(1);
+        window.exportSelected(temp.path() + "/script.asm", "asm");
+        QFile listing(temp.path() + "/script.asm"); QVERIFY(listing.open(QIODevice::ReadOnly)); QVERIFY(listing.readAll().contains("ret"));
         project_fixture::write(window.project()->directory / "payloads/0000000.bin", {'n','e','w'});
         const auto pngPath = temp.path() + "/workspace/views/0000003/loop-0-cel-0.png";
         QImage png(pngPath); QVERIFY(!png.isNull());
@@ -73,7 +103,7 @@ private slots:
             window.openProject(realProject);
             QTRY_VERIFY_WITH_TIMEOUT(!window.busy(), 60000);
             QVERIFY(window.project());
-            filter->setText("view"); QVERIFY(table->model()->rowCount() > 0); table->selectRow(1); table->scrollTo(table->model()->index(1, 0));
+            filter->setText("view"); QVERIFY(table->model()->rowCount() > 0); table->selectRow(4); table->scrollTo(table->model()->index(4, 0));
         }
         const auto screenshot = qEnvironmentVariable("SCIMATE_TEST_SCREENSHOT");
         if (!screenshot.isEmpty()) { QTest::qWait(100); QVERIFY(window.grab().save(screenshot)); }

@@ -43,7 +43,8 @@ Concurrent installed (Qt 6.2+; Qt Test is also needed when testing):
 cmake -S . -B build-desktop -DSCIMATE_BUILD_DESKTOP=ON \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qtbase
 cmake --build build-desktop --parallel
-ctest --test-dir build-desktop --output-on-failure
+ctest --test-dir build-desktop -E '^desktop$' --output-on-failure
+# Optional GUI tests (launch Qt): ctest --test-dir build-desktop -R '^desktop$' --output-on-failure
 open build-desktop/scimate-desktop.app
 ```
 
@@ -60,8 +61,14 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
   existing SCI0 game. It preserves original resources and exports editable PNGs.
 - **Open Project** opens `project.scimate`. Recent projects are remembered.
   The workspace is movable and does not need the original game folder.
-- Browse/filter resources, inspect script disassembly, and preview view cels
-  including mirrored loops and background/priority/control planes. Modified resources are marked after refresh.
+- Filter resources by type and search text; inspect script disassembly and preview
+  view cels, mirrored loops, and background/priority/control planes. **Play loop**
+  animates the selected view loop. Drag either splitter to resize the browser or preview.
+- **Export…** saves any selected resource as a decoded binary payload, plus PNG
+  for the selected cel/plane or assembly text for scripts. PNGs retain native resolution.
+- Loading shows the current phase, resource counts and elapsed time. Controls use
+  the platform Qt style, including native dropdown arrows. Modified resources are
+  marked after refresh.
 - **Open Resource Folder** opens the selected resource bundle or payload folder.
   Edit PNGs externally, then **Refresh from Disk** to validate and load changes.
 - **Build Resources to New Folder** re-reads edits, reconstructs resources, and
