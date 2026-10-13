@@ -4,8 +4,8 @@
 #include <string>
 
 namespace scimate {
-// Explicit DOS directory-map formats, not interpreter auto-detection.
-enum class Sci1Format { sci1_late, sci11 };
+// Explicit DOS resource formats, not interpreter auto-detection.
+enum class Sci1Format { sci1_late, sci11, sci1_ega };
 std::vector<ResourceMapEntry> read_sci1_map(const Bytes& bytes, Sci1Format format);
 Bytes decode_sci1(std::uint16_t method, const Bytes& input, std::size_t expected_size);
 Game read_sci1_game(GameFiles files, Sci1Format format);

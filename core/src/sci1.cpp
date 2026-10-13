@@ -16,6 +16,7 @@ void put(Bytes& bytes, unsigned value, unsigned width) {
 }
 } // namespace
 std::vector<ResourceMapEntry> read_sci1_map(const Bytes& bytes, Sci1Format format) {
+    if (format == Sci1Format::sci1_ega) return read_sci0_map(bytes);
     if (bytes.size() > 65535) throw std::runtime_error("SCI1 directory map exceeds 16-bit size limit");
     const unsigned stride = format == Sci1Format::sci11 ? 5 : 6;
     std::vector<std::pair<unsigned, unsigned>> directory;
@@ -50,7 +51,7 @@ Game read_sci1_game(GameFiles files, Sci1Format format) {
     const auto entries = read_sci1_map(files.map, format);
     std::size_t total = files.map.size(), decoded = 0;
     for (const auto& volume : files.volumes) {
-        if (volume.first > (format == Sci1Format::sci11 ? 0 : 15)) throw std::runtime_error("invalid SCI1 volume number");
+        if (volume.first > (format == Sci1Format::sci11 ? 0 : format == Sci1Format::sci1_ega ? 63 : 15)) throw std::runtime_error("invalid SCI1 volume number");
         if (volume.second.size() > max_game_bytes-total) throw std::runtime_error("SCI1 game exceeds 256 MiB limit");
         total += volume.second.size();
     }
@@ -63,19 +64,24 @@ Game read_sci1_game(GameFiles files, Sci1Format format) {
             if (volume == files.volumes.end()) throw std::runtime_error("missing volume");
             const auto& bytes = volume->second;
             const auto offset = static_cast<std::size_t>(entry.offset);
-            if (offset > bytes.size() || bytes.size()-offset < 9) throw std::runtime_error("resource header outside volume");
-            if ((get(bytes, offset, 1) & 127u) != static_cast<unsigned>(entry.id.type) || get(bytes, offset+1, 2) != entry.id.number)
+            const auto header = format == Sci1Format::sci1_ega ? 8u : 9u;
+            if (offset > bytes.size() || bytes.size()-offset < header) throw std::runtime_error("resource header outside volume");
+            const auto id = get(bytes, offset, 2);
+            if (format == Sci1Format::sci1_ega ?
+                (id >> 11 != static_cast<unsigned>(entry.id.type) || (id & 2047) != entry.id.number) :
+                ((get(bytes, offset, 1) & 127u) != static_cast<unsigned>(entry.id.type) || get(bytes, offset+1, 2) != entry.id.number))
                 throw std::runtime_error("resource ID differs from map");
-            auto packed = get(bytes, offset+3, 2), size = get(bytes, offset+5, 2), method = get(bytes, offset+7, 2);
-            if (format == Sci1Format::sci1_late) {
+            auto packed = get(bytes, offset+header-6, 2), size = get(bytes, offset+header-4, 2), method = get(bytes, offset+header-2, 2);
+            if (format != Sci1Format::sci11) {
                 if (packed < 4) throw std::runtime_error("SCI1 stored size must include four bytes");
                 packed -= 4;
             }
-            if (packed > bytes.size()-offset-9) throw std::runtime_error("truncated resource payload");
+            if (packed > bytes.size()-offset-header) throw std::runtime_error("truncated resource payload");
             if (size > max_decoded_bytes-decoded) throw std::runtime_error("SCI1 decoded game exceeds 256 MiB limit");
             decoded += size;
-            const auto begin = bytes.begin()+static_cast<std::ptrdiff_t>(offset+9);
-            game.resources.push_back({entry, static_cast<std::uint16_t>(method), decode_sci1(static_cast<std::uint16_t>(method), Bytes(begin, begin+packed), size)});
+            const auto begin = bytes.begin()+static_cast<std::ptrdiff_t>(offset+header);
+            const auto decoder = format == Sci1Format::sci1_ega && method <= 2 && method != 0 ? 3-method : method;
+            game.resources.push_back({entry, static_cast<std::uint16_t>(method), decode_sci1(static_cast<std::uint16_t>(decoder), Bytes(begin, begin+packed), size)});
             used.insert(entry.volume);
         } catch (const std::runtime_error& error) {
             throw std::runtime_error("SCI1 record " + std::to_string(i) + ", volume " + std::to_string(entry.volume) + ", offset " + std::to_string(entry.offset) + ": " + error.what());
@@ -88,6 +94,31 @@ Game read_sci1_game(GameFiles files, Sci1Format format) {
     return game;
 }
 GameFiles write_sci1_game(const std::vector<Resource>& resources, Sci1Format format) {
+    if (format == Sci1Format::sci1_ega) {
+        GameFiles files;
+        auto& volume = files.volumes[0];
+        std::set<unsigned> ids;
+        std::size_t decoded = 0;
+        for (const auto& resource : resources) {
+            const auto type = static_cast<unsigned>(resource.entry.id.type);
+            if (type > 9 || resource.entry.id.number > 2047) throw std::runtime_error("SCI1 EGA resource ID exceeds packed limit");
+            const auto id = (type << 11) | resource.entry.id.number;
+            if (!ids.insert(id).second) throw std::runtime_error("duplicate SCI1 EGA resource ID");
+            if (resource.payload.size() > 65531) throw std::runtime_error("SCI1 EGA payload exceeds header limit");
+            if (volume.size() > 0x03ffffff) throw std::runtime_error("SCI1 EGA volume offset limit exceeded");
+            if (resource.payload.size() > max_decoded_bytes-decoded) throw std::runtime_error("SCI1 decoded game exceeds 256 MiB limit");
+            decoded += resource.payload.size();
+            put(files.map,id,2); put(files.map,static_cast<unsigned>(volume.size()),4);
+            put(volume,id,2); put(volume,static_cast<unsigned>(resource.payload.size())+4,2);
+            put(volume,static_cast<unsigned>(resource.payload.size()),2); put(volume,0,2);
+            volume.insert(volume.end(),resource.payload.begin(),resource.payload.end());
+            if (files.map.size()+volume.size()+6 > max_game_bytes) throw std::runtime_error("SCI1 output exceeds 256 MiB limit");
+        }
+        files.map.insert(files.map.end(),6,255);
+        if (files.map.size() > max_map_bytes) throw std::runtime_error("SCI1 EGA map exceeds size limit");
+        if (resources.empty()) files.volumes.clear();
+        return files;
+    }
     std::map<unsigned, std::vector<const Resource*>> groups;
     for (const auto& resource : resources) {
         auto type = static_cast<unsigned>(resource.entry.id.type);
