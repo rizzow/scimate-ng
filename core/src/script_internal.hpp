@@ -17,7 +17,9 @@ struct ParsedScript {
 };
 // Migration may preserve legacy inactive exports/dead branch targets. Layout and
 // instruction operand bounds are always validated; normal inspection is strict.
-ParsedScript parse(const Bytes&, bool validate_targets = true);
+ParsedScript parse(const Bytes&, bool validate_targets = true, bool validate_export_targets = true);
+// Migration can preserve opaque export slots without weakening branch checks.
+// Consumers executing exports must validate their target independently.
 std::uint16_t word(const Bytes&,std::size_t,std::size_t);
 int signed_value(unsigned,unsigned);
 std::uint16_t target(const Instruction&);

@@ -85,6 +85,30 @@ void validate_sound_call(const ParsedScript& parsed, std::size_t index) {
         throw std::runtime_error("unsupported SCI0 DoSound suboperation/frame at " + std::to_string(call.start));
 }
 using Resources = std::map<std::pair<ResourceType,std::uint16_t>,Resource>;
+ParsedScript parse_migration_script(const Resource& resource) {
+    try { return parse(resource.payload,true,false); }
+    catch (const std::exception& error) {
+        throw std::runtime_error("script " + std::to_string(resource.entry.id.number) + ": " + error.what());
+    }
+}
+std::map<std::uint16_t,ParsedScript> validate_migration_scripts(const Resources& resources) {
+    std::map<std::uint16_t,ParsedScript> scripts;
+    for (const auto& entry : resources) if (entry.first.first == ResourceType::script)
+        scripts.emplace(entry.first.second,parse_migration_script(entry.second));
+    for (const auto& entry : scripts) for (const auto& inst : entry.second.instructions) {
+        if (inst.opcode != 34 && inst.opcode != 35) continue;
+        const auto script_number = inst.opcode == 34 ? 0u : inst.operands.at(0);
+        const auto export_number = inst.operands.at(inst.opcode == 34 ? 0 : 1);
+        const auto destination = scripts.find(static_cast<std::uint16_t>(script_number));
+        const auto context = "script " + std::to_string(entry.first) + " at byte " + std::to_string(inst.start) +
+                             ": direct call to script " + std::to_string(script_number) + " export " + std::to_string(export_number);
+        if (destination == scripts.end() || export_number >= destination->second.exports.size())
+            throw std::runtime_error(context + " has no export slot");
+        if (!destination->second.boundaries.count(destination->second.exports.at(export_number).second))
+            throw std::runtime_error(context + " does not target a decoded instruction");
+    }
+    return scripts;
+}
 void adapt_parser(Resources& resources) {
     if (resources.count({ResourceType::vocab,10}) || resources.count({ResourceType::vocab,910}) || resources.count({ResourceType::vocab,911}))
         throw std::runtime_error("parser migration: secondary-language vocabularies require a separate conversion");
@@ -215,7 +239,8 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     for (const auto& resource : game.resources) unique.emplace(Key{resource.entry.id.type,resource.entry.id.number}, resource);
     auto main = unique.find({ResourceType::script,0});
     if (main == unique.end()) throw std::runtime_error("migration requires script 0");
-    auto parsed_main = parse(main->second.payload);
+    const auto script_metadata = validate_migration_scripts(unique);
+    const auto& parsed_main = script_metadata.at(0);
     if (parsed_main.exports.empty()) throw std::runtime_error("migration requires main export 0");
     bool main_object = false;
     for (const auto& object : parsed_main.objects)
@@ -223,12 +248,14 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     if (!main_object) throw std::runtime_error("main export 0 must identify a decoded object");
     auto first_export = static_cast<unsigned>(parsed_main.exports.size());
     if (first_export > 252) throw std::runtime_error("main export table cannot accommodate four byte-sized file-I/O bridges");
-    std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0, parser_calls = 0;
+    std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0, parser_calls = 0, opaque_exports = 0;
     bool sound_dispatch_checked = false;
     for (auto& entry : unique) if (entry.first.first == ResourceType::script) {
         ++scripts;
         auto& payload = entry.second.payload;
-        auto parsed = parse(payload);
+        const auto& parsed = script_metadata.at(entry.first.second);
+        for (const auto& exported : parsed.exports)
+            if (exported.second && !parsed.boundaries.count(exported.second) && !parsed.object_pointers.count(exported.second)) ++opaque_exports;
         for (std::size_t instruction_index = 0; instruction_index < parsed.instructions.size(); ++instruction_index) {
             const auto& inst = parsed.instructions[instruction_index];
             if (inst.opcode != 33) continue;
@@ -261,7 +288,7 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     }
     // Reparse after remapping so main-relative operands and references are based
     // on the actual modified bytes before expanding the export table.
-    main->second.payload = add_file_bridges(main->second.payload, parse(main->second.payload), first_export);
+    main->second.payload = add_file_bridges(main->second.payload, parse_migration_script(main->second), first_export);
     const auto format = parser_calls ? Sci1Format::sci1_ega : Sci1Format::sci1_late;
     if (parser_calls) adapt_parser(unique);
     std::vector<Resource> output;
@@ -286,7 +313,8 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
            << "Main export expansion relocates absolute addresses; four FileIO bridges appended.\n"
            << "Validated SCI0 late DoSound calls: " << sound_calls << "; kernel remapped to 0x2d.\n"
            << (sound_calls ? "Sound resources retained after SCI0 late decoding; ScummVM late-sound dispatch verified by vocabulary 997.\n" : "No DoSound compatibility profile required.\n")
-           << "Source scripts strictly validated; no game-specific assumptions, assets or detection hashes fabricated.\n"
+           << "Script layouts, branches, methods and direct export calls validated; opaque uncalled export slots preserved: " << opaque_exports << ".\n"
+           << "Dynamic export accesses remain unverified; no game-specific assumptions, assets or detection hashes fabricated.\n"
            << "UNVERIFIED: runtime detection, graphics/sound compatibility, save/restore and gameplay require manual ScummVM validation.\n"
            << "This is a ScummVM-targeted compatibility candidate, not a claim of original Sierra interpreter compatibility or a general SCI1.1 migration.\n";
     result.report = report.str();

@@ -47,6 +47,39 @@ Game sample() {
     return game;
 }
 void tests() {
+    // Uncalled legacy export slots are metadata, not mandatory procedures.
+    auto legacy_exports = sample();
+    legacy_exports.resources.push_back(resource(ResourceType::script,41,{7,0,8,0,1,0,0xff,0xff,0,0}));
+    const auto legacy_result = migrate_sci0_to_sci1(legacy_exports);
+    const auto legacy_output = read_sci1_game(legacy_result.files,Sci1Format::sci1_late);
+    bool legacy_found = false;
+    for (const auto& item : legacy_output.resources) if (item.entry.id.type == ResourceType::script && item.entry.id.number == 41) {
+        require(item.payload == legacy_exports.resources.back().payload,"opaque export slot changed"); legacy_found = true;
+    }
+    require(legacy_found && legacy_result.report.find("preserved: 1") != std::string::npos,"legacy export preservation not reported");
+    for (const unsigned opaque : {65535u,25u}) {
+        auto main_exports = sample();
+        auto& bytes = main_exports.resources[0].payload;
+        bytes.insert(bytes.begin()+8,2,0);
+        patch(bytes,2,10); patch(bytes,4,2); patch(bytes,6,42); patch(bytes,8,opaque);
+        patch(bytes,48,25); patch(bytes,60,48);
+        const auto converted = read_sci1_game(migrate_sci0_to_sci1(main_exports).files,Sci1Format::sci1_late);
+        const auto decoded = scimate::script_detail::parse(converted.resources[0].payload,true,false);
+        require(decoded.exports.size() == 6 && decoded.exports[1].second == (opaque == 65535 ? 65535u : 33u),
+                "main export expansion corrupted an opaque export");
+    }
+    fails([&] { scimate::script_detail::parse(legacy_exports.resources.back().payload); },"export target");
+    // A direct CALLE to that same invalid slot is rejected with source context.
+    auto called_legacy = legacy_exports;
+    called_legacy.resources.push_back(resource(ResourceType::script,42,{2,0,9,0,0x47,41,0,0,0x48,0,0}));
+    fails([&] { migrate_sci0_to_sci1(called_legacy); },"script 42 at byte 4");
+    // Valid code exports remain callable and are retained unchanged.
+    called_legacy.resources[3].payload = {7,0,8,0,1,0,12,0,2,0,5,0,0x48,0,0};
+    require(!migrate_sci0_to_sci1(called_legacy).files.map.empty(),"valid CALLE export rejected");
+    // Export permissiveness does not disable branch validation.
+    auto bad_branch = sample();
+    bad_branch.resources.push_back(resource(ResourceType::script,43,{2,0,7,0,0x33,1,0x48,0,0}));
+    fails([&] { migrate_sci0_to_sci1(bad_branch); },"script 43");
     auto parser_game = sample();
     parser_game.resources[2].payload = {2,0,14,0,0x43,0x24,4,0x43,0x25,2,0x43,0x26,2,0x48,0,0};
     parser_game.resources.push_back(resource(ResourceType::vocab,0,write_sci0_vocabulary({{"look",0x80,0x123},{"tree",0x10,0x456}})));

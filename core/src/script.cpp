@@ -91,7 +91,7 @@ const char* section_name(unsigned type) {
     };
     return type < names.size() ? names[type] : "unknown";
 }
-ParsedScript parse(const Bytes& bytes, bool validate_targets) {
+ParsedScript parse(const Bytes& bytes, bool validate_targets, bool validate_export_targets) {
     if (bytes.size() > 65535) fail(0, "payload exceeds SCI0 size limit");
     std::vector<Section> sections;
     std::size_t cursor = 0;
@@ -178,7 +178,7 @@ ParsedScript parse(const Bytes& bytes, bool validate_targets) {
     for (const auto& entry : exports) {
         if (entry.second == 0) continue;
         if (boundaries.count(entry.second)) procedures.insert(entry.second);
-        else if (validate_targets && object_pointers.count(entry.second) == 0) fail(entry.first, "export target is neither code nor object");
+        else if (validate_targets && validate_export_targets && object_pointers.count(entry.second) == 0) fail(entry.first, "export target is neither code nor object");
     }
     for (const auto& instruction : instructions) {
         const auto op = instruction.opcode;
