@@ -74,6 +74,15 @@ supporting generator and update `.clangd`'s `CompilationDatabase` path.
 
 ## Desktop projects
 
+Preferences stores the **Project directory** (default: `~/SCIMate Projects`) and
+**Animate views by default** (initially off). On macOS, open Preferences from the
+application menu or with **⌘,**; other platforms expose it in File. New projects
+use a subfolder named after the project, with filename separators replaced by
+underscores. The parent directory is created as needed; existing folders are not
+overwritten. Changing the preference does not move existing projects.
+Animation applies to view previews in both Resources and Explain; Play/Pause
+still lets you control the current preview independently.
+
 The desktop build includes an application icon for the macOS Finder/Dock and Qt
 windows. Source artwork and regeneration notes live in
 [desktop resources](apps/desktop/resources/README.md).

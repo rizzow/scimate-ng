@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
 #include "explanation_tree.hpp"
+#include "preferences.hpp"
 #include "scimate/script.hpp"
 #include "scimate/asset_io.hpp"
 #include "scimate/explain.hpp"
@@ -68,6 +69,13 @@ MainWindow::MainWindow() {
         refresh_->setEnabled(false); build_->setEnabled(false); folder_->setEnabled(false); close_->setEnabled(false); rename_->setEnabled(false);
     });
     file->addSeparator();
+    auto* preferencesAction = file->addAction("Preferences…", this, [this] {
+        if (preferences::showDialog(this) && !busy_ && play_->isEnabled())
+            play_->setChecked(preferences::animateViews());
+    });
+    preferencesAction->setObjectName("preferences");
+    preferencesAction->setMenuRole(QAction::PreferencesRole);
+    preferencesAction->setShortcut(QKeySequence::Preferences);
     file->addAction("Quit", this, &QWidget::close)->setShortcut(QKeySequence::Quit);
     auto* projectMenu = menuBar()->addMenu("&Project");
     explain_ = projectMenu->addAction("Explain Project", this, [this] {
@@ -341,8 +349,10 @@ void MainWindow::openProject(const QString& directory) {
 }
 void MainWindow::createProject(const QString& source, const QString& directory, const QString& name) {
     rememberDirectory("games", source);
-    rememberDirectory("newProjects", QFileInfo(directory).absolutePath());
-    run("Creating project", [source, directory, name](const scimate::ProgressCallback& progress) { return std::make_shared<scimate::Project>(scimate::create_project(path(source), path(directory), name.toUtf8().toStdString(), progress)); });
+    run("Creating project", [source, directory, name](const scimate::ProgressCallback& progress) {
+        std::filesystem::create_directories(path(directory).parent_path());
+        return std::make_shared<scimate::Project>(scimate::create_project(path(source), path(directory), name.toUtf8().toStdString(), progress));
+    });
 }
 void MainWindow::buildProject(const QString& destination) {
     if (!project_) return;
@@ -394,26 +404,29 @@ void MainWindow::newProjectDialog() {
     QFormLayout layout(&dialog);
     QLineEdit name("My SCI project"), source, destination;
     layout.addRow("Project name", &name);
-    auto addPath = [&](const QString& label, QLineEdit* field, bool newFolder) {
-        auto* row = new QWidget; auto* rowLayout = new QHBoxLayout(row); rowLayout->setContentsMargins(0, 0, 0, 0);
-        auto* browse = new QPushButton("Browse…"); rowLayout->addWidget(field); rowLayout->addWidget(browse); layout.addRow(label, row);
-        connect(browse, &QPushButton::clicked, &dialog, [&, field, newFolder] {
-            const auto key = newFolder ? "newProjects" : "games";
-            const auto start = field->text().isEmpty() ? dialogDirectory(key) : field->text();
-            const auto value = newFolder ? QFileDialog::getSaveFileName(&dialog, "New project folder", start, {}, nullptr, QFileDialog::DontConfirmOverwrite)
-                                         : QFileDialog::getExistingDirectory(&dialog, "Source SCI0 game", start);
-            if (!value.isEmpty()) {
-                field->setText(value);
-                rememberDirectory(key, newFolder ? QFileInfo(value).absolutePath() : value);
-            }
-        });
-    };
-    addPath("Game folder", &source, false); addPath("New project folder", &destination, true);
-    auto* hint = new QLabel("Choose a project folder that does not exist yet. The game stays unchanged.\nThe project stores original resources and editable PNG/payload files.");
+    auto* sourceRow = new QHBoxLayout;
+    auto* browse = new QPushButton("Browse…"); sourceRow->addWidget(&source); sourceRow->addWidget(browse);
+    layout.addRow("Game folder", sourceRow);
+    connect(browse, &QPushButton::clicked, &dialog, [&] {
+        const auto value = QFileDialog::getExistingDirectory(&dialog, "Source SCI0 game",
+            source.text().isEmpty() ? dialogDirectory("games") : source.text());
+        if (!value.isEmpty()) { source.setText(value); rememberDirectory("games", value); }
+    });
+    destination.setReadOnly(true);
+    layout.addRow("New project folder", &destination);
+    auto* hint = new QLabel("Projects are stored under the directory chosen in Preferences. Use a unique project name.\nThe game stays unchanged; the project contains original resources and editable files.");
     hint->setWordWrap(true); layout.addRow(hint);
     QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel); buttons.button(QDialogButtonBox::Ok)->setText("Create Project"); layout.addRow(&buttons);
-    auto update = [&] { buttons.button(QDialogButtonBox::Ok)->setEnabled(!name.text().trimmed().isEmpty() && !source.text().isEmpty() && !destination.text().isEmpty()); };
-    for (auto* field : {&name, &source, &destination}) connect(field, &QLineEdit::textChanged, &dialog, update);
+    auto update = [&] {
+        auto folder = name.text().trimmed();
+        folder.replace(QRegularExpression("[\\x00-\\x1f<>:\"/\\\\|?*]"), "_");
+        while (folder.endsWith('.') || folder.endsWith(' ')) folder.chop(1);
+        destination.setText(folder.isEmpty() ? QString{} : QDir(preferences::projectDirectory()).filePath(folder));
+        const bool exists = !destination.text().isEmpty() && QFileInfo::exists(destination.text());
+        destination.setToolTip(exists ? "This folder already exists. Choose another project name." : destination.text());
+        buttons.button(QDialogButtonBox::Ok)->setEnabled(!folder.isEmpty() && !source.text().trimmed().isEmpty() && !exists);
+    };
+    for (auto* field : {&name, &source}) connect(field, &QLineEdit::textChanged, &dialog, update);
     update(); connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept); connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     if (dialog.exec() == QDialog::Accepted) createProject(source.text(), destination.text(), name.text().trimmed());
 }
@@ -450,6 +463,7 @@ void MainWindow::preview() {
             previewTitle_->setText("View animation");
             cels_->setVisible(cels_->count() > 0); play_->setVisible(cels_->count() > 0); play_->setEnabled(cels_->count() > 0); previewCel();
             previewStack_->setVisible(!previewImage_.isNull());
+            play_->setChecked(!busy_ && !previewImage_.isNull() && preferences::animateViews());
         } else if (resource.entry.id.type == scimate::ResourceType::pic) {
             previewPicture_ = scimate::read_sci0_picture(resource.payload);
             selectedPicture_ = resource.payload;
