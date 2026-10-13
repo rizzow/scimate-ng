@@ -113,12 +113,14 @@ int main(int argc, char** argv) {
     const bool asset_export = command == "sound-export" || command == "font-export" || command == "cursor-export" || command == "text-export";
     const bool asset_import = command == "sound-import" || command == "font-import" || command == "cursor-import" || command == "text-import";
     std::vector<const char*> paths;
-    bool valid = true, format_seen = false, options = true, target_seen = false, force = false;
+    bool valid = true, format_seen = false, options = true, target_seen = false, force = false, json = false;
     std::string_view format = "sci0";
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (options && arg == "--") { options = false; continue; }
-        if (options && arg == "--force" && (exporting || migrating)) {
+        if (options && arg == "--json" && explain && !json) {
+            json = true;
+        } else if (options && arg == "--force" && (exporting || migrating)) {
             force = true;
         } else if (options && arg == "--format") {
             if (format_seen || i+1 == argc) { valid = false; break; }
@@ -154,16 +156,19 @@ int main(int argc, char** argv) {
                 unsigned number = 0;
                 const std::string_view kind = paths[1], text = paths[2];
                 const auto parsed = std::from_chars(text.data(), text.data()+text.size(), number);
-                if ((kind != "view" && kind != "script") || parsed.ec != std::errc{} ||
+                std::optional<scimate::ResourceType> type;
+                for (unsigned value = 0; value <= 9; ++value)
+                    if (scimate::resource_type_name(static_cast<scimate::ResourceType>(value)) == kind) type = static_cast<scimate::ResourceType>(value);
+                if (!type || parsed.ec != std::errc{} ||
                     parsed.ptr != text.data()+text.size() || number > 2047) {
-                    std::cerr << "Focus must be view or script and a decimal number from 0 to 2047.\n"
+                    std::cerr << "Focus must be an SCI0 resource type and a decimal number from 0 to 2047.\n"
                               << scimate::cli::command_help("explain", true);
                     return 2;
                 }
-                focus = scimate::ResourceId{kind == "view" ? scimate::ResourceType::view : scimate::ResourceType::script,
-                                            static_cast<std::uint16_t>(number)};
+                focus = scimate::ResourceId{*type, static_cast<std::uint16_t>(number)};
             }
-            std::cout << scimate::explain_sci0_game(scimate::open_sci0_game(paths[0]), focus);
+            const auto analysis = scimate::analyze_sci0_game(scimate::open_sci0_game(paths[0]), focus);
+            std::cout << (json ? scimate::format_explanation_json(analysis) : scimate::format_explanation_text(analysis));
             if (!std::cout) throw std::runtime_error("failed to write explanation");
             return 0;
         }

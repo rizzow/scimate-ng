@@ -2,16 +2,17 @@
 #include "scimate/explain.hpp"
 #include "scimate/view.hpp"
 #include "script_internal.hpp"
+#include "vocabulary_names.hpp"
+#include "scimate/resource_lookup.hpp"
 #include <algorithm>
 #include <cctype>
-#include <sstream>
 
 namespace scimate {
 namespace {
 using namespace script_detail;
 using Key = std::pair<ResourceType, std::uint16_t>;
 struct Script { ParsedScript parsed; };
-struct Class { unsigned parent; std::string name; std::vector<unsigned> selectors; };
+struct Class { unsigned parent; std::string name; std::vector<unsigned> selectors; unsigned script; };
 struct Reference { unsigned script, view; std::string evidence; bool player; };
 struct Transition { unsigned script, room; std::string evidence; bool startup; };
 struct Value {
@@ -33,18 +34,11 @@ std::string bare_name(const std::string& name) {
     return name.size() >= 2 && name.front() == '"' ? name.substr(1, name.size()-2) : name;
 }
 std::map<unsigned, std::string> selectors(const Bytes& bytes) {
+    const auto table = vocabulary_detail::read_names(bytes, true);
     std::map<unsigned, std::string> result;
-    const auto count = static_cast<std::size_t>(word(bytes, 0, bytes.size())) + 1;
-    if (count > (bytes.size()-2)/2) throw std::runtime_error("invalid selector vocabulary table");
-    for (std::size_t i = 0; i < count; ++i) {
-        auto offset = word(bytes, 2+i*2, bytes.size());
-        if (!offset) continue;
-        auto length = word(bytes, offset, bytes.size());
-        auto begin = static_cast<std::size_t>(offset)+2;
-        if (length > bytes.size()-begin) throw std::runtime_error("truncated selector name");
-        // Reuse the parser's escaping to keep terminal output safe.
-        result[static_cast<unsigned>(i)] = bare_name(quoted(bytes, begin, begin+length));
-    }
+    for (std::size_t i = 0; i < table.entries.size(); ++i)
+        if (table.entries[i]) result[static_cast<unsigned>(i)] =
+            bare_name(quoted(*table.entries[i], 0, table.entries[i]->size()));
     return result;
 }
 std::vector<std::string> lineage(const Object& object, const std::map<unsigned, Class>& classes) {
@@ -89,7 +83,8 @@ std::string location(unsigned script, std::size_t offset) {
 void inspect_sends(unsigned number, const ParsedScript& script, const std::map<unsigned, Class>& classes,
                    const std::map<unsigned, std::string>& names, std::vector<Reference>& refs,
                    std::vector<Transition>& transitions, std::vector<std::pair<unsigned, std::string>>& cycles,
-                   std::vector<std::pair<unsigned, std::string>>& player_bindings) {
+                   std::vector<std::pair<unsigned, std::string>>& player_bindings,
+                   std::vector<ResourceReference>& links) {
     std::vector<Value> stack;
     Value acc;
     const Object* owner = nullptr;
@@ -167,6 +162,10 @@ void inspect_sends(unsigned number, const ParsedScript& script, const std::map<u
                             if (object.pointer == receiver.number) player = player_object(object, script, classes);
                     if (count == 1 && stack[cursor+2].kind == Value::integer) {
                         auto value = stack[cursor+2].number;
+                        if (name == "view" || name == "pic" || name == "picture" || name == "picNumber")
+                            links.push_back({{ResourceType::script, static_cast<std::uint16_t>(number)},
+                                {name == "view" ? ResourceType::view : ResourceType::pic, static_cast<std::uint16_t>(value)},
+                                inst.start, ReferenceConfidence::likely, evidence + " with constant " + std::to_string(value)});
                         if (name == "view") refs.push_back({number, value, evidence + " with constant " + std::to_string(value), player});
                         if (name == "newRoom" || name == "startRoom") {
                             bool startup = number == 0 && owner && !script.exports.empty() &&
@@ -194,16 +193,10 @@ void inspect_sends(unsigned number, const ParsedScript& script, const std::map<u
 }
 } // namespace
 
-std::string explain_sci0_game(const Game& game, std::optional<ResourceId> focus) {
-    if (focus && focus->type != ResourceType::script && focus->type != ResourceType::view)
-        throw std::runtime_error("explain supports script and view focus only");
-    std::map<Key, const Resource*> resources;
-    std::size_t duplicates = 0;
-    for (const auto& resource : game.resources) {
-        Key key{resource.entry.id.type, resource.entry.id.number};
-        if (resources.count(key)) ++duplicates;
-        resources[key] = &resource;
-    }
+GameExplanation analyze_sci0_game(const Game& game, std::optional<ResourceId> focus) {
+    GameExplanation result;
+    const auto resources = index_resources(game, DuplicatePolicy::last);
+    const auto duplicates = game.resources.size() - resources.size();
     if (focus && !resources.count({focus->type, focus->number})) throw std::runtime_error("requested explain resource was not found");
     std::vector<std::string> diagnostics;
     std::map<unsigned, std::string> names;
@@ -222,7 +215,7 @@ std::string explain_sci0_game(const Game& game, std::optional<ResourceId> focus)
     for (const auto& entry : scripts) for (const auto& object : entry.second.parsed.objects) if (object.is_class) {
         auto id = object.values[0];
         if (classes.count(id)) ambiguous_classes.insert(id);
-        else classes.emplace(id, Class{object.values[1], name_of(object, entry.second.parsed), object.selectors});
+        else classes.emplace(id, Class{object.values[1], name_of(object, entry.second.parsed), object.selectors, entry.first});
     }
     for (auto id : ambiguous_classes) {
         classes.erase(id);
@@ -233,106 +226,150 @@ std::string explain_sci0_game(const Game& game, std::optional<ResourceId> focus)
     std::vector<std::pair<unsigned, std::string>> cycles;
     std::map<unsigned, std::vector<std::pair<unsigned, std::string>>> bindings;
     for (const auto& entry : scripts)
-        inspect_sends(entry.first, entry.second.parsed, classes, names, refs, transitions, cycles, bindings[entry.first]);
-    std::ostringstream out;
-    out << "SCI0 explanation (static heuristics; game execution is not simulated)\n"
-        << "Labels: [fact] decoded data; [likely] convention/pattern; [unresolved] insufficient evidence.\n"
-        << "Duplicate resource IDs: " << duplicates << " shadowed entries; last map entry wins.\n";
-    if (names.empty()) out << "[unresolved] Selector names unavailable: property and method semantics cannot be inferred.\n";
+        inspect_sends(entry.first, entry.second.parsed, classes, names, refs, transitions, cycles, bindings[entry.first], result.references);
+    for (const auto& entry : scripts) {
+        const ResourceId source{ResourceType::script, static_cast<std::uint16_t>(entry.first)};
+        auto classLink = [&](unsigned id, std::size_t offset, const std::string& reason) {
+            auto found = classes.find(id);
+            if (found != classes.end())
+                result.references.push_back({source, {ResourceType::script, static_cast<std::uint16_t>(found->second.script)},
+                    offset, ReferenceConfidence::decoded, location(entry.first, offset) + " " + reason + " class " + std::to_string(id) + " " + found->second.name});
+        };
+        for (const auto& object : entry.second.parsed.objects) {
+            classLink(object.values[object.is_class ? 1 : 0], object.pointer, object.is_class ? "inherits" : "instantiates");
+            for (const auto& prop : properties(object, classes, names)) {
+                if (prop.first != "view" && prop.first != "pic" && prop.first != "picture" && prop.first != "picNumber") continue;
+                result.references.push_back({source,
+                    {prop.first == "view" ? ResourceType::view : ResourceType::pic, static_cast<std::uint16_t>(prop.second)},
+                    object.pointer, ReferenceConfidence::likely,
+                    location(entry.first, object.pointer) + " " + name_of(object, entry.second.parsed) + " initial " + prop.first + " = " + std::to_string(prop.second)});
+            }
+        }
+        for (const auto& inst : entry.second.parsed.instructions) {
+            if (inst.opcode == 34 || inst.opcode == 35) {
+                const auto script = inst.opcode == 34 ? 0u : inst.operands[0];
+                const auto slot = inst.operands[inst.opcode == 34 ? 0 : 1];
+                result.references.push_back({source, {ResourceType::script, static_cast<std::uint16_t>(script)},
+                    inst.start, ReferenceConfidence::decoded,
+                    location(entry.first, inst.start) + " " + opcode_name(inst.opcode) + " script " + std::to_string(script) + " export " + std::to_string(slot) + " (execution not proven)"});
+            } else if (inst.opcode == 40 || inst.opcode == 43)
+                classLink(inst.operands[0], inst.start, opcode_name(inst.opcode));
+        }
+    }
+    result.shadowed_entries = duplicates;
+    result.focus = focus;
+    for (const auto& entry : resources) result.resources.push_back({entry.first.first, entry.first.second});
+    using Confidence = ExplanationConfidence;
+    auto add = [](std::vector<ExplanationNode>& nodes, std::string text,
+                  Confidence confidence = Confidence::none, std::optional<ResourceId> resource = std::nullopt,
+                  std::optional<std::size_t> offset = std::nullopt) -> ExplanationNode& {
+        nodes.push_back({std::move(text), confidence, resource, offset, {}, {}});
+        return nodes.back();
+    };
+    if (names.empty()) add(result.nodes, "Selector names unavailable: property and method semantics cannot be inferred.", Confidence::unresolved);
     auto selected = [&](ResourceType type, unsigned number) { return !focus || (focus->type == type && focus->number == number); };
-    out << "\nStartup\n";
+    auto& startup = add(result.nodes, "Startup");
     std::size_t starts = 0;
     for (const auto& transition : transitions) if (transition.startup) {
         ++starts;
-        out << "  [likely] Opening-room candidate " << transition.room << ": " << transition.evidence << '\n';
+        add(startup.children, "Opening-room candidate " + std::to_string(transition.room) + ": " + transition.evidence,
+            Confidence::likely, ResourceId{ResourceType::script, static_cast<std::uint16_t>(transition.script)});
     }
-    if (!starts) out << "  [unresolved] No constant room transition found in a recognized script 0 export-0 Game init/play method.\n";
-    out << "  [unresolved] First displayed screen and first playable room require startup-path analysis; candidates may be conditional or introductory scenes.\n";
-    out << "\nScripts and objects\n";
-    for (const auto& entry : scripts) if (selected(ResourceType::script, entry.first)) {
+    if (!starts) add(startup.children, "No constant room transition found in a recognized script 0 export-0 Game init/play method.", Confidence::unresolved);
+    add(startup.children, "First displayed screen and first playable room require startup-path analysis; candidates may be conditional or introductory scenes.", Confidence::unresolved);
+    auto& scriptsNode = add(result.nodes, "Scripts and objects");
+    for (const auto& entry : scripts) {
         const auto& script = entry.second.parsed;
-        out << "  [fact] Script " << entry.first << ": " << script.objects.size() << " objects, " << script.exports.size() << " exports\n";
+        const ResourceId scriptId{ResourceType::script, static_cast<std::uint16_t>(entry.first)};
+        ExplanationNode* scriptNode = nullptr;
+        if (selected(ResourceType::script, entry.first))
+            scriptNode = &add(scriptsNode.children, "Script " + std::to_string(entry.first) + ": " + std::to_string(script.objects.size()) + " objects, " + std::to_string(script.exports.size()) + " exports", Confidence::fact, scriptId);
         for (const auto& object : script.objects) {
             auto chain = lineage(object, classes);
             auto props = properties(object, classes, names);
             const auto identity = location(entry.first, object.pointer) + " " + name_of(object, script);
-            out << "    [fact] " << (object.is_class ? "Class " : "Instance ") << identity << '\n';
-            if (!chain.empty()) {
-                out << "      [fact] Inherits";
-                for (const auto& name : chain) out << ' ' << name;
-                out << '\n';
-            }
             bool player = player_object(object, script, classes);
-            for (const auto& binding : bindings[entry.first]) if (binding.first == object.pointer) {
-                player = true;
-                out << "      [likely] Player object: " << binding.second << " (conventional player global)\n";
+            for (const auto& binding : bindings[entry.first]) if (binding.first == object.pointer) player = true;
+            if (auto view = props.find("view"); view != props.end())
+                refs.push_back({entry.first, view->second, identity + " initial view property", player && !object.is_class});
+            if (!scriptNode) continue;
+            auto& objectNode = add(scriptNode->children, std::string(object.is_class ? "Class " : "Instance ") + identity, Confidence::fact, scriptId, object.pointer);
+            auto& children = objectNode.children;
+            if (!chain.empty()) {
+                std::string ancestry = "Inherits";
+                for (const auto& name : chain) ancestry += " " + name;
+                add(children, ancestry, Confidence::fact);
             }
-            if (player_object(object, script, classes)) out << "      [likely] Player object: Ego ancestry or exact ego/gEgo object name\n";
+            for (const auto& binding : bindings[entry.first]) if (binding.first == object.pointer)
+                add(children, "Player object: " + binding.second + " (conventional player global)", Confidence::likely);
+            if (player_object(object, script, classes)) add(children, "Player object: Ego ancestry or exact ego/gEgo object name", Confidence::likely);
             const bool room = has_class(chain, {"room", "rm"}) ||
                 (object.is_class && (lower(bare_name(name_of(object, script))) == "room" || lower(bare_name(name_of(object, script))) == "rm"));
-            if (!object.is_class && room) out << "      [likely] Room instance: Room/Rm ancestry; script ID is not proof of room number\n";
+            if (!object.is_class && room) add(children, "Room instance: Room/Rm ancestry; script ID is not proof of room number", Confidence::likely);
             if (room && !script.exports.empty() && script.exports.front().second == object.pointer)
-                out << "      [likely] Room script: export 0 identifies this room object\n";
+                add(children, "Room script: export 0 identifies this room object", Confidence::likely);
             for (const auto& prop : props) if (prop.first == "view" || prop.first == "pic" || prop.first == "picture" || prop.first == "picNumber" || prop.first == "loop" || prop.first == "cel" || prop.first == "north" || prop.first == "south" || prop.first == "east" || prop.first == "west") {
-                out << "      [fact] Initial " << prop.first << " = " << prop.second << '\n';
-                if (prop.first == "view") refs.push_back({entry.first, prop.second, identity + " initial view property", player && !object.is_class});
-                if (prop.first == "pic" || prop.first == "picture" || prop.first == "picNumber")
-                    out << "      [likely] Background picture reference " << prop.second << (resources.count({ResourceType::pic, static_cast<std::uint16_t>(prop.second)}) ? " (resource exists)" : " (resource absent)") << '\n';
+                std::optional<ResourceId> target;
+                if (prop.first == "view") target = ResourceId{ResourceType::view, static_cast<std::uint16_t>(prop.second)};
+                else if (prop.first == "pic" || prop.first == "picture" || prop.first == "picNumber")
+                    target = ResourceId{ResourceType::pic, static_cast<std::uint16_t>(prop.second)};
+                add(children, "Initial " + prop.first + " = " + std::to_string(prop.second), Confidence::fact, target);
+                if (target && target->type == ResourceType::pic)
+                    add(children, "Background picture reference " + std::to_string(prop.second) +
+                        (resources.count({target->type, target->number}) ? " (resource exists)" : " (resource absent)"), Confidence::likely, target);
             }
         }
     }
-    // For view-only focus, still gather property references from every script.
-    if (focus && focus->type == ResourceType::view)
-        for (const auto& entry : scripts) for (const auto& object : entry.second.parsed.objects) {
-            auto props = properties(object, classes, names);
-            auto view = props.find("view");
-            if (view == props.end()) continue;
-            bool player = player_object(object, entry.second.parsed, classes);
-            for (const auto& binding : bindings[entry.first]) if (binding.first == object.pointer) player = true;
-            refs.push_back({entry.first, view->second, location(entry.first, object.pointer) + " " + name_of(object, entry.second.parsed) + " initial view property", player && !object.is_class});
-        }
-    auto related_script = [&](unsigned number) {
+    auto relatedScript = [&](unsigned number) {
         if (!focus) return true;
         if (focus->type == ResourceType::script) return number == focus->number;
-        return std::any_of(refs.begin(), refs.end(), [&](const auto& ref) { return ref.script == number && ref.view == focus->number; });
+        return std::any_of(result.references.begin(), result.references.end(), [&](const auto& ref) {
+            return ref.source.number == number && ref.target.type == focus->type && ref.target.number == focus->number;
+        });
     };
-    out << "\nRoom transitions and animation controllers\n";
-    for (const auto& transition : transitions) if (related_script(transition.script))
-        out << "  [fact] Constant room call " << transition.room << ": " << transition.evidence << " (execution not proven)\n";
-    for (const auto& cycle : cycles) if (related_script(cycle.first))
-        out << "  [likely] " << cycle.second << '\n';
-    if (transitions.empty() && cycles.empty()) out << "  [unresolved] No recognized constant room calls or setCycle packets.\n";
-    out << "\nViews\n";
+    auto& calls = add(result.nodes, "Room transitions and animation controllers");
+    for (const auto& transition : transitions) if (relatedScript(transition.script))
+        add(calls.children, "Constant room call " + std::to_string(transition.room) + ": " + transition.evidence + " (execution not proven)",
+            Confidence::fact, ResourceId{ResourceType::script, static_cast<std::uint16_t>(transition.script)});
+    for (const auto& cycle : cycles) if (relatedScript(cycle.first))
+        add(calls.children, cycle.second, Confidence::likely, ResourceId{ResourceType::script, static_cast<std::uint16_t>(cycle.first)});
+    if (transitions.empty() && cycles.empty()) add(calls.children, "No recognized constant room calls or setCycle packets.", Confidence::unresolved);
+    auto& views = add(result.nodes, "Views");
     for (const auto& entry : resources) if (entry.first.first == ResourceType::view && selected(ResourceType::view, entry.first.second)) {
         const auto number = entry.first.second;
+        const ResourceId viewId{ResourceType::view, number};
         try {
             const auto view = read_sci0_view(entry.second->payload);
             bool multiple = false;
-            out << "  [fact] View " << number << ": " << view.loops.size() << " loops\n";
+            auto& node = add(views.children, "View " + std::to_string(number) + ": " + std::to_string(view.loops.size()) + " loops", Confidence::fact, viewId);
             for (std::size_t i = 0; i < view.loops.size(); ++i) {
                 const auto& loop = view.loops[i];
                 const auto& cels = loop.mirror_of < 0 ? loop.cels : view.loops[static_cast<std::size_t>(loop.mirror_of)].cels;
                 multiple = multiple || cels.size() > 1;
-                out << "    [fact] Loop " << i << ": " << cels.size() << " cels";
-                if (loop.mirror_of >= 0) out << ", mirrors loop " << loop.mirror_of;
-                out << '\n';
+                auto& loopNode = add(node.children, "Loop " + std::to_string(i) + ": " + std::to_string(cels.size()) + " cels" +
+                    (loop.mirror_of < 0 ? "" : ", mirrors loop " + std::to_string(loop.mirror_of)), Confidence::fact, viewId);
+                loopNode.loop = static_cast<unsigned>(i);
             }
-            out << (multiple ? "    [likely] Animation-capable: multiple cels in a loop; may also be poses/variants.\n" : "    [unresolved] Single-cel loops do not prove a static prop; scripts can switch loops/views.\n");
-            if (view.loops.size() == 4 && multiple) out << "    [likely] Directional walking layout: four loops with multiple cels (weak shape heuristic).\n";
+            add(node.children, multiple ? "Animation-capable: multiple cels in a loop; may also be poses/variants." :
+                "Single-cel loops do not prove a static prop; scripts can switch loops/views.", multiple ? Confidence::likely : Confidence::unresolved);
+            if (view.loops.size() == 4 && multiple) add(node.children, "Directional walking layout: four loops with multiple cels (weak shape heuristic).", Confidence::likely);
             bool referenced = false;
             for (const auto& ref : refs) if (ref.view == number) {
                 referenced = true;
-                out << "    " << (ref.player ? "[likely] Player view: " : "[fact] Referenced: ") << ref.evidence << '\n';
+                add(node.children, std::string(ref.player ? "Player view: " : "Referenced: ") + ref.evidence,
+                    Confidence::likely, ResourceId{ResourceType::script, static_cast<std::uint16_t>(ref.script)});
             }
-            if (!referenced) out << "    [unresolved] No recognized reference; dynamic or unsupported uses may exist.\n";
+            if (!referenced) add(node.children, "No recognized reference; dynamic or unsupported uses may exist.", Confidence::unresolved);
         } catch (const std::runtime_error& error) { diagnostics.push_back("view " + std::to_string(number) + ": " + error.what()); }
     }
-    out << "\nLimits\n  Dynamic resource IDs, interprocedural flow, animation timing and gameplay reachability are unresolved.\n"
-        << "  Only decoded map/volume resources are considered; external patches are not loaded.\n";
-    if (!diagnostics.empty()) {
-        out << "\nDiagnostics (partial analysis)\n";
-        for (const auto& diagnostic : diagnostics) out << "  " << diagnostic << '\n';
-    }
-    return out.str();
+    auto& limits = add(result.nodes, "Limits");
+    add(limits.children, "Dynamic resource IDs, interprocedural flow, animation timing and gameplay reachability are unresolved.");
+    add(limits.children, "Only decoded map/volume resources are considered; external patches are not loaded.");
+    add(limits.children, "No recognized reference does not prove a resource unused. Selector meanings are conventions; dynamic IDs and unsupported uses are not indexed.");
+    result.diagnostics = std::move(diagnostics);
+    return result;
+}
+std::string explain_sci0_game(const Game& game, std::optional<ResourceId> focus) {
+    return format_explanation_text(analyze_sci0_game(game, focus));
 }
 } // namespace scimate

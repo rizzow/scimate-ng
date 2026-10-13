@@ -118,12 +118,21 @@ compile script source or copy an interpreter, configuration, or disk patch files
 Example: scimate import ./workspace ./rebuilt-game
 )";
     } else if (command == "explain") {
-        body = R"(Usage: scimate explain [--format sci0] <game-directory>
-       scimate explain [--format sci0] <game-directory> <view|script> <number>
+        body = R"(Usage: scimate explain [--format sci0] [--json] <game-directory>
+       scimate explain [--format sci0] [--json] <game-directory> <type> <number>
+
+Explain SCI0 resources using a structured static-analysis model.
 
 Report room instances, player-view candidates, sprite animations, constant room
 transitions, and possible opening rooms using metadata and bytecode heuristics.
 Focus on a resource with a decimal number from 0 to 2047, or inspect the game.
+Types: view, pic, script, text, sound, memory, vocab, font, cursor, patch.
+The reference section includes outgoing uses and incoming references to a focus.
+Recognized uses include view/picture properties and constant assignments,
+external script calls, and class dependencies. No match does not mean unused.
+--json emits schema version 1: evidence nodes with explicit resource links,
+offsets, confidence, diagnostics, and the whole-game reference graph. Focus
+filters evidence nodes/text output; JSON references always cover the whole game.
 
   [fact]        Decoded data.
   [likely]      An engine convention or recognized pattern.
@@ -138,6 +147,8 @@ Examples:
   scimate explain ./game
   scimate explain ./game view 42
   scimate explain ./game script 0
+  scimate explain ./game pic 7
+  scimate explain --json ./game > explanation.json
 )";
     } else if (command == "disassemble") {
         body = R"(Usage: scimate disassemble [--format sci0] <decoded-script.bin>

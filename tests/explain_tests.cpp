@@ -2,6 +2,8 @@
 #include "game_fixtures.hpp"
 #include "scimate/explain.hpp"
 #include "scimate/view.hpp"
+#include "../core/src/json.hpp"
+#include <algorithm>
 #include <iostream>
 
 namespace {
@@ -98,11 +100,35 @@ void tests() {
     focused = explain_sci0_game(game, ResourceId{ResourceType::script,100});
     has(focused, "Room instance"); lacks(focused, "[fact] Script 20:"); lacks(focused, "[fact] View 42:");
     fails([&] { explain_sci0_game(game, ResourceId{ResourceType::view,999}); }, "not found");
-    fails([&] { explain_sci0_game(game, ResourceId{ResourceType::pic,7}); }, "script and view");
+    has(explain_sci0_game(game, ResourceId{ResourceType::pic,7}), "script 100 -> pic 7");
+    const auto analysis = analyze_sci0_game(game);
+    auto references = [](const GameExplanation& value, unsigned script, ResourceType type, unsigned number) {
+        return std::count_if(value.references.begin(), value.references.end(), [&](const auto& ref) {
+            return ref.source.type == ResourceType::script && ref.source.number == script &&
+                ref.target.type == type && ref.target.number == number;
+        });
+    };
+    require(references(analysis, 100, ResourceType::pic, 7) == 1, "picture reverse lookup");
+    require(references(analysis, 20, ResourceType::view, 42) == 1, "view reverse lookup");
+    require(references(analysis, 0, ResourceType::script, 100) == 0, "room number became a script reference");
+    require(references(analysis, 20, ResourceType::script, 13) == 1, "class dependency missing");
+    const auto json = format_explanation_json(analysis);
+    const auto parsed = json_detail::parse_json(json);
+    require(parsed.at("schema_version").number(1, 1) == 1, "JSON schema version");
+    require(parsed.at("references").array().size() == analysis.references.size(), "JSON reference loss");
+    require(parsed.at("nodes").array().size() == analysis.nodes.size(), "JSON evidence loss");
+    require(json == format_explanation_json(analyze_sci0_game(game)), "nondeterministic JSON");
+    auto calls = example();
+    resource(calls, ResourceType::script, 21, object_script(false, 4, 4, "Caller", 0, 0,
+        {0x47,20,0,0,0x45,0,0,0x48}));
+    const auto callAnalysis = analyze_sci0_game(calls);
+    require(references(callAnalysis, 21, ResourceType::script, 20) == 1, "calle script reference");
+    require(references(callAnalysis, 21, ResourceType::script, 0) == 1, "callb script reference");
     // Last map entry must shadow earlier startup data, even if malformed.
     resource(game, ResourceType::script, 0, {2,0,3,0,0,0});
     report = explain_sci0_game(game);
     lacks(report, "Opening-room candidate 100"); has(report, "1 shadowed entries"); has(report, "Diagnostics (partial analysis)");
+    require(references(analyze_sci0_game(game), 0, ResourceType::script, 10) == 0, "shadowed script references survived");
     // A selector number cannot confer semantics without its vocabulary.
     resource(game, ResourceType::vocab, 997, {});
     report = explain_sci0_game(game); has(report, "Selector names unavailable"); lacks(report, "Player view:");
@@ -129,6 +155,14 @@ void tests() {
         {0x39,4,0x78,0x39,42,0x54,6,0x39,9,0x78,0x51,2,0x36,0x54,6,0x48}));
     report = explain_sci0_game(runtime, ResourceId{ResourceType::view,42});
     has(report, "sends view to \"Larry\" with constant 42"); has(report, "sends setCycle");
+    require(references(analyze_sci0_game(runtime), 21, ResourceType::view, 42) == 1, "constant view send missing");
+    for (const auto& code : std::vector<Bytes>{
+             {0x39,4,0x78,0x39,42,0x33,0,0x54,6,0x48},
+             {0x39,4,0x78,0x81,1,0x36,0x54,6,0x48},
+             {0x39,4,0x7a,0x39,42,0x54,6,0x48}}) {
+        resource(runtime, ResourceType::script, 21, object_script(false, 4, 4, "Larry", 0, 0, code));
+        require(references(analyze_sci0_game(runtime), 21, ResourceType::view, 42) == 0, "unsupported send manufactured a resource link");
+    }
     // Names are escaped before being emitted into the terminal.
     resource(runtime, ResourceType::script, 22, object_script(false, 4, 4, "bad\nname", 42, 0));
     report = explain_sci0_game(runtime); has(report, "bad\\nname"); lacks(report, "bad\nname");

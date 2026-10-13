@@ -14,6 +14,13 @@ unverified until tested in ScummVM.
 
 ## Command-line help
 
+Explain uses a structured evidence tree and resource-reference graph. Export it
+with `scimate explain --json /path/to/game`; text output is a rendering of the
+same model. Focus accepts any SCI0 resource type, for example
+`scimate explain /path/to/game pic 7`, and includes incoming/outgoing references.
+See [the explanation format](docs/explanation-format.md) for the JSON contract
+and static-analysis limitations.
+
 Run `scimate` without arguments, or use `scimate --help`, for a grouped command
 overview. Every command supports `--help` and `-h`; `scimate help <command>`
 shows the same command-specific usage, examples, formats, and editing limits.
