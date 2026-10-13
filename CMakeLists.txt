@@ -4,7 +4,7 @@ project(scimate_ng VERSION 0.1.0 LANGUAGES CXX)
 option(SCIMATE_BUILD_DESKTOP "Build the Qt project-management GUI" OFF)
 option(SCIMATE_BUILD_CLI "Build the resource inspection CLI" ON)
 option(SCIMATE_BUILD_APPLICATION "Build filesystem import/export workflows" ${SCIMATE_BUILD_CLI})
-add_library(scimate_core core/src/resource_map.cpp core/src/codecs.cpp core/src/resource_game.cpp core/src/script.cpp core/src/view.cpp core/src/picture.cpp core/src/explain.cpp)
+add_library(scimate_core core/src/resource_map.cpp core/src/codecs.cpp core/src/resource_game.cpp core/src/script.cpp core/src/view.cpp core/src/picture.cpp core/src/assets.cpp core/src/sound.cpp core/src/explain.cpp)
 target_include_directories(scimate_core PUBLIC core/include)
 target_compile_features(scimate_core PUBLIC cxx_std_17)
 set_target_properties(scimate_core PROPERTIES CXX_EXTENSIONS OFF)
@@ -16,7 +16,7 @@ endif()
 
 if(SCIMATE_BUILD_APPLICATION OR SCIMATE_BUILD_CLI OR SCIMATE_BUILD_DESKTOP)
   find_package(PNG 1.6 REQUIRED)
-  add_library(scimate_application application/src/game_io.cpp application/src/view_io.cpp application/src/picture_io.cpp application/src/project.cpp)
+  add_library(scimate_application application/src/game_io.cpp application/src/view_io.cpp application/src/picture_io.cpp application/src/asset_io.cpp application/src/project.cpp)
   target_include_directories(scimate_application PUBLIC application/include)
   target_link_libraries(scimate_application PUBLIC scimate_core)
   target_link_libraries(scimate_application PRIVATE PNG::PNG)
@@ -54,6 +54,9 @@ if(BUILD_TESTING)
   add_executable(script_tests tests/script_tests.cpp)
   target_link_libraries(script_tests PRIVATE scimate_core)
   add_test(NAME scripts COMMAND script_tests)
+  add_executable(assets_tests tests/assets_tests.cpp)
+  target_link_libraries(assets_tests PRIVATE scimate_core)
+  add_test(NAME assets COMMAND assets_tests)
   add_executable(view_tests tests/view_tests.cpp)
   target_link_libraries(view_tests PRIVATE scimate_core)
   add_test(NAME views COMMAND view_tests)
@@ -69,6 +72,9 @@ if(BUILD_TESTING)
     add_executable(project_tests tests/project_tests.cpp)
     target_link_libraries(project_tests PRIVATE scimate_application)
     add_test(NAME projects COMMAND project_tests ${CMAKE_CURRENT_BINARY_DIR}/project-fixtures)
+    add_executable(asset_io_tests tests/asset_io_tests.cpp)
+    target_link_libraries(asset_io_tests PRIVATE scimate_application)
+    add_test(NAME asset_io COMMAND asset_io_tests ${CMAKE_CURRENT_BINARY_DIR}/asset-fixtures)
     add_executable(picture_tests tests/picture_tests.cpp)
     target_link_libraries(picture_tests PRIVATE scimate_application)
     add_test(NAME pictures COMMAND picture_tests ${CMAKE_CURRENT_BINARY_DIR}/picture-fixtures)
@@ -94,6 +100,11 @@ if(BUILD_TESTING)
       -DFIXTURE_WRITER=$<TARGET_FILE:game_io_tests>
       -DFIXTURE_DIR=${CMAKE_CURRENT_BINARY_DIR}/pipeline-fixtures
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/pipeline_cli.cmake)
+    add_test(NAME asset_cli COMMAND ${CMAKE_COMMAND}
+      -DCLI=$<TARGET_FILE:scimate>
+      -DFIXTURE_WRITER=$<TARGET_FILE:asset_io_tests>
+      -DFIXTURE_DIR=${CMAKE_CURRENT_BINARY_DIR}/asset-cli-fixtures
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/asset_cli.cmake)
     add_test(NAME picture_cli COMMAND ${CMAKE_COMMAND}
       -DCLI=$<TARGET_FILE:scimate>
       -DFIXTURE_WRITER=$<TARGET_FILE:picture_tests>

@@ -100,6 +100,8 @@ static ViewCel decode_png(const Bytes& bytes, std::uint8_t transparent, bool opa
 
 Bytes encode_cel_png(const ViewCel& cel) { return encode_png(cel,false); }
 ViewCel decode_cel_png(const Bytes& bytes, std::uint8_t transparent) { return decode_png(bytes,transparent,false); }
+Bytes encode_ega_png(const ViewCel& image) { return encode_png(image,true); }
+ViewCel decode_ega_png(const Bytes& bytes) { return decode_png(bytes,15,true); }
 Bytes encode_picture_plane_png(const Bytes& pixels) {
     ViewCel cel; cel.width=320; cel.height=190; cel.pixels=pixels;
     return encode_png(cel,true);

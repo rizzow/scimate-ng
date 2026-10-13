@@ -7,6 +7,9 @@ namespace scimate {
 // PNG adapter: indexed EGA output; palette/RGB/RGBA input with exact EGA
 // colors and binary alpha. Opaque use of the transparent index is rejected.
 Bytes encode_cel_png(const ViewCel& cel);
+// Opaque EGA PNGs for font glyphs and other indexed assets.
+Bytes encode_ega_png(const ViewCel& image);
+ViewCel decode_ega_png(const Bytes& png);
 ViewCel decode_cel_png(const Bytes& png, std::uint8_t transparent);
 
 // Creates a new directory with original.bin, view.tsv, and source cel PNGs.

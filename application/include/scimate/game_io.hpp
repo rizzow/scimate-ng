@@ -29,6 +29,9 @@ struct ExportSummary {
     std::size_t view_errors = 0;
     std::size_t editable_pictures = 0;
     std::size_t picture_errors = 0;
+    std::size_t editable_assets = 0;
+    std::size_t binary_assets = 0;
+    std::size_t asset_errors = 0;
 };
 
 // Creates a new destination; never overwrites an existing file or directory.
@@ -42,7 +45,7 @@ ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
 ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& destination,
                               const ProgressCallback& progress = {});
 
-// Import binary payload, view, or picture PNG edits; conflicting edits fail.
+// Import binary payload or editable resource bundles; conflicting edits fail.
 // The game manifest and original snapshots must agree.
 // Rebuilds and verifies the result before creating a new output directory.
 void import_sci0_game(const std::filesystem::path& export_directory,

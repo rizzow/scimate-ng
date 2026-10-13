@@ -3,6 +3,7 @@
 #include "scimate/script.hpp"
 #include "scimate/view_io.hpp"
 #include "scimate/picture_io.hpp"
+#include "scimate/asset_io.hpp"
 #include "files.hpp"
 
 #include <iomanip>
@@ -87,6 +88,7 @@ ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& de
     std::filesystem::create_directory(destination / "scripts");
     std::filesystem::create_directory(destination / "views");
     std::filesystem::create_directory(destination / "pictures");
+    std::filesystem::create_directory(destination / "assets");
     report(progress, "Saving original resources", 0, 0, destination.string());
     write_game(game.original, destination / "original");
     for (std::size_t i = 0; i < game.resources.size(); ++i) {
@@ -121,6 +123,13 @@ ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& de
                 export_sci0_picture(game.resources[i].payload,destination / "pictures" / stem);
                 ++summary.editable_pictures;
             }
+        }
+        if (game.resources[i].entry.id.type != ResourceType::view && game.resources[i].entry.id.type != ResourceType::pic) {
+            const auto stem = std::filesystem::path(payload_filename(i)).stem();
+            const auto result = export_sci0_asset(game.resources[i].entry.id, game.resources[i].payload, destination / "assets" / stem);
+            if (result.editable) ++summary.editable_assets;
+            else ++summary.binary_assets;
+            if (result.conversion_error) ++summary.asset_errors;
         }
         if (game.resources[i].entry.id.type == ResourceType::script) {
             std::string listing;
@@ -175,6 +184,21 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
             auto edited = import_sci0_picture(picture_directory);
             if (edited != original) {
                 if (bytes != original && bytes != edited) throw std::runtime_error("conflicting binary and PNG edits for record " + std::to_string(i));
+                bytes = std::move(edited);
+            }
+        }
+        const auto asset_directory = export_directory / "assets" / std::filesystem::path(payload_filename(i)).stem();
+        if (std::filesystem::exists(asset_directory)) {
+            if (!std::filesystem::is_directory(std::filesystem::symlink_status(asset_directory)))
+                throw std::runtime_error("expected asset directory: " + asset_directory.string());
+            if (read_file(asset_directory / "original.bin",65535) != original)
+                throw std::runtime_error("asset snapshot differs from original resource");
+            ResourceId id{};
+            auto edited = import_sci0_asset(asset_directory, &id);
+            if (id.type != game.resources[i].entry.id.type || id.number != game.resources[i].entry.id.number)
+                throw std::runtime_error("asset identity differs from original resource");
+            if (edited != original) {
+                if (bytes != original && bytes != edited) throw std::runtime_error("conflicting binary and asset edits for record " + std::to_string(i));
                 bytes = std::move(edited);
             }
         }

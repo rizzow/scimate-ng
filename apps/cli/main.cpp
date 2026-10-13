@@ -5,6 +5,7 @@
 #include "scimate/explain.hpp"
 #include "scimate/view_io.hpp"
 #include "scimate/picture_io.hpp"
+#include "scimate/asset_io.hpp"
 
 #include <array>
 #include <charconv>
@@ -24,6 +25,12 @@ constexpr std::string_view usage =
     "       scimate import [--format sci0] <export-directory> <new-game-directory>\n"
     "       scimate view-export [--format sci0] <decoded-view.bin> <new-view-directory>\n"
     "       scimate view-import [--format sci0] <view-directory> <new-view.bin>\n"
+    "       scimate resource-export [--format sci0] <type> <number> <decoded.bin> <new-bundle>\n"
+    "       scimate resource-import [--format sci0] <bundle> <new-decoded.bin>\n"
+    "       scimate sound-export [--format sci0] <decoded-sound.bin> <new-bundle>\n"
+    "       scimate sound-import [--format sci0] <bundle> <new-sound.bin>\n"
+    "       scimate font-export|cursor-export|text-export <decoded.bin> <new-bundle>\n"
+    "       scimate font-import|cursor-import|text-import <bundle> <new-decoded.bin>\n"
     "       scimate picture-export [--format sci0] <decoded-picture.bin> <new-picture-directory>\n"
     "       scimate picture-import [--format sci0] <picture-directory> <new-picture.bin>\n"
     "Run scimate explain --help for heuristic analysis and limitations.\n"
@@ -33,6 +40,7 @@ constexpr std::string_view usage =
     "export writes payloads and originals; import rebuilds payload edits into a new directory.\n"
     "export also writes scripts/*.asm (or *.error.txt); these listings are not importable source.\n"
     "export/import includes editable view PNGs and placement metadata under views/.\n"
+    "export/import includes MIDI/WAV sounds, font/cursor PNGs, text/vocabulary tables, and binary assets/.\n"
     "export/import includes background, priority, and control PNGs under pictures/.\n"
     "SCI0 only; no format detection, recompression, resource ID edits, or engine validation.\n";
 
@@ -96,6 +104,9 @@ int main(int argc, char** argv) {
     const bool view_import = command == "view-import";
     const bool picture_export = command == "picture-export";
     const bool picture_import = command == "picture-import";
+    const bool resource_export = command == "resource-export", resource_import = command == "resource-import";
+    const bool asset_export = command == "sound-export" || command == "font-export" || command == "cursor-export" || command == "text-export";
+    const bool asset_import = command == "sound-import" || command == "font-import" || command == "cursor-import" || command == "text-import";
     std::vector<const char*> paths;
     bool valid = true, format_seen = false, options = true;
     for (int i = 2; i < argc; ++i) {
@@ -107,8 +118,8 @@ int main(int argc, char** argv) {
         } else if (options && arg.substr(0,2) == "--") { valid = false; break; }
         else paths.push_back(argv[i]);
     }
-    if (!valid || (!listing && !inspect && !explain && !disassemble && !exporting && !importing && !view_export && !view_import && !picture_export && !picture_import) ||
-        (explain ? (paths.size() != 1 && paths.size() != 3) : paths.size() != ((exporting || importing || view_export || view_import || picture_export || picture_import) ? 2u : 1u))) {
+    if (!valid || (!listing && !inspect && !explain && !disassemble && !exporting && !importing && !view_export && !view_import && !picture_export && !picture_import && !resource_export && !resource_import && !asset_export && !asset_import) ||
+        (explain ? (paths.size() != 1 && paths.size() != 3) : paths.size() != (resource_export ? 4u : (resource_import || asset_export || asset_import) ? 2u : ((exporting || importing || view_export || view_import || picture_export || picture_import) ? 2u : 1u)))) {
         std::cerr << (explain ? explain_help : usage);
         return 2;
     }
@@ -129,6 +140,35 @@ int main(int argc, char** argv) {
             }
             std::cout << scimate::explain_sci0_game(scimate::open_sci0_game(paths[0]), focus);
             if (!std::cout) throw std::runtime_error("failed to write explanation");
+            return 0;
+        }
+        if (resource_export || resource_import || asset_export || asset_import) {
+            const auto alias_type = command.substr(0,command.find('-'));
+            scimate::ResourceId id{scimate::ResourceType::sound,0};
+            auto parse_type = [](std::string_view name) {
+                for (unsigned type=0;type<=9;++type)
+                    if (scimate::resource_type_name(static_cast<scimate::ResourceType>(type))==name) return static_cast<scimate::ResourceType>(type);
+                throw std::invalid_argument("resource type must be view, pic, script, text, sound, memory, vocab, font, cursor, or patch");
+            };
+            if (resource_export || asset_export) {
+                const char* payload=paths[0];const char* destination=paths[1];
+                if (resource_export) {
+                    unsigned number=0;const std::string_view number_text=paths[1];
+                    const auto parsed=std::from_chars(number_text.data(),number_text.data()+number_text.size(),number);
+                    if (parsed.ec!=std::errc{} || parsed.ptr!=number_text.data()+number_text.size() || number>2047) {std::cerr<<"Resource number must be 0..2047.\n";return 2;}
+                    try {id.type=parse_type(paths[0]);} catch(const std::invalid_argument& error) {std::cerr<<error.what()<<'\n';return 2;}
+                    id.number=static_cast<std::uint16_t>(number);payload=paths[2];destination=paths[3];
+                } else id.type=parse_type(alias_type);
+                scimate::export_sci0_asset_file(id,payload,destination);
+                std::cout<<"Exported resource bundle: "<<destination<<'\n';
+            } else {
+                if (asset_import) {
+                    scimate::import_sci0_asset(paths[0],&id);
+                    if (id.type!=parse_type(alias_type)) throw std::runtime_error("bundle resource type does not match import command");
+                }
+                scimate::import_sci0_asset_file(paths[0],paths[1]);std::cout<<"Encoded and verified resource: "<<paths[1]<<'\n';
+            }
+            if (!std::cout) throw std::runtime_error("failed to write result");
             return 0;
         }
         if (picture_export || picture_import) {
@@ -157,6 +197,8 @@ int main(int argc, char** argv) {
                           << summary.script_errors << " errors (see scripts/*.error.txt).\n";
                 std::cout << "Pictures: " << summary.editable_pictures << " editable PNG bundles, "
                           << summary.picture_errors << " errors (see pictures/*.error.txt).\n";
+                std::cout << "Other resources: " << summary.editable_assets << " editable bundles, "
+                          << summary.binary_assets << " binary bundles, " << summary.asset_errors << " conversion diagnostics (see assets/).\n";
                 std::cout << "Views: " << summary.editable_views << " editable PNG bundles, "
                           << summary.view_errors << " errors (see views/*.error.txt).\n";
             }

@@ -82,3 +82,14 @@ Opcode/coordinate and fill semantics were cross-checked against
 [ScummVM's picture renderer](https://github.com/scummvm/scummvm/blob/master/engines/sci/graphics/picture.cpp).
 The bounded parser, three-plane model, PNG bundles and verified stroke-based
 edit serialization are new code. No Windows drawing/UI dependencies are imported.
+
+The SCI0 asset codecs in `core/src/assets.cpp` and `core/src/sound.cpp` adapt
+format knowledge from `Resources/Font.cpp`, `Cursor.cpp`, `Text.cpp`,
+`Vocab000.cpp`, and `Sound.cpp` under `SCICompanionLib/Src` at reference revision
+`f1a603b48b1aa7abf94f78574a8f69a653e2ca62`. Their Philip Fortier (2015)
+GPL-2.0-or-later notices are retained. Bounded parsing, portable top-down models,
+MIDI/RIFF conversion, escaped tables, and the asset bundle workflow are new code.
+SCI0 sound header/timing/sample layout was cross-checked against ScummVM's
+[resource audio parser](https://github.com/scummvm/scummvm/blob/master/engines/sci/resource/resource_audio.cpp)
+and [MIDI parser](https://github.com/scummvm/scummvm/blob/master/engines/sci/sound/midiparser_sci.cpp);
+no ScummVM implementation code was copied into these codecs.

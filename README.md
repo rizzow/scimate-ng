@@ -62,7 +62,7 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
   The workspace is movable and does not need the original game folder.
 - Browse/filter resources, inspect script disassembly, and preview view cels
   including mirrored loops and background/priority/control planes. Modified resources are marked after refresh.
-- **Open Resource Folder** opens the selected view/picture bundle or payload folder.
+- **Open Resource Folder** opens the selected resource bundle or payload folder.
   Edit PNGs externally, then **Refresh from Disk** to validate and load changes.
 - **Build Resources to New Folder** re-reads edits, reconstructs resources, and
   verifies the result. Existing destinations are refused. This builds resource
@@ -119,7 +119,7 @@ This reconstructs the packaged resources, not a complete runnable game folder:
 interpreters, scripts on disk, configuration, patch files, and unreferenced
 volumes are not copied. No automatic format detection, SCI0-with-SCI1-layout,
 SCI1/SCI1.1 support, recompression, resource additions/deletions/renaming,
-script-source editing, or cursor editing are implemented. A valid reconstruction
+script-source editing is implemented. A valid reconstruction
 does not prove that edited payloads are meaningful to the SCI engine.
 
 See [round-trip guarantees, limits, and export format](docs/sci0-roundtrip.md).
@@ -142,7 +142,7 @@ For a single decoded view:
 
 Unchanged image imports preserve the original bytes. Conflicting edits to a
 view's binary payload and PNG bundle are rejected. See [editable view workflow,
-limits, and manifest rules](docs/sci0-views.md). Cursors remain separate future work.
+limits, and manifest rules](docs/sci0-views.md). Cursors use the asset workflow below.
 
 ## Decompile with sci-tools
 
@@ -213,3 +213,21 @@ verified pixel strokes. Unsupported pictures get diagnostics and retain raw payl
 ```
 
 See [picture editing rules and limits](docs/sci0-pictures.md).
+
+## Edit sounds, fonts, cursors, text, and vocabulary
+
+Game exports include `assets/NNNNNNN/` bundles for the remaining resources.
+SCI0 late sounds use editable MIDI and optional PCM WAV files; fonts and cursors
+use PNGs; text and parser vocabulary use escaped text tables. Other layouts
+remain binary bundles, with a diagnostic when editable conversion is unavailable.
+Full-game import loads these edits and rejects conflicts with raw payload edits.
+
+```sh
+./build/scimate sound-export sound.bin new-sound-folder
+./build/scimate sound-import new-sound-folder edited-sound.bin
+./build/scimate resource-export vocab 0 vocab.bin new-vocab-folder
+./build/scimate resource-import new-vocab-folder edited-vocab.bin
+```
+
+`font-export/import`, `cursor-export/import`, and `text-export/import` are also
+available. See [supported formats, editing rules, and limits](docs/sci0-assets.md).

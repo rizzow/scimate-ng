@@ -194,6 +194,8 @@ void MainWindow::preview() {
     const auto& resource = project_->game.resources.at(index);
     QString description = "Record " + QString::number(index) + " • " + QString::fromUtf8(scimate::resource_type_name(resource.entry.id.type).data()) + " " + QString::number(resource.entry.id.number) +
         "\nPayload: payloads/" + stem(index) + ".bin\n";
+    if (std::filesystem::is_directory(project_->directory / "assets" / stem(index).toStdString()))
+        description += "Editable/binary bundle: assets/" + stem(index) + "\nOpen Resource Folder to edit, then Refresh from Disk.\n";
     try {
         if (resource.entry.id.type == scimate::ResourceType::view) {
             const auto view = scimate::read_sci0_view(resource.payload); selectedView_ = resource.payload;
@@ -255,8 +257,8 @@ void MainWindow::showFolder() {
     if (selected.isValid()) {
         const auto index = static_cast<std::size_t>(selected.row());
         const auto type = project_->game.resources[index].entry.id.type;
-        const auto bundle = directory / (type == scimate::ResourceType::pic ? "pictures" : "views") / stem(index).toStdString();
-        directory = (type == scimate::ResourceType::view || type == scimate::ResourceType::pic) && std::filesystem::is_directory(bundle) ? bundle : directory / "payloads";
+        const auto bundle = directory / (type == scimate::ResourceType::pic ? "pictures" : type == scimate::ResourceType::view ? "views" : "assets") / stem(index).toStdString();
+        directory = std::filesystem::is_directory(bundle) ? bundle : directory / "payloads";
     }
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(text(directory)))) QMessageBox::warning(this, "SCIMate", "Could not open the resource folder.");
 }
