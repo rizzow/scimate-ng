@@ -2,7 +2,7 @@
 // SCI0 algorithms adapted from SCI Companion's FreeSCI-derived Codec.cpp.
 // Original algorithm credits: Carl Muckenhoupt and Sergey Lapin.
 // See docs/provenance.md. Rewritten with bounded input/output and no platform APIs.
-#include "scimate/resource_game.hpp"
+#include "scimate/sci1.hpp"
 
 #include <array>
 #include <stdexcept>
@@ -33,13 +33,13 @@ private:
     std::size_t bit_;
 };
 
-Bytes lzw(const Bytes& input, std::size_t expected) {
+Bytes lzw(const Bytes& input, std::size_t expected, bool sci1 = false) {
     // SCI0 registers each emitted string as an output slice; a reference
     // reproduces that slice plus its following byte (possibly overlapping).
     std::array<std::size_t, 4096> offsets{};
     std::array<std::size_t, 4096> lengths{};
     unsigned width = 9, next = 258;
-    Bits bits(input, false);
+    Bits bits(input, sci1);
     Bytes output;
     output.reserve(expected);
     for (;;) {
@@ -62,7 +62,7 @@ Bytes lzw(const Bytes& input, std::size_t expected) {
             }
         }
         // SCI0 grows widths after reading the boundary token, unlike SCI1.
-        if (next == (1u << width) && width < 12) ++width;
+        if (next == (1u << width) - (sci1 ? 1u : 0u) && width < 12) ++width;
         if (next < offsets.size()) {
             offsets[next] = start;
             lengths[next] = output.size() - start;
@@ -113,6 +113,18 @@ Bytes decode_sci0(std::uint16_t method, const Bytes& input, std::size_t expected
     case 1: return lzw(input, expected_size);
     case 2: return huffman(input, expected_size);
     default: invalid("unsupported SCI0 compression method");
+    }
+}
+
+Bytes decode_sci1(std::uint16_t method, const Bytes& input, std::size_t expected_size) {
+    if (input.size() > 65535 || expected_size > 65535) invalid("resource exceeds SCI1 header limits");
+    switch (method) {
+    case 0:
+        if (input.size() != expected_size) invalid("uncompressed resource length differs from declared size");
+        return input;
+    case 1: return huffman(input, expected_size);
+    case 2: return lzw(input, expected_size, true);
+    default: invalid("unsupported SCI1 compression method (supported: 0 stored, 1 Huffman, 2 MSB LZW)");
     }
 }
 } // namespace scimate

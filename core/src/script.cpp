@@ -91,7 +91,7 @@ const char* section_name(unsigned type) {
     };
     return type < names.size() ? names[type] : "unknown";
 }
-ParsedScript parse(const Bytes& bytes) {
+ParsedScript parse(const Bytes& bytes, bool validate_targets) {
     if (bytes.size() > 65535) fail(0, "payload exceeds SCI0 size limit");
     std::vector<Section> sections;
     std::size_t cursor = 0;
@@ -178,13 +178,13 @@ ParsedScript parse(const Bytes& bytes) {
     for (const auto& entry : exports) {
         if (entry.second == 0) continue;
         if (boundaries.count(entry.second)) procedures.insert(entry.second);
-        else if (object_pointers.count(entry.second) == 0) fail(entry.first, "export target is neither code nor object");
+        else if (validate_targets && object_pointers.count(entry.second) == 0) fail(entry.first, "export target is neither code nor object");
     }
     for (const auto& instruction : instructions) {
         const auto op = instruction.opcode;
         if ((op >= 23 && op <= 25) || op == 32) {
             const auto address = target(instruction);
-            if (boundaries.count(address) == 0) fail(instruction.start, "branch/call target is not an instruction boundary");
+            if (validate_targets && boundaries.count(address) == 0) fail(instruction.start, "branch/call target is not an instruction boundary");
             (op == 32 ? procedures : labels).insert(address);
         }
     }

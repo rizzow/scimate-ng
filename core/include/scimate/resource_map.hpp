@@ -10,7 +10,8 @@
 namespace scimate {
 
 enum class ResourceType : std::uint8_t {
-    view, pic, script, text, sound, memory, vocab, font, cursor, patch
+    view, pic, script, text, sound, memory, vocab, font, cursor, patch,
+    bitmap, palette, cd_audio, audio, sync, message, map, heap
 };
 
 std::string_view resource_type_name(ResourceType type) noexcept;

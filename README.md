@@ -214,6 +214,24 @@ verified pixel strokes. Unsupported pictures get diagnostics and retain raw payl
 
 See [picture editing rules and limits](docs/sci0-pictures.md).
 
+## Experimental SCI1 migration
+
+`scimate list --format sci1|sci11` and `inspect --format sci1|sci11` read DOS
+SCI1 late / SCI1.1 directory-map containers (compression 0/1/2 only). These
+are explicit format choices; SCI1.1 script/heap migration is not implemented.
+
+```sh
+./build/scimate migrate --to sci1 /path/to/source-game /path/to/migrated-sci1
+./build/scimate inspect --format sci1 /path/to/migrated-sci1
+```
+
+This experimental format-based converter retains EGA assets, remaps kernel calls,
+and adds file-I/O bridges for an SCI1 late candidate. Parser and SCI0 sound
+adaptations are not implemented and their calls are rejected. Runtime
+compatibility is **unverified**. The proof gate is real-game playback with
+ScummVM reporting SCI1 late before adding VGA artwork. See the
+[manual migration and proof procedure](docs/sci1-migration.md).
+
 ## Edit sounds, fonts, cursors, text, and vocabulary
 
 Game exports include `assets/NNNNNNN/` bundles for the remaining resources.

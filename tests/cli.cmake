@@ -33,7 +33,7 @@ check(0 "type\tnumber\tvolume\toffset\npic\t42\t1\t1193046\npatch\t2047\t63\t671
 check(2 "" "Usage:" list --format)
 check(2 "" "Usage:" list --format sci0 --format sci0 "${FIXTURE_DIR}/valid.map")
 check(2 "" "Usage:" list --unknown "${FIXTURE_DIR}/valid.map")
-check(2 "" "Usage:" list --format sci1 "${FIXTURE_DIR}/valid.map")
+check(2 "" "Usage:" list --format sci2 "${FIXTURE_DIR}/valid.map")
 check(2 "" "Usage:" list --format sci0 "${FIXTURE_DIR}/valid.map" extra)
 check(2 "" "Usage:")
 execute_process(COMMAND "${CLI}" --help RESULT_VARIABLE code OUTPUT_VARIABLE help)

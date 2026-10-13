@@ -15,11 +15,14 @@ struct ParsedScript {
     std::vector<std::pair<std::size_t,unsigned>> exports;
     std::set<std::size_t> boundaries, labels, procedures, object_pointers;
 };
-ParsedScript parse(const Bytes&);
+// Migration may preserve legacy inactive exports/dead branch targets. Layout and
+// instruction operand bounds are always validated; normal inspection is strict.
+ParsedScript parse(const Bytes&, bool validate_targets = true);
 std::uint16_t word(const Bytes&,std::size_t,std::size_t);
 int signed_value(unsigned,unsigned);
 std::uint16_t target(const Instruction&);
 std::string hex(std::size_t,int=4);
 std::string opcode_name(unsigned);
+std::vector<unsigned> operand_widths(unsigned opcode, unsigned width);
 std::string quoted(const Bytes&,std::size_t,std::size_t);
 }

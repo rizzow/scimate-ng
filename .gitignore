@@ -2,3 +2,8 @@
 /cmake-build*/
 /.idea/
 .DS_Store
+
+# Private validation game data and migration outputs must never be committed.
+/LSL3/
+/private-games/
+/migration-output/

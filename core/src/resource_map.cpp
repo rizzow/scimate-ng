@@ -45,8 +45,9 @@ MapParseError::MapParseError(MapError code, std::size_t byte_offset, const char*
       code_(code), byte_offset_(byte_offset) {}
 
 std::string_view resource_type_name(ResourceType type) noexcept {
-    constexpr std::array<std::string_view, 10> names{
-        "view", "pic", "script", "text", "sound", "memory", "vocab", "font", "cursor", "patch"
+    constexpr std::array<std::string_view, 18> names{
+        "view", "pic", "script", "text", "sound", "memory", "vocab", "font", "cursor", "patch",
+        "bitmap", "palette", "cd_audio", "audio", "sync", "message", "map", "heap"
     };
     const auto index = static_cast<std::size_t>(type);
     return index < names.size() ? names[index] : "unknown";

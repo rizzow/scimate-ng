@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "scimate/resource_map.hpp"
 #include "scimate/game_io.hpp"
+#include "scimate/sci1_io.hpp"
 #include "scimate/script.hpp"
 #include "scimate/explain.hpp"
 #include "scimate/view_io.hpp"
@@ -17,8 +18,8 @@
 
 namespace {
 constexpr std::string_view usage =
-    "Usage: scimate list [--format sci0] <resource.map>\n"
-    "       scimate inspect [--format sci0] <game-directory>\n"
+    "Usage: scimate list [--format sci0|sci1|sci11] <resource.map>\n"
+    "       scimate inspect [--format sci0|sci1|sci11] <game-directory>\n"
     "       scimate explain [--format sci0] <game-directory> [view|script <number>]\n"
     "       scimate disassemble [--format sci0] <decoded-script.bin>\n"
     "       scimate export [--format sci0] <game-directory> <new-export-directory>\n"
@@ -33,6 +34,8 @@ constexpr std::string_view usage =
     "       scimate font-import|cursor-import|text-import <bundle> <new-decoded.bin>\n"
     "       scimate picture-export [--format sci0] <decoded-picture.bin> <new-picture-directory>\n"
     "       scimate picture-import [--format sci0] <picture-directory> <new-picture.bin>\n"
+    "       scimate migrate [--to sci1] <SCI0-game-directory> <new-SCI1-game-directory>\n"
+    "Run scimate migrate --help for the experimental format-based migration.\n"
     "Run scimate explain --help for heuristic analysis and limitations.\n"
     "SCI0 is the default format. Use -- to end options for paths beginning with --.\n"
     "Lists type, number, volume, and byte offset (decimal) in map order.\n"
@@ -42,7 +45,8 @@ constexpr std::string_view usage =
     "export/import includes editable view PNGs and placement metadata under views/.\n"
     "export/import includes MIDI/WAV sounds, font/cursor PNGs, text/vocabulary tables, and binary assets/.\n"
     "export/import includes background, priority, and control PNGs under pictures/.\n"
-    "SCI0 only; no format detection, recompression, resource ID edits, or engine validation.\n";
+    "SCI1 means SCI1 late containers; sci11 means SCI1.1 containers (compression 0/1/2).\n"
+    "Editing remains SCI0 only; no format detection, recompression, resource ID edits, or engine validation.\n";
 
 constexpr std::string_view explain_help = R"(Usage: scimate explain [--format sci0] <game-directory>
        scimate explain [--format sci0] <game-directory> view <number>
@@ -65,6 +69,25 @@ Missing vocabularies and malformed individual scripts/views produce partial
 analysis with diagnostics. Duplicate resource IDs use the last map entry.
 Output goes to stdout. Exit codes: 0 report (possibly partial), 1 input/output
 error or absent focused resource, 2 usage error. SCI0 only. Use -- to end options.
+)";
+
+constexpr std::string_view migrate_help = R"(Usage: scimate migrate [--to sci1] <SCI0-game-directory> <new-SCI1-game-directory>
+
+Experimental format-based export targeting ScummVM's SCI1 late runtime path.
+Writes a directory map, resource.000 and migration-report.txt. Remaps kernel
+calls and adds FileIO bridges while retaining EGA assets and parser gameplay.
+Parser and SCI0 sound adaptation are not implemented; such calls are rejected.
+
+Examples:
+  scimate migrate /path/to/source-game ./migrated-sci1
+  scimate inspect --format sci1 ./migrated-sci1
+
+The source is an actual SCI0 game directory, not the exported payload bundle.
+The destination must not exist. Resources are internally round-trip checked;
+runtime compatibility is UNVERIFIED until you validate the result in ScummVM.
+This is not a general SCI0 -> SCI1/SCI1.1 converter. No VGA artwork conversion.
+See docs/sci1-migration.md for the manual detection and gameplay proof checklist.
+Exit codes: 0 candidate written, 1 conversion/I/O error, 2 usage error.
 )";
 
 std::vector<std::uint8_t> read_file(const char* path, bool script = false) {
@@ -93,7 +116,12 @@ int main(int argc, char** argv) {
         std::cout << explain_help;
         return 0;
     }
+    if (argc == 3 && ((std::string_view(argv[1]) == "migrate" && std::string_view(argv[2]) == "--help") ||
+                      (std::string_view(argv[1]) == "help" && std::string_view(argv[2]) == "migrate"))) {
+        std::cout << migrate_help; return 0;
+    }
     const std::string_view command = argc > 1 ? argv[1] : "";
+    const bool migrating = command == "migrate";
     const bool listing = command == "list";
     const bool inspect = command == "inspect";
     const bool explain = command == "explain";
@@ -108,22 +136,36 @@ int main(int argc, char** argv) {
     const bool asset_export = command == "sound-export" || command == "font-export" || command == "cursor-export" || command == "text-export";
     const bool asset_import = command == "sound-import" || command == "font-import" || command == "cursor-import" || command == "text-import";
     std::vector<const char*> paths;
-    bool valid = true, format_seen = false, options = true;
+    bool valid = true, format_seen = false, options = true, target_seen = false;
+    std::string_view format = "sci0";
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (options && arg == "--") { options = false; continue; }
         if (options && arg == "--format") {
-            if (format_seen || i+1 == argc || std::string_view(argv[i+1]) != "sci0") { valid = false; break; }
-            format_seen = true; ++i;
+            if (format_seen || i+1 == argc) { valid = false; break; }
+            format = argv[++i]; format_seen = true;
+            if (format != "sci0" && format != "sci1" && format != "sci11") { valid = false; break; }
+        } else if (options && arg == "--to" && migrating) {
+            if (target_seen || i+1 == argc || std::string_view(argv[i+1]) != "sci1") { valid = false; break; }
+            target_seen = true; ++i;
         } else if (options && arg.substr(0,2) == "--") { valid = false; break; }
         else paths.push_back(argv[i]);
     }
-    if (!valid || (!listing && !inspect && !explain && !disassemble && !exporting && !importing && !view_export && !view_import && !picture_export && !picture_import && !resource_export && !resource_import && !asset_export && !asset_import) ||
-        (explain ? (paths.size() != 1 && paths.size() != 3) : paths.size() != (resource_export ? 4u : (resource_import || asset_export || asset_import) ? 2u : ((exporting || importing || view_export || view_import || picture_export || picture_import) ? 2u : 1u)))) {
-        std::cerr << (explain ? explain_help : usage);
+    if (format != "sci0" && !listing && !inspect) valid = false;
+    if (!valid || (!migrating && !listing && !inspect && !explain && !disassemble && !exporting && !importing && !view_export && !view_import && !picture_export && !picture_import && !resource_export && !resource_import && !asset_export && !asset_import) ||
+        (explain ? (paths.size() != 1 && paths.size() != 3) : paths.size() != (resource_export ? 4u : (resource_import || asset_export || asset_import) ? 2u : ((migrating || exporting || importing || view_export || view_import || picture_export || picture_import) ? 2u : 1u)))) {
+        std::cerr << (migrating ? migrate_help : (explain ? explain_help : usage));
         return 2;
     }
     try {
+        if (migrating) {
+            scimate::migrate_sci0_to_sci1_directory(paths[0], paths[1]);
+            std::cout << "Wrote experimental SCI1 late candidate: " << paths[1]
+                      << "\nRuntime proof remains UNVERIFIED; see migration-report.txt.\n";
+            if (!std::cout) throw std::runtime_error("failed to write migration result");
+            return 0;
+        }
+        const auto sci1_format = format == "sci11" ? scimate::Sci1Format::sci11 : scimate::Sci1Format::sci1_late;
         if (explain) {
             std::optional<scimate::ResourceId> focus;
             if (paths.size() == 3) {
@@ -208,7 +250,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (inspect) {
-            const auto game = scimate::open_sci0_game(paths[0]);
+            const auto game = format == "sci0" ? scimate::open_sci0_game(paths[0]) : scimate::open_sci1_game(paths[0], sci1_format);
             std::cout << "index\ttype\tnumber\tvolume\toffset\tcompression\tdecoded_size\n";
             for (std::size_t i = 0; i < game.resources.size(); ++i) {
                 const auto& r = game.resources[i];
@@ -219,7 +261,8 @@ int main(int argc, char** argv) {
             if (!std::cout) throw std::runtime_error("failed to write listing");
             return 0;
         }
-        const auto entries = scimate::read_sci0_map(read_file(paths[0]));
+        const auto bytes = read_file(paths[0]);
+        const auto entries = format == "sci0" ? scimate::read_sci0_map(bytes) : scimate::read_sci1_map(bytes, sci1_format);
         std::cout << "type\tnumber\tvolume\toffset\n";
         for (const auto& entry : entries) {
             std::cout << scimate::resource_type_name(entry.id.type) << '\t'

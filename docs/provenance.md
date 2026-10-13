@@ -83,6 +83,21 @@ Opcode/coordinate and fill semantics were cross-checked against
 The bounded parser, three-plane model, PNG bundles and verified stroke-based
 edit serialization are new code. No Windows drawing/UI dependencies are imported.
 
+
+SCI1 container support and the experimental generic SCI0 migration use format and
+compatibility facts documented in ScummVM's `engines/sci/resource/resource.cpp`,
+`engine/kernel.cpp`, `engine/kernel_tables.h`, `engine/features.cpp`,
+`engine/script.cpp`, and `sci.cpp`, inspected from upstream `master` on
+2026-10-13. No ScummVM source, executable or detection table is copied into
+this repository. New bounds-checked serializers and bytecode transformations
+are implemented independently; upstream compatibility behavior is not claimed
+as a tested guarantee. See [migration scope and proof requirements](sci1-migration.md).
+
+The SCI1 MSB/early-change LZW path extends the existing SCI Companion-derived
+bounded decoder. The format differences were cross-checked against the
+[sci-tools LZW documentation](https://github.com/sluicebox/sci-tools/blob/main/SCI/Resource/Decompressors/LzwDecompressor.cs).
+No sci-tools implementation is imported.
+
 The SCI0 asset codecs in `core/src/assets.cpp` and `core/src/sound.cpp` adapt
 format knowledge from `Resources/Font.cpp`, `Cursor.cpp`, `Text.cpp`,
 `Vocab000.cpp`, and `Sound.cpp` under `SCICompanionLib/Src` at reference revision
