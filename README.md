@@ -332,8 +332,11 @@ sound, room transitions, and save/restore, before adding VGA artwork. See the
 
 Game exports include `assets/NNNNNNN/` bundles for the remaining resources.
 SCI0 late sounds use editable MIDI and optional PCM WAV files; fonts and cursors
-use PNGs; text and parser vocabulary use escaped text tables. Other layouts
-remain binary bundles, with a diagnostic when editable conversion is unavailable.
+use PNGs; text and parser vocabulary use escaped text tables. Scripts, known
+vocabularies, and supported instrument banks use UTF-8 JSON with generated
+JSON Schema files. Unknown layouts expose explicitly labelled byte records.
+See [structured resource editing](docs/structured-resources.md) for the semantic
+formats, fixed-layout script constraints, and human/machine editing workflow.
 Full-game import loads these edits and rejects conflicts with raw payload edits.
 
 ```sh
