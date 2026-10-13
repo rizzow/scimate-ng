@@ -326,16 +326,23 @@ Bytes add_file_bridges(const Bytes& original, const ParsedScript& parsed, unsign
     bytes.insert(bytes.end(), code.begin(), code.end()); put(bytes, 0);
     return bytes;
 }
-} // namespace
-Sci1Migration migrate_sci0_to_sci1(const Game& game) {
-    using Key = std::pair<ResourceType, std::uint16_t>;
-    std::map<Key, Resource> unique;
+using ScriptMetadata = std::map<std::uint16_t,ParsedScript>;
+struct MigrationStats {
+    std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0;
+    std::size_t parser_calls = 0, opaque_exports = 0, unusual_file_frames = 0;
+    std::vector<std::string> legacy_branches;
+};
+
+Resources resolve_duplicate_resources(const Game& game) {
+    Resources unique;
     // SCI0 ScummVM lookup keeps the first map entry for duplicate IDs.
-    for (const auto& resource : game.resources) unique.emplace(Key{resource.entry.id.type,resource.entry.id.number}, resource);
-    auto main = unique.find({ResourceType::script,0});
-    if (main == unique.end()) throw std::runtime_error("migration requires script 0");
-    std::vector<std::string> selected_fallbacks;
-    const auto script_metadata = validate_migration_scripts(unique,selected_fallbacks);
+    for (const auto& resource : game.resources)
+        unique.emplace(std::make_pair(resource.entry.id.type,resource.entry.id.number),resource);
+    return unique;
+}
+
+unsigned validate_main_export(const ScriptMetadata& script_metadata) {
+    if (!script_metadata.count(0)) throw std::runtime_error("migration requires script 0");
     const auto& parsed_main = script_metadata.at(0);
     if (parsed_main.exports.empty()) throw std::runtime_error("migration requires main export 0");
     bool main_object = false;
@@ -344,58 +351,100 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     if (!main_object) throw std::runtime_error("main export 0 must identify a decoded object");
     auto first_export = static_cast<unsigned>(parsed_main.exports.size());
     if (first_export > 252) throw std::runtime_error("main export table cannot accommodate four byte-sized file-I/O bridges");
-    std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0, parser_calls = 0, opaque_exports = 0;
+    return first_export;
+}
+
+void write_first_operand(Bytes& payload, const Instruction& instruction, unsigned value) {
+    if (instruction.width == sci_vm::word_bytes) {
+        patch(payload,instruction.start+1,value);
+        return;
+    }
+    if (value > 255) throw std::runtime_error("rewritten byte operand exceeds VM encoding");
+    payload.at(instruction.start+1) = static_cast<std::uint8_t>(value);
+}
+
+void record_legacy_metadata(const Resource& resource, const ParsedScript& script, MigrationStats& stats) {
+    for (const auto& instruction : script.instructions)
+        if (op::is_branch(instruction.opcode) && !script.boundaries.count(target(instruction)))
+            stats.legacy_branches.push_back("script " + std::to_string(resource.entry.id.number) + " at byte " +
+                std::to_string(instruction.start) + " -> " + std::to_string(target(instruction)));
+    for (const auto& exported : script.exports)
+        if (exported.second && !script.boundaries.count(exported.second) && !script.object_pointers.count(exported.second))
+            ++stats.opaque_exports;
+}
+
+void rewrite_file_call(Resource& resource, const Instruction& instruction, unsigned first_export, MigrationStats& stats) {
+    constexpr std::array<unsigned,4> expected_frame_bytes{4,4,6,2};
+    const auto bridge = instruction.operands.at(0)-kernel0::file_open;
+    const auto frame = instruction.operands.at(1);
+    if (frame % sci_vm::word_bytes)
+        throw std::runtime_error("script " + std::to_string(resource.entry.id.number) + " at byte " +
+            std::to_string(instruction.start) + ": odd SCI0 file-I/O argument-frame size");
+    if (frame != expected_frame_bytes.at(bridge)) ++stats.unusual_file_frames;
+    auto& payload = resource.payload;
+    payload.at(instruction.start) = static_cast<std::uint8_t>((op::call_base << 1) | (payload.at(instruction.start) & 1u));
+    write_first_operand(payload,instruction,first_export+bridge);
+    ++stats.bridged;
+}
+
+void rewrite_kernel_call(Resource& resource, const ParsedScript& script, std::size_t index,
+                         const Game& game, unsigned first_export, bool& sound_dispatch_checked, MigrationStats& stats) {
+    const auto& instruction = script.instructions.at(index);
+    const auto kernel = instruction.operands.at(0);
+    if (kernel >= kernel0::parse && kernel <= kernel0::set_synonyms) {
+        const auto expected = kernel == kernel0::parse ? 4u : 2u;
+        if (instruction.operands.at(1) != expected)
+            throw std::runtime_error("unsupported parser migration argument frame in script " + std::to_string(resource.entry.id.number));
+        ++stats.parser_calls;
+    }
+    if (kernel == kernel0::do_sound) {
+        if (!sound_dispatch_checked) {
+            validate_sound_dispatch(game);
+            sound_dispatch_checked = true;
+        }
+        try { validate_sound_call(script,index); }
+        catch (const std::exception& error) {
+            throw std::runtime_error("script " + std::to_string(resource.entry.id.number) + ": " + error.what());
+        }
+        ++stats.sound_calls;
+    }
+    if (kernel > kernel0::last)
+        throw std::runtime_error("unsupported SCI0 kernel ID in script " + std::to_string(resource.entry.id.number));
+    if (kernel == kernel0::do_avoider)
+        throw std::runtime_error("SCI0 DoAvoider requires a semantic port; migration refused");
+    if (kernel >= kernel0::file_open && kernel <= kernel0::file_close) {
+        rewrite_file_call(resource,instruction,first_export,stats);
+    } else if (kernel > kernel0::file_close) {
+        write_first_operand(resource.payload,instruction,kernel-kernel0::removed_file_functions);
+        ++stats.remapped;
+    }
+}
+
+MigrationStats rewrite_script_kernels(Resources& unique, const ScriptMetadata& script_metadata,
+                                      const Game& game, unsigned first_export) {
+    MigrationStats stats;
     bool sound_dispatch_checked = false;
-    std::size_t unusual_file_frames = 0;
-    std::vector<std::string> legacy_branches;
     for (auto& entry : unique) if (entry.first.first == ResourceType::script) {
-        ++scripts;
-        auto& payload = entry.second.payload;
+        ++stats.scripts;
         const auto& parsed = script_metadata.at(entry.first.second);
-        for (const auto& inst : parsed.instructions)
-            if (op::is_branch(inst.opcode) && !parsed.boundaries.count(target(inst)))
-                legacy_branches.push_back("script " + std::to_string(entry.first.second) + " at byte " +
-                    std::to_string(inst.start) + " -> " + std::to_string(target(inst)));
-        for (const auto& exported : parsed.exports)
-            if (exported.second && !parsed.boundaries.count(exported.second) && !parsed.object_pointers.count(exported.second)) ++opaque_exports;
+        record_legacy_metadata(entry.second,parsed,stats);
         for (std::size_t instruction_index = 0; instruction_index < parsed.instructions.size(); ++instruction_index) {
             const auto& inst = parsed.instructions[instruction_index];
             if (inst.opcode != op::call_kernel) continue;
-            const auto kernel = inst.operands[0];
-            if (kernel >= kernel0::parse && kernel <= kernel0::set_synonyms) {
-                const auto expected = kernel == kernel0::parse ? 4u : 2u;
-                if (inst.operands.at(1) != expected)
-                    throw std::runtime_error("unsupported parser migration argument frame in script " + std::to_string(entry.first.second));
-                ++parser_calls;
-            }
-            if (kernel == kernel0::do_sound) {
-                if (!sound_dispatch_checked) { validate_sound_dispatch(game); sound_dispatch_checked = true; }
-                try { validate_sound_call(parsed, instruction_index); }
-                catch (const std::exception& error) {
-                    throw std::runtime_error("script " + std::to_string(entry.first.second) + ": " + error.what());
-                }
-                ++sound_calls;
-            }
-            if (kernel > kernel0::last) throw std::runtime_error("unsupported SCI0 kernel ID in script " + std::to_string(entry.first.second));
-            if (kernel == kernel0::do_avoider) throw std::runtime_error("SCI0 DoAvoider requires a semantic port; migration refused");
-            if (kernel >= kernel0::file_open && kernel <= kernel0::file_close) {
-                constexpr std::array<unsigned,4> expected_frame_bytes{4,4,6,2};
-                if (inst.operands[1] % sci_vm::word_bytes)
-                    throw std::runtime_error("script " + std::to_string(entry.first.second) + " at byte " + std::to_string(inst.start) + ": odd SCI0 file-I/O argument-frame size");
-                if (inst.operands[1] != expected_frame_bytes[kernel-kernel0::file_open]) ++unusual_file_frames;
-                payload[inst.start] = static_cast<std::uint8_t>((op::call_base << 1) | (payload[inst.start] & 1u));
-                auto index = first_export+kernel-kernel0::file_open;
-                if (inst.width == 1) payload[inst.start+1] = static_cast<std::uint8_t>(index); else patch(payload,inst.start+1,index);
-                ++bridged;
-            } else if (kernel > kernel0::file_close) {
-                if (inst.width == 1) payload[inst.start+1] = static_cast<std::uint8_t>(kernel-kernel0::removed_file_functions); else patch(payload,inst.start+1,kernel-kernel0::removed_file_functions);
-                ++remapped;
-            }
+            rewrite_kernel_call(entry.second,parsed,instruction_index,game,first_export,sound_dispatch_checked,stats);
         }
     }
+    return stats;
+}
+
+void append_main_file_bridges(Resources& resources, unsigned first_export) {
+    auto& main = resources.at({ResourceType::script,0});
     // Reparse after remapping so main-relative operands and references are based
     // on the actual modified bytes before expanding the export table.
-    main->second.payload = add_file_bridges(main->second.payload, parse_migration_script(main->second), first_export);
+    main.payload = add_file_bridges(main.payload,parse_migration_script(main),first_export);
+}
+
+void verify_preserved_script_layouts(const Resources& unique, const ScriptMetadata& script_metadata) {
     // Enforce the invariant that makes preserving legacy branches possible.
     // Kernel/bridge rewrites are equal length, and no branch operands change.
     for (const auto& entry : unique) if (entry.first.first == ResourceType::script && entry.first.second != 0) {
@@ -411,22 +460,33 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
                 throw std::runtime_error("migration changed a preserved branch operand or instruction extent");
         }
     }
-    const auto format = parser_calls ? Sci1Format::sci1_ega : Sci1Format::sci1_late;
-    if (parser_calls) adapt_parser(unique);
+}
+
+std::vector<Resource> take_resources(Resources& resources) {
     std::vector<Resource> output;
-    for (auto& entry : unique) output.push_back(std::move(entry.second));
-    Sci1Migration result;
-    result.files = write_sci1_game(output,format);
-    const auto reopened = read_sci1_game(result.files,format);
+    output.reserve(resources.size());
+    for (auto& entry : resources) output.push_back(std::move(entry.second));
+    return output;
+}
+
+GameFiles write_verified_game(const std::vector<Resource>& output, Sci1Format format) {
+    auto files = write_sci1_game(output,format);
+    const auto reopened = read_sci1_game(files,format);
     if (reopened.resources.size() != output.size()) throw std::runtime_error("migration resource count verification failed");
     for (std::size_t i = 0; i < output.size(); ++i)
         if (reopened.resources[i].entry.id.type != output[i].entry.id.type ||
             reopened.resources[i].entry.id.number != output[i].entry.id.number ||
             reopened.resources[i].payload != output[i].payload)
             throw std::runtime_error("migration container round-trip verification failed");
+    return files;
+}
+
+std::string migration_report(std::size_t resource_count, const MigrationStats& stats,
+                              const std::vector<std::string>& selected_fallbacks) {
+    const auto& [scripts,remapped,bridged,sound_calls,parser_calls,opaque_exports,unusual_file_frames,legacy_branches] = stats;
     std::ostringstream report;
     report << "SCIMATE experimental generic SCI0 -> SCI1 migration\n"
-           << "Resources: " << output.size() << "; duplicate SCI0 IDs resolved using first map entry (ScummVM semantics).\n"
+           << "Resources: " << resource_count << "; duplicate SCI0 IDs resolved using first map entry (ScummVM semantics).\n"
            << "Scripts scanned: " << scripts << "; remapped kernel calls: " << remapped << "; file-I/O bridge calls: " << bridged << ".\n"
            << (parser_calls ? "Target: SCI1 EGA packed-ID map, eight-byte volume headers, uncompressed payloads.\n" : "Target: SCI1 late directory map, nine-byte volume headers, uncompressed payloads.\n")
            << "Original EGA graphics, game-object name and relative LOFS semantics retained.\n"
@@ -443,7 +503,26 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
            << "This is a ScummVM-targeted compatibility candidate, not a claim of original Sierra interpreter compatibility or a general SCI1.1 migration.\n";
     for (const auto& branch : legacy_branches) report << "UNVERIFIED legacy branch: " << branch << ".\n";
     for (const auto& fallback : selected_fallbacks) report << "Selected fallback: " << fallback << ".\n";
-    result.report = report.str();
+    return report.str();
+}
+} // namespace
+
+Sci1Migration migrate_sci0_to_sci1(const Game& game) {
+    auto resources = resolve_duplicate_resources(game);
+    if (!resources.count({ResourceType::script,0})) throw std::runtime_error("migration requires script 0");
+    std::vector<std::string> selected_fallbacks;
+    const auto scripts = validate_migration_scripts(resources,selected_fallbacks);
+    const auto first_bridge_export = validate_main_export(scripts);
+    const auto stats = rewrite_script_kernels(resources,scripts,game,first_bridge_export);
+    append_main_file_bridges(resources,first_bridge_export);
+    verify_preserved_script_layouts(resources,scripts);
+
+    const auto format = stats.parser_calls ? Sci1Format::sci1_ega : Sci1Format::sci1_late;
+    if (stats.parser_calls) adapt_parser(resources);
+    const auto output = take_resources(resources);
+    Sci1Migration result;
+    result.files = write_verified_game(output,format);
+    result.report = migration_report(output.size(),stats,selected_fallbacks);
     return result;
 }
 } // namespace scimate
