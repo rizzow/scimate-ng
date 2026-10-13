@@ -70,7 +70,7 @@ MainWindow::MainWindow() {
     recent_ = file->addMenu("Recent Projects");
     close_ = file->addAction("Close Project", this, [this] {
         project_.reset(); model_->removeRows(0, model_->rowCount()); preview();
-        heading_->setText("Your SCI projects"); location_->setText("Create a project from an SCI0 game, or open an existing project.");
+        heading_->setText("SCIMate NG"); heading_->setToolTip({}); location_->setText("Create a project from an SCI0 game, or open an existing project.");
         setWindowTitle("SCIMate NG");
         refresh_->setEnabled(false); build_->setEnabled(false); folder_->setEnabled(false); close_->setEnabled(false); rename_->setEnabled(false);
     });
@@ -111,8 +111,7 @@ MainWindow::MainWindow() {
     // Only the surrounding layout panels receive lightweight decoration.
     const auto colors = palette();
     setStyleSheet(QString(R"(
-        QLabel#brand { color: %1; font-size: 11px; font-weight: 600; }
-        QLabel#heading { font-size: 23px; font-weight: 600; }
+        QLabel#heading { color: %1; font-size: 15px; font-weight: 600; }
         QLabel#location { color: %2; font-size: 12px; }
         QLabel#section { font-size: 13px; font-weight: 600; }
         QFrame#card { background: %3; border: 1px solid %4; border-radius: 8px; }
@@ -130,15 +129,15 @@ MainWindow::MainWindow() {
         return button;
     };
     auto* central = new QWidget; central->setObjectName("content");
-    auto* layout = new QVBoxLayout(central); layout->setContentsMargins(24, 22, 24, 16); layout->setSpacing(16);
+    auto* layout = new QVBoxLayout(central); layout->setContentsMargins(12, 8, 12, 8); layout->setSpacing(8);
     auto* header = new QHBoxLayout;
-    auto* title = new QVBoxLayout; title->setSpacing(5);
-    auto* brand = new QLabel("SCIMATE  /  WORKSPACE"); brand->setObjectName("brand"); title->addWidget(brand);
-    heading_ = new QLabel("Your next adventure"); heading_->setObjectName("heading"); heading_->setTextFormat(Qt::PlainText);
-    location_ = new QLabel("Create a project from an SCI0 game to start exploring."); location_->setObjectName("location");
+    heading_ = new QLabel("SCIMate NG"); heading_->setObjectName("heading");
+    heading_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    location_ = new QLabel("Create a project from an SCI0 game to start exploring.", central); location_->setObjectName("location");
     location_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     heading_->setTextFormat(Qt::PlainText); location_->setTextFormat(Qt::PlainText);
-    title->addWidget(heading_); title->addWidget(location_); header->addLayout(title, 1);
+    location_->hide(); // Full project context is available on the title tooltip.
+    header->addWidget(heading_, 1);
     header->addWidget(actionButton(rename_, "Rename…"));
     header->addWidget(actionButton(new_, "New project")); header->addWidget(actionButton(open_, "Open…"));
     header->addWidget(actionButton(build_, "Build resources…", true)); layout->addLayout(header);
@@ -167,13 +166,13 @@ MainWindow::MainWindow() {
     table_->setShowGrid(false); table_->setAlternatingRowColors(true); table_->horizontalHeader()->setStretchLastSection(true);
     browser->setMinimumWidth(345); browserLayout->addWidget(table_, 1); splitter->addWidget(browser);
     auto* inspector = new QFrame; inspector->setObjectName("card"); auto* inspectorLayout = new QVBoxLayout(inspector); inspectorLayout->setContentsMargins(14, 14, 14, 14); inspectorLayout->setSpacing(10);
-    auto* inspectorHeader = new QHBoxLayout; auto* previewTitle = new QLabel("Resource preview"); previewTitle->setObjectName("section"); inspectorHeader->addWidget(previewTitle); inspectorHeader->addStretch();
+    auto* inspectorHeader = new QHBoxLayout; previewTitle_ = new QLabel("Resource viewer"); previewTitle_->setObjectName("section"); inspectorHeader->addWidget(previewTitle_); inspectorHeader->addStretch();
     inspectorHeader->addWidget(actionButton(folder_, "Open folder"));
     export_ = new QPushButton("Export…"); export_->setObjectName("exportResource"); export_->setEnabled(false); inspectorHeader->addWidget(export_);
     connect(export_, &QPushButton::clicked, this, &MainWindow::exportResource); inspectorLayout->addLayout(inspectorHeader);
     auto* controls = new QHBoxLayout;
     cels_ = new QComboBox; cels_->setObjectName("cels"); cels_->hide(); controls->addWidget(cels_, 1);
-    play_ = new QPushButton("Play loop"); play_->setObjectName("playLoop"); play_->setCheckable(true); play_->setEnabled(false); play_->setToolTip("Preview the selected loop at about 8 frames per second"); controls->addWidget(play_);
+    play_ = new QPushButton("Play loop"); play_->setObjectName("playLoop"); play_->setCheckable(true); play_->setEnabled(false); play_->hide(); play_->setToolTip("Preview the selected loop at about 8 frames per second"); controls->addWidget(play_);
     playTimer_ = new QTimer(this); playTimer_->setInterval(120);
     connect(playTimer_, &QTimer::timeout, this, &MainWindow::advanceCel);
     connect(play_, &QPushButton::toggled, this, [this](bool active) { play_->setText(active ? "Pause" : "Play loop"); if (active) playTimer_->start(); else playTimer_->stop(); });
@@ -184,7 +183,7 @@ MainWindow::MainWindow() {
     auto* scroll = new QScrollArea; scroll->setWidgetResizable(true); scroll->setMinimumHeight(80);
     image_ = new QLabel("Select a resource to preview"); image_->setAlignment(Qt::AlignCenter); image_->setMinimumHeight(60);
     image_->setStyleSheet("background: #202c38; color: #a9b8c7; padding: 12px;"); scroll->setWidget(image_);
-    previewStack_ = new QStackedWidget; previewStack_->addWidget(scroll);
+    previewStack_ = new QStackedWidget; previewStack_->setObjectName("visualPreview"); previewStack_->addWidget(scroll); previewStack_->hide();
     strings_ = new QTableWidget(0, 2); strings_->setObjectName("textStrings");
     strings_->setHorizontalHeaderLabels({"String", "Text"}); strings_->verticalHeader()->hide();
     strings_->horizontalHeader()->setStretchLastSection(true); strings_->setColumnWidth(0, 60);
@@ -266,6 +265,7 @@ void MainWindow::renameProject(const QString& value) {
         throw std::runtime_error(("Could not save project name: " + output.errorString()).toStdString());
     project_->name = name;
     heading_->setText(QString::fromStdString(name));
+    heading_->setToolTip(heading_->text() + "\n" + location_->text() + "\n" + text(project_->directory));
     setWindowTitle(heading_->text() + " — SCIMate NG");
     statusBar()->showMessage("Project name saved. The project folder has not moved.", 10000);
 }
@@ -304,6 +304,7 @@ void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& mod
     heading_->setText(QString::fromUtf8(project_->name.c_str()));
     location_->setText(QString::number(model_->rowCount()) + " resources  ·  SCI0  ·  " + project_->directory.filename().u8string().c_str());
     location_->setToolTip(text(project_->directory));
+    heading_->setToolTip(heading_->text() + "\n" + location_->text() + "\n" + text(project_->directory));
     setWindowTitle(heading_->text() + " — SCIMate NG");
     auto recent = QSettings().value("recentProjects").toStringList(); const auto directory = text(project_->directory);
     recent.removeAll(directory); recent.prepend(directory); while (recent.size() > 8) recent.removeLast();
@@ -350,11 +351,12 @@ void MainWindow::newProjectDialog() {
 
 void MainWindow::preview() {
     play_->setChecked(false); play_->setEnabled(false); export_->setEnabled(false);
+    play_->hide(); previewStack_->hide(); previewTitle_->setText("Resource viewer");
     editText_->hide(); strings_->setRowCount(0); previewStack_->setCurrentIndex(0);
     previewImage_ = {}; previewView_ = {}; previewPicture_ = {};
     selectedView_.clear(); selectedPicture_.clear(); cels_->clear(); cels_->hide(); image_->clear(); details_->clear();
     const auto selected = proxy_->mapToSource(table_->currentIndex());
-    if (!project_ || !selected.isValid()) return;
+    if (!project_ || !selected.isValid()) { details_->setPlainText("Select a resource to inspect."); return; }
     const auto index = static_cast<std::size_t>(selected.row());
     const auto& resource = project_->game.resources.at(index);
     export_->setEnabled(true);
@@ -371,13 +373,16 @@ void MainWindow::preview() {
                 for (std::size_t cel = 0; cel < source.cels.size(); ++cel)
                     cels_->addItem(QString("Loop %1 / Cel %2%3").arg(loop).arg(cel).arg(entry.mirror_of < 0 ? "" : " (mirrored)"), QPoint(static_cast<int>(loop), static_cast<int>(cel)));
             }
-            cels_->setVisible(cels_->count() > 0); play_->setEnabled(cels_->count() > 0); previewCel();
+            previewTitle_->setText("View animation");
+            cels_->setVisible(cels_->count() > 0); play_->setVisible(cels_->count() > 0); play_->setEnabled(cels_->count() > 0); previewCel();
+            previewStack_->setVisible(!previewImage_.isNull());
         } else if (resource.entry.id.type == scimate::ResourceType::pic) {
             previewPicture_ = scimate::read_sci0_picture(resource.payload);
             selectedPicture_ = resource.payload;
             description += "Editable folder: pictures/" + stem(index) + "\nMask colors represent EGA indices 0–15.\nPreview reflects the last successful refresh.\n";
             cels_->addItems({"Visual background", "Priority mask", "Control mask"});
-            cels_->show(); previewCel();
+            previewTitle_->setText("Background and masks");
+            cels_->show(); previewCel(); previewStack_->show();
         } else if (resource.entry.id.type == scimate::ResourceType::text) {
             const auto value = QString::fromStdString(scimate::export_sci0_text_table(resource.payload));
             const auto rows = value.split('\n');
@@ -387,12 +392,15 @@ void MainWindow::preview() {
                 strings_->setItem(row - 1, 0, new QTableWidgetItem(fields[0]));
                 strings_->setItem(row - 1, 1, new QTableWidgetItem(fields[1]));
             }
-            strings_->resizeRowsToContents(); previewStack_->setCurrentWidget(strings_); editText_->show();
+            previewTitle_->setText("Text strings");
+            strings_->resizeRowsToContents(); previewStack_->setCurrentWidget(strings_); previewStack_->show(); editText_->show();
             description += QString("\n%1 numbered strings. Edit text… saves directly to the project.\n").arg(strings_->rowCount());
             description += "Text is shown losslessly: \\n, \\r, \\t, \\\\ and \\xHH byte escapes.\nString indices are script references; keep their order. Export as TSV for external editing.";
         } else if (resource.entry.id.type == scimate::ResourceType::script) {
+            previewTitle_->setText("Script disassembly");
             description += "\n" + QString::fromStdString(scimate::disassemble_sci0_script(resource.payload, resource.entry.id.number));
         } else {
+            previewTitle_->setText("Binary resource");
             description += "\nHexadecimal preview (first 512 bytes):\n";
             for (std::size_t i = 0; i < std::min<std::size_t>(resource.payload.size(), 512); ++i) {
                 if (i % 16 == 0) description += QString("\n%1  ").arg(i, 4, 16, QChar('0'));

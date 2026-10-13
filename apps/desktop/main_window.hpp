@@ -54,7 +54,7 @@ private:
     bool busy_ = false;
     QAction *new_, *open_, *refresh_, *build_, *folder_, *close_, *rename_;
     QMenu* recent_;
-    QLabel *heading_, *location_, *image_, *progressTitle_, *progressDetail_;
+    QLabel *heading_, *location_, *image_, *progressTitle_, *progressDetail_, *previewTitle_;
     QWidget *progressPanel_;
     QTimer *progressTimer_, *playTimer_;
     QElapsedTimer elapsed_;

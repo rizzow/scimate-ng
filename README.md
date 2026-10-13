@@ -88,6 +88,9 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
 - **Rename…** (also **Project → Rename Project…**) saves a new project name and
   updates the window immediately. It changes the name in `project.scimate`, not
   the folder name, and refuses to overwrite a name changed externally.
+- The compact project toolbar leaves more room for resources. The viewer adapts:
+  views show animation controls, pictures show plane controls, text shows strings,
+  and scripts/binary resources use the full viewer height without an image area.
 - Filter resources by type and search text; inspect script disassembly and preview
   view cels, mirrored loops, and background/priority/control planes. **Play loop**
   animates the selected view loop. Drag either splitter to resize the browser or preview.
