@@ -34,6 +34,11 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!window.busy(), 10000);
         QVERIFY(window.project());
         QCOMPARE(window.project()->name, std::string("My project"));
+        window.renameProject("Renamed project");
+        QCOMPARE(window.project()->name, std::string("Renamed project"));
+        QVERIFY(window.windowTitle().contains("Renamed project"));
+        QCOMPARE(scimate::open_project(window.project()->directory).name, std::string("Renamed project"));
+        window.renameProject("My project");
         auto* table = window.findChild<QTableView*>("resources");
         auto* filter = window.findChild<QLineEdit*>("resourceFilter");
         auto* details = window.findChild<QPlainTextEdit*>("details");

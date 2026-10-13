@@ -4,6 +4,10 @@
 
 ### Desktop projects
 
+- Default file dialogs to home, remember locations by workflow, and provide a
+  larger Open Project browser with persistent layout.
+- Rename open projects with atomic descriptor saves and external-name checks.
+
 - Show loading phases, per-resource progress and elapsed time; reuse decoded games
   during creation instead of importing freshly exported PNGs again.
 - Use platform controls, type filtering, view-loop playback, resizable previews,

@@ -32,6 +32,7 @@ public:
     void createProject(const QString& source, const QString& directory, const QString& name);
     void buildProject(const QString& destination);
     void exportSelected(const QString& destination, const QString& format);
+    void renameProject(const QString& name);
     void saveSelectedText(const QString& table);
     bool busy() const { return busy_; }
     const scimate::Project* project() const { return project_.get(); }
@@ -51,7 +52,7 @@ private:
     void editText();
     ProjectPtr project_;
     bool busy_ = false;
-    QAction *new_, *open_, *refresh_, *build_, *folder_, *close_;
+    QAction *new_, *open_, *refresh_, *build_, *folder_, *close_, *rename_;
     QMenu* recent_;
     QLabel *heading_, *location_, *image_, *progressTitle_, *progressDetail_;
     QWidget *progressPanel_;

@@ -21,6 +21,9 @@ struct ProjectTextEdit {
 };
 ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t record,
                                           const std::string& table);
+// Validate the current descriptor and return replacement bytes for an atomic
+// caller-owned write. Reject a name changed externally since this project loaded.
+Bytes prepare_project_rename(const Project& project, const std::string& name);
 Project create_project(const std::filesystem::path& source_game,
                        const std::filesystem::path& new_directory,
                        const std::string& name, const ProgressCallback& progress = {});

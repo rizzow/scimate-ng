@@ -47,6 +47,12 @@ int main(int argc, char** argv) {
         fs::rename(workspace, moved); fs::rename(source, root / "unavailable source");
         const auto reopened = open_project(moved);
         require(reopened.name == created.name, "moved project did not reopen");
+        fails([&] { prepare_project_rename(reopened, ""); }, "project name");
+        fails([&] { prepare_project_rename(reopened, "bad\nname"); }, "control character");
+        const auto renamed = std::string("Renamed \"Larry\" project");
+        project_fixture::write(moved / "project.scimate", prepare_project_rename(reopened, renamed));
+        require(open_project(moved).name == renamed, "renamed project did not persist");
+        fails([&] { prepare_project_rename(reopened, "stale rename"); }, "changed on disk");
         build_project(moved, root / "unchanged build");
         const auto rebuilt = open_sci0_game(root / "unchanged build");
         require(rebuilt.original.map == created.game.original.map && rebuilt.original.volumes == created.game.original.volumes, "unchanged project differs");

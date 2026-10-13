@@ -80,7 +80,14 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
 - **New Project from Game** creates a named workspace in a new folder from an
   existing SCI0 game. It preserves original resources and exports editable PNGs.
 - **Open Project** opens `project.scimate`. Recent projects are remembered.
-  The workspace is movable and does not need the original game folder.
+  The workspace is movable and does not need the original game folder. The Open
+  Project browser is resizable and remembers its layout; select `project.scimate`.
+- File pickers start in your home folder on first use, then remember separate
+  locations for source games, opening/creating projects, resource exports and builds.
+  Missing remembered directories fall back to home. Recent projects remain in File.
+- **Rename…** (also **Project → Rename Project…**) saves a new project name and
+  updates the window immediately. It changes the name in `project.scimate`, not
+  the folder name, and refuses to overwrite a name changed externally.
 - Filter resources by type and search text; inspect script disassembly and preview
   view cels, mirrored loops, and background/priority/control planes. **Play loop**
   animates the selected view loop. Drag either splitter to resize the browser or preview.

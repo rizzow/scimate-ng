@@ -28,6 +28,16 @@ std::string read_name(const std::filesystem::path& directory) {
 }
 }
 
+Bytes prepare_project_rename(const Project& project, const std::string& name) {
+    validate_name(name);
+    if (read_name(project.directory) != project.name)
+        throw std::runtime_error("Project name changed on disk. Refresh from Disk before renaming.");
+    std::ostringstream descriptor;
+    descriptor << "SCIMATE-PROJECT 1\n" << std::quoted(name) << '\n';
+    const auto value = descriptor.str();
+    return Bytes(value.begin(), value.end());
+}
+
 Project create_project(const std::filesystem::path& source_game,
                        const std::filesystem::path& new_directory,
                        const std::string& name, const ProgressCallback& progress) {

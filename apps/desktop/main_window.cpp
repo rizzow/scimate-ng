@@ -14,6 +14,14 @@ namespace {
 std::filesystem::path path(const QString& text) { return std::filesystem::u8path(text.toUtf8().constData()); }
 QString text(const std::filesystem::path& p) { return QString::fromUtf8(p.u8string().c_str()); }
 QString stem(std::size_t index) { return QString::number(index).rightJustified(7, '0'); }
+QString dialogDirectory(const QString& key) {
+    const auto saved = QSettings().value("dialogs/" + key).toString();
+    return !saved.isEmpty() && QDir(saved).exists() ? saved : QDir::homePath();
+}
+void rememberDirectory(const QString& key, const QString& directory) {
+    if (!directory.isEmpty() && QDir(directory).exists())
+        QSettings().setValue("dialogs/" + key, QDir(directory).absolutePath());
+}
 struct Outcome { std::shared_ptr<scimate::Project> project; QString error; std::vector<bool> modified; };
 struct ProgressState { std::mutex mutex; scimate::OperationProgress value; };
 class ResourceFilter : public QSortFilterProxyModel {
@@ -37,8 +45,26 @@ MainWindow::MainWindow() {
     new_ = file->addAction("&New Project from Game…", this, &MainWindow::newProjectDialog);
     new_->setShortcut(QKeySequence::New);
     open_ = file->addAction("&Open Project…", this, [this] {
-        const auto name = QFileDialog::getOpenFileName(this, "Open SCIMate project", {}, "SCIMate projects (project.scimate)");
-        if (!name.isEmpty()) openProject(QFileInfo(name).absolutePath());
+        QFileDialog dialog(this, "Open SCIMate project");
+        // The widget picker has a reliably sized browser and persistent layout.
+        dialog.setOption(QFileDialog::DontUseNativeDialog);
+        dialog.setFileMode(QFileDialog::ExistingFile);
+        dialog.setNameFilter("SCIMate projects (*.scimate)");
+        dialog.setViewMode(QFileDialog::Detail);
+        dialog.resize(900, 600); dialog.setMinimumSize(700, 450);
+        dialog.restoreState(QSettings().value("dialogs/openProjectState").toByteArray());
+        dialog.setDirectory(dialogDirectory("projects"));
+        const bool accepted = dialog.exec() == QDialog::Accepted;
+        QSettings().setValue("dialogs/openProjectState", dialog.saveState());
+        if (accepted && !dialog.selectedFiles().isEmpty()) {
+            const auto filename = dialog.selectedFiles().first();
+            rememberDirectory("projects", QFileInfo(filename).absolutePath());
+            if (QFileInfo(filename).fileName() != "project.scimate") {
+                QMessageBox::warning(this, "Open project", "Select the project's project.scimate file.");
+                return;
+            }
+            openProject(QFileInfo(filename).absolutePath());
+        }
     });
     open_->setShortcut(QKeySequence::Open);
     recent_ = file->addMenu("Recent Projects");
@@ -46,17 +72,27 @@ MainWindow::MainWindow() {
         project_.reset(); model_->removeRows(0, model_->rowCount()); preview();
         heading_->setText("Your SCI projects"); location_->setText("Create a project from an SCI0 game, or open an existing project.");
         setWindowTitle("SCIMate NG");
-        refresh_->setEnabled(false); build_->setEnabled(false); folder_->setEnabled(false); close_->setEnabled(false);
+        refresh_->setEnabled(false); build_->setEnabled(false); folder_->setEnabled(false); close_->setEnabled(false); rename_->setEnabled(false);
     });
     file->addSeparator();
     file->addAction("Quit", this, &QWidget::close)->setShortcut(QKeySequence::Quit);
     auto* projectMenu = menuBar()->addMenu("&Project");
+    rename_ = projectMenu->addAction("Rename Project…", this, [this] {
+        if (!project_ || busy_) return;
+        bool accepted = false;
+        const auto name = QInputDialog::getText(this, "Rename Project", "Project name", QLineEdit::Normal,
+                                               QString::fromStdString(project_->name), &accepted);
+        if (accepted) {
+            try { renameProject(name); }
+            catch (const std::exception& error) { QMessageBox::warning(this, "Project not renamed", QString::fromUtf8(error.what())); }
+        }
+    });
     refresh_ = projectMenu->addAction("Refresh from Disk", this, [this] { openProject(text(project_->directory)); });
     refresh_->setShortcut(QKeySequence::Refresh);
     folder_ = projectMenu->addAction("Open Resource Folder", this, &MainWindow::showFolder);
     build_ = projectMenu->addAction("Build Resources to New Folder…", this, [this] {
-        const auto destination = QFileDialog::getSaveFileName(this, "New resource output folder", text(project_->directory.parent_path() / "built-game"), {}, nullptr, QFileDialog::DontConfirmOverwrite);
-        if (!destination.isEmpty()) buildProject(destination);
+        const auto destination = QFileDialog::getSaveFileName(this, "New resource output folder", QDir(dialogDirectory("builds")).filePath("built-game"), {}, nullptr, QFileDialog::DontConfirmOverwrite);
+        if (!destination.isEmpty()) { rememberDirectory("builds", QFileInfo(destination).absolutePath()); buildProject(destination); }
     });
     build_->setShortcut(QKeySequence("Ctrl+B"));
     auto* help = menuBar()->addMenu("&Help");
@@ -98,11 +134,12 @@ MainWindow::MainWindow() {
     auto* header = new QHBoxLayout;
     auto* title = new QVBoxLayout; title->setSpacing(5);
     auto* brand = new QLabel("SCIMATE  /  WORKSPACE"); brand->setObjectName("brand"); title->addWidget(brand);
-    heading_ = new QLabel("Your next adventure"); heading_->setObjectName("heading");
+    heading_ = new QLabel("Your next adventure"); heading_->setObjectName("heading"); heading_->setTextFormat(Qt::PlainText);
     location_ = new QLabel("Create a project from an SCI0 game to start exploring."); location_->setObjectName("location");
     location_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     heading_->setTextFormat(Qt::PlainText); location_->setTextFormat(Qt::PlainText);
     title->addWidget(heading_); title->addWidget(location_); header->addLayout(title, 1);
+    header->addWidget(actionButton(rename_, "Rename…"));
     header->addWidget(actionButton(new_, "New project")); header->addWidget(actionButton(open_, "Open…"));
     header->addWidget(actionButton(build_, "Build resources…", true)); layout->addLayout(header);
     progressPanel_ = new QWidget; progressPanel_->setObjectName("progressPanel");
@@ -163,7 +200,7 @@ MainWindow::MainWindow() {
     connect(filter_, &QLineEdit::textChanged, proxy_, &QSortFilterProxyModel::setFilterFixedString);
     connect(table_->selectionModel(), &QItemSelectionModel::currentRowChanged, this, [this] { preview(); });
     connect(cels_, &QComboBox::currentIndexChanged, this, [this] { previewCel(); });
-    for (auto* action : {refresh_, folder_, build_, close_}) action->setEnabled(false);
+    for (auto* action : {refresh_, folder_, build_, close_, rename_}) action->setEnabled(false);
     updateRecents();
     restoreGeometry(QSettings().value("windowGeometry").toByteArray());
 }
@@ -171,7 +208,7 @@ MainWindow::MainWindow() {
 void MainWindow::run(const QString& message, std::function<ProjectPtr(const scimate::ProgressCallback&)> operation) {
     if (busy_) return;
     busy_ = true;
-    for (auto* action : {new_, open_, refresh_, folder_, build_, close_}) action->setEnabled(false);
+    for (auto* action : {new_, open_, refresh_, folder_, build_, close_, rename_}) action->setEnabled(false);
     recent_->setEnabled(false); progressPanel_->show(); progress_->setRange(0, 0); progressTitle_->setText(message);
     progressDetail_->setText("Starting…"); statusBar()->showMessage(message); elapsed_.start();
     auto state = std::make_shared<ProgressState>();
@@ -201,7 +238,7 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
             statusBar()->showMessage("Operation failed; previous project remains open.");
             QMessageBox::critical(this, "SCIMate", result.error);
         }
-        for (auto* action : {refresh_, folder_, build_, close_}) action->setEnabled(bool(project_));
+        for (auto* action : {refresh_, folder_, build_, close_, rename_}) action->setEnabled(bool(project_));
     });
     watcher->setFuture(QtConcurrent::run([operation = std::move(operation), progress] {
         try {
@@ -219,10 +256,26 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
     }));
 }
 
+void MainWindow::renameProject(const QString& value) {
+    if (!project_ || busy_) throw std::runtime_error("Open a project and wait for loading to finish before renaming.");
+    const auto name = value.trimmed().toUtf8().toStdString();
+    const auto descriptor = scimate::prepare_project_rename(*project_, name);
+    QSaveFile output(text(project_->directory / "project.scimate"));
+    if (!output.open(QIODevice::WriteOnly) ||
+        output.write(reinterpret_cast<const char*>(descriptor.data()), static_cast<qint64>(descriptor.size())) != static_cast<qint64>(descriptor.size()) || !output.commit())
+        throw std::runtime_error(("Could not save project name: " + output.errorString()).toStdString());
+    project_->name = name;
+    heading_->setText(QString::fromStdString(name));
+    setWindowTitle(heading_->text() + " — SCIMate NG");
+    statusBar()->showMessage("Project name saved. The project folder has not moved.", 10000);
+}
+
 void MainWindow::openProject(const QString& directory) {
     run("Opening project", [directory](const scimate::ProgressCallback& progress) { return std::make_shared<scimate::Project>(scimate::open_project(path(directory), progress)); });
 }
 void MainWindow::createProject(const QString& source, const QString& directory, const QString& name) {
+    rememberDirectory("games", source);
+    rememberDirectory("newProjects", QFileInfo(directory).absolutePath());
     run("Creating project", [source, directory, name](const scimate::ProgressCallback& progress) { return std::make_shared<scimate::Project>(scimate::create_project(path(source), path(directory), name.toUtf8().toStdString(), progress)); });
 }
 void MainWindow::buildProject(const QString& destination) {
@@ -254,7 +307,7 @@ void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& mod
     setWindowTitle(heading_->text() + " — SCIMate NG");
     auto recent = QSettings().value("recentProjects").toStringList(); const auto directory = text(project_->directory);
     recent.removeAll(directory); recent.prepend(directory); while (recent.size() > 8) recent.removeLast();
-    QSettings().setValue("recentProjects", recent); updateRecents();
+    QSettings().setValue("recentProjects", recent); rememberDirectory("projects", directory); updateRecents();
     table_->setColumnWidth(0, 55); table_->setColumnWidth(1, 60); table_->setColumnWidth(2, 64); table_->setColumnWidth(3, 65);
     preview(); if (proxy_->rowCount()) { table_->selectRow(0); table_->scrollToTop(); }
 }
@@ -275,9 +328,14 @@ void MainWindow::newProjectDialog() {
         auto* row = new QWidget; auto* rowLayout = new QHBoxLayout(row); rowLayout->setContentsMargins(0, 0, 0, 0);
         auto* browse = new QPushButton("Browse…"); rowLayout->addWidget(field); rowLayout->addWidget(browse); layout.addRow(label, row);
         connect(browse, &QPushButton::clicked, &dialog, [&, field, newFolder] {
-            const auto value = newFolder ? QFileDialog::getSaveFileName(&dialog, "New project folder", field->text(), {}, nullptr, QFileDialog::DontConfirmOverwrite)
-                                         : QFileDialog::getExistingDirectory(&dialog, "Source SCI0 game", field->text());
-            if (!value.isEmpty()) field->setText(value);
+            const auto key = newFolder ? "newProjects" : "games";
+            const auto start = field->text().isEmpty() ? dialogDirectory(key) : field->text();
+            const auto value = newFolder ? QFileDialog::getSaveFileName(&dialog, "New project folder", start, {}, nullptr, QFileDialog::DontConfirmOverwrite)
+                                         : QFileDialog::getExistingDirectory(&dialog, "Source SCI0 game", start);
+            if (!value.isEmpty()) {
+                field->setText(value);
+                rememberDirectory(key, newFolder ? QFileInfo(value).absolutePath() : value);
+            }
         });
     };
     addPath("Game folder", &source, false); addPath("New project folder", &destination, true);
@@ -431,6 +489,7 @@ void MainWindow::exportResource() {
     const auto name = QString::fromStdString(std::string(scimate::resource_type_name(resource.entry.id.type))) + "-" + QString::number(resource.entry.id.number);
     QFileDialog dialog(this, "Export selected resource");
     dialog.setAcceptMode(QFileDialog::AcceptSave); dialog.setNameFilters(filters);
+    dialog.setDirectory(dialogDirectory("exports"));
     dialog.setDefaultSuffix("bin"); dialog.selectFile(name);
     connect(&dialog, &QFileDialog::filterSelected, &dialog, [&dialog](const QString& filter) {
         dialog.setDefaultSuffix(filter.contains("*.png") ? "png" : filter.contains("*.asm") ? "asm" : filter.contains("*.tsv") ? "tsv" : "bin");
@@ -439,6 +498,7 @@ void MainWindow::exportResource() {
     const auto selectedFilter = dialog.selectedNameFilter();
     const auto format = selectedFilter.contains("*.png") ? "png" : selectedFilter.contains("*.asm") ? "asm" : selectedFilter.contains("*.tsv") ? "tsv" : "bin";
     const auto filename = dialog.selectedFiles().first();
+    rememberDirectory("exports", QFileInfo(filename).absolutePath());
     try {
         exportSelected(filename, format); statusBar()->showMessage("Exported " + filename, 10000);
     } catch (const std::exception& error) { QMessageBox::critical(this, "Export failed", QString::fromUtf8(error.what())); }
