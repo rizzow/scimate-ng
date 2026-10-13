@@ -61,7 +61,7 @@ SCI0 compression methods 0 (stored), 1 (LZW), and 2 (Huffman) are supported.
 Exports contain `manifest.tsv`, ordinal `payloads/*.bin` files, and snapshots
 of the original map and referenced volumes under `original/`. Payloads are raw
 decoded bytes, not standalone SCI patch files. Keep the manifest and snapshots
-unchanged; modify payloads or the supported editable view bundles below.
+unchanged; modify payloads or the supported editable view and picture bundles below.
 Duplicate resource IDs remain separate.
 
 Unchanged imports preserve the original map and referenced volumes byte-for-byte,
@@ -74,7 +74,7 @@ This reconstructs the packaged resources, not a complete runnable game folder:
 interpreters, scripts on disk, configuration, patch files, and unreferenced
 volumes are not copied. No automatic format detection, SCI0-with-SCI1-layout,
 SCI1/SCI1.1 support, recompression, resource additions/deletions/renaming,
-script-source editing, picture/cursor editing, previews, or GUI are implemented. A valid reconstruction
+script-source editing, cursor editing, previews, or GUI are implemented. A valid reconstruction
 does not prove that edited payloads are meaningful to the SCI engine.
 
 See [round-trip guarantees, limits, and export format](docs/sci0-roundtrip.md).
@@ -97,8 +97,7 @@ For a single decoded view:
 
 Unchanged image imports preserve the original bytes. Conflicting edits to a
 view's binary payload and PNG bundle are rejected. See [editable view workflow,
-limits, and manifest rules](docs/sci0-views.md). Cursors and picture planes are
-separate future work.
+limits, and manifest rules](docs/sci0-views.md). Cursors remain separate future work.
 
 ## Decompile with sci-tools
 
@@ -154,3 +153,18 @@ See [heuristics, confidence, and limitations](docs/sci0-explain.md).
 
 clangd uses the existing compilation database in `cmake-build-debug/` via
 `.clangd`. If you use another build directory, adjust `CompilationDatabase`.
+
+## Edit backgrounds and masks
+
+Game exports include `pictures/NNNNNNN/` bundles containing `visual.png`,
+`priority.png` (sprite occlusion), and `control.png` (collision/region masks).
+Edit these opaque 320×190 EGA PNGs, then run `scimate import`. Unchanged bundles
+preserve the original picture bytes; edits retain the vector commands and add
+verified pixel strokes. Unsupported pictures get diagnostics and retain raw payloads.
+
+```sh
+./build/scimate picture-export picture.bin new-picture-folder
+./build/scimate picture-import new-picture-folder edited-picture.bin
+```
+
+See [picture editing rules and limits](docs/sci0-pictures.md).

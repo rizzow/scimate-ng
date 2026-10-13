@@ -51,8 +51,8 @@ int integer(const std::string& s, int min, int max) {
 }
 } // namespace
 
-Bytes encode_cel_png(const ViewCel& cel) {
-    if (!cel.width || !cel.height || cel.width > 320 || cel.height > 200 || cel.transparent > 15 ||
+static Bytes encode_png(const ViewCel& cel, bool opaque) {
+    if (!cel.width || !cel.height || cel.width > 320 || cel.height > 200 || (!opaque && cel.transparent > 15) ||
         cel.pixels.size() != static_cast<std::size_t>(cel.width)*cel.height)
         throw std::runtime_error("PNG: invalid cel dimensions/palette");
     for (auto pixel : cel.pixels) if (pixel > 15) throw std::runtime_error("PNG: invalid EGA pixel");
@@ -62,7 +62,7 @@ Bytes encode_cel_png(const ViewCel& cel) {
     std::array<std::uint8_t,64> palette{};
     for (std::size_t i = 0; i < 16; ++i) {
         for (std::size_t c = 0; c < 3; ++c) palette[i*4+c] = ega[i][c];
-        palette[i*4+3] = i == cel.transparent ? 0 : 255;
+        palette[i*4+3] = !opaque && i == cel.transparent ? 0 : 255;
     }
     png_alloc_size_t size = 0;
     if (!png_image_write_to_memory(&p.image,nullptr,&size,0,cel.pixels.data(),0,palette.data())) png_error(p);
@@ -72,8 +72,8 @@ Bytes encode_cel_png(const ViewCel& cel) {
     return result;
 }
 
-ViewCel decode_cel_png(const Bytes& bytes, std::uint8_t transparent) {
-    if (bytes.size() > 16*1024*1024 || transparent > 15) throw std::runtime_error("PNG: input/palette limit exceeded");
+static ViewCel decode_png(const Bytes& bytes, std::uint8_t transparent, bool opaque) {
+    if (bytes.size() > 16*1024*1024 || (!opaque && transparent > 15)) throw std::runtime_error("PNG: input/palette limit exceeded");
     Png p;
     if (!png_image_begin_read_from_memory(&p.image,bytes.data(),bytes.size())) png_error(p);
     if (!p.image.width || !p.image.height || p.image.width > 320 || p.image.height > 200)
@@ -86,16 +86,28 @@ ViewCel decode_cel_png(const Bytes& bytes, std::uint8_t transparent) {
     cel.width = static_cast<std::uint16_t>(p.image.width); cel.height = static_cast<std::uint16_t>(p.image.height);
     cel.transparent = transparent;
     for (std::size_t i = 0; i < rgba.size(); i += 4) {
-        if (rgba[i+3] == 0) { cel.pixels.push_back(transparent); continue; }
+        if (!opaque && rgba[i+3] == 0) { cel.pixels.push_back(transparent); continue; }
         if (rgba[i+3] != 255) throw std::runtime_error("PNG: partial alpha is not representable in SCI0");
         int index = -1;
         for (int c = 0; c < 16; ++c)
             if (rgba[i] == ega[static_cast<std::size_t>(c)][0] && rgba[i+1] == ega[static_cast<std::size_t>(c)][1] && rgba[i+2] == ega[static_cast<std::size_t>(c)][2]) { index = c; break; }
         if (index < 0) throw std::runtime_error("PNG: color is outside the EGA palette (no automatic quantization)");
-        if (index == transparent) throw std::runtime_error("PNG: opaque pixel uses the designated transparent color");
+        if (!opaque && index == transparent) throw std::runtime_error("PNG: opaque pixel uses the designated transparent color");
         cel.pixels.push_back(static_cast<std::uint8_t>(index));
     }
     return cel;
+}
+
+Bytes encode_cel_png(const ViewCel& cel) { return encode_png(cel,false); }
+ViewCel decode_cel_png(const Bytes& bytes, std::uint8_t transparent) { return decode_png(bytes,transparent,false); }
+Bytes encode_picture_plane_png(const Bytes& pixels) {
+    ViewCel cel; cel.width=320; cel.height=190; cel.pixels=pixels;
+    return encode_png(cel,true);
+}
+Bytes decode_picture_plane_png(const Bytes& bytes) {
+    auto cel=decode_png(bytes,0,true);
+    if(cel.width!=320 || cel.height!=190) throw std::runtime_error("picture PNG: dimensions must be 320x190");
+    return cel.pixels;
 }
 
 void export_sci0_view(const Bytes& payload, const std::filesystem::path& destination) {

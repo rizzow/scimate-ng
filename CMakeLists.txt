@@ -3,7 +3,7 @@ project(scimate_ng VERSION 0.1.0 LANGUAGES CXX)
 
 option(SCIMATE_BUILD_CLI "Build the resource inspection CLI" ON)
 option(SCIMATE_BUILD_APPLICATION "Build filesystem import/export workflows" ${SCIMATE_BUILD_CLI})
-add_library(scimate_core core/src/resource_map.cpp core/src/codecs.cpp core/src/resource_game.cpp core/src/script.cpp core/src/view.cpp core/src/explain.cpp)
+add_library(scimate_core core/src/resource_map.cpp core/src/codecs.cpp core/src/resource_game.cpp core/src/script.cpp core/src/view.cpp core/src/picture.cpp core/src/explain.cpp)
 target_include_directories(scimate_core PUBLIC core/include)
 target_compile_features(scimate_core PUBLIC cxx_std_17)
 set_target_properties(scimate_core PROPERTIES CXX_EXTENSIONS OFF)
@@ -15,7 +15,7 @@ endif()
 
 if(SCIMATE_BUILD_APPLICATION OR SCIMATE_BUILD_CLI)
   find_package(PNG 1.6 REQUIRED)
-  add_library(scimate_application application/src/game_io.cpp application/src/view_io.cpp)
+  add_library(scimate_application application/src/game_io.cpp application/src/view_io.cpp application/src/picture_io.cpp)
   target_include_directories(scimate_application PUBLIC application/include)
   target_link_libraries(scimate_application PUBLIC scimate_core)
   target_link_libraries(scimate_application PRIVATE PNG::PNG)
@@ -45,6 +45,9 @@ if(BUILD_TESTING)
   target_link_libraries(view_tests PRIVATE scimate_core)
   add_test(NAME views COMMAND view_tests)
   if(TARGET scimate_application)
+    add_executable(picture_tests tests/picture_tests.cpp)
+    target_link_libraries(picture_tests PRIVATE scimate_application)
+    add_test(NAME pictures COMMAND picture_tests ${CMAKE_CURRENT_BINARY_DIR}/picture-fixtures)
     add_executable(game_io_tests tests/game_io_tests.cpp)
     target_link_libraries(game_io_tests PRIVATE scimate_application)
     add_test(NAME game_io COMMAND game_io_tests ${CMAKE_CURRENT_BINARY_DIR}/io-fixtures)
@@ -67,6 +70,11 @@ if(BUILD_TESTING)
       -DFIXTURE_WRITER=$<TARGET_FILE:game_io_tests>
       -DFIXTURE_DIR=${CMAKE_CURRENT_BINARY_DIR}/pipeline-fixtures
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/pipeline_cli.cmake)
+    add_test(NAME picture_cli COMMAND ${CMAKE_COMMAND}
+      -DCLI=$<TARGET_FILE:scimate>
+      -DFIXTURE_WRITER=$<TARGET_FILE:picture_tests>
+      -DFIXTURE_DIR=${CMAKE_CURRENT_BINARY_DIR}/picture-cli-fixtures
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/picture_cli.cmake)
     add_test(NAME view_cli COMMAND ${CMAKE_COMMAND}
       -DCLI=$<TARGET_FILE:scimate>
       -DFIXTURE_WRITER=$<TARGET_FILE:view_io_tests>

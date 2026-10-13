@@ -4,6 +4,7 @@
 #include "scimate/script.hpp"
 #include "scimate/explain.hpp"
 #include "scimate/view_io.hpp"
+#include "scimate/picture_io.hpp"
 
 #include <array>
 #include <charconv>
@@ -23,6 +24,8 @@ constexpr std::string_view usage =
     "       scimate import [--format sci0] <export-directory> <new-game-directory>\n"
     "       scimate view-export [--format sci0] <decoded-view.bin> <new-view-directory>\n"
     "       scimate view-import [--format sci0] <view-directory> <new-view.bin>\n"
+    "       scimate picture-export [--format sci0] <decoded-picture.bin> <new-picture-directory>\n"
+    "       scimate picture-import [--format sci0] <picture-directory> <new-picture.bin>\n"
     "Run scimate explain --help for heuristic analysis and limitations.\n"
     "SCI0 is the default format. Use -- to end options for paths beginning with --.\n"
     "Lists type, number, volume, and byte offset (decimal) in map order.\n"
@@ -30,6 +33,7 @@ constexpr std::string_view usage =
     "export writes payloads and originals; import rebuilds payload edits into a new directory.\n"
     "export also writes scripts/*.asm (or *.error.txt); these listings are not importable source.\n"
     "export/import includes editable view PNGs and placement metadata under views/.\n"
+    "export/import includes background, priority, and control PNGs under pictures/.\n"
     "SCI0 only; no format detection, recompression, resource ID edits, or engine validation.\n";
 
 constexpr std::string_view explain_help = R"(Usage: scimate explain [--format sci0] <game-directory>
@@ -90,6 +94,8 @@ int main(int argc, char** argv) {
     const bool importing = command == "import";
     const bool view_export = command == "view-export";
     const bool view_import = command == "view-import";
+    const bool picture_export = command == "picture-export";
+    const bool picture_import = command == "picture-import";
     std::vector<const char*> paths;
     bool valid = true, format_seen = false, options = true;
     for (int i = 2; i < argc; ++i) {
@@ -101,8 +107,8 @@ int main(int argc, char** argv) {
         } else if (options && arg.substr(0,2) == "--") { valid = false; break; }
         else paths.push_back(argv[i]);
     }
-    if (!valid || (!listing && !inspect && !explain && !disassemble && !exporting && !importing && !view_export && !view_import) ||
-        (explain ? (paths.size() != 1 && paths.size() != 3) : paths.size() != ((exporting || importing || view_export || view_import) ? 2u : 1u))) {
+    if (!valid || (!listing && !inspect && !explain && !disassemble && !exporting && !importing && !view_export && !view_import && !picture_export && !picture_import) ||
+        (explain ? (paths.size() != 1 && paths.size() != 3) : paths.size() != ((exporting || importing || view_export || view_import || picture_export || picture_import) ? 2u : 1u))) {
         std::cerr << (explain ? explain_help : usage);
         return 2;
     }
@@ -125,6 +131,13 @@ int main(int argc, char** argv) {
             if (!std::cout) throw std::runtime_error("failed to write explanation");
             return 0;
         }
+        if (picture_export || picture_import) {
+            if (picture_export) scimate::export_sci0_picture_file(paths[0],paths[1]);
+            else scimate::import_sci0_picture_file(paths[0],paths[1]);
+            std::cout << (picture_export ? "Exported editable picture: " : "Encoded and verified picture: ") << paths[1] << '\n';
+            if (!std::cout) throw std::runtime_error("failed to write result");
+            return 0;
+        }
         if (view_export || view_import) {
             if (view_export) scimate::export_sci0_view_file(paths[0],paths[1]);
             else scimate::import_sci0_view_file(paths[0],paths[1]);
@@ -142,6 +155,8 @@ int main(int argc, char** argv) {
                 const auto summary = scimate::export_sci0_game(paths[0], paths[1]);
                 std::cout << "Scripts: " << summary.script_listings << " readable listings, "
                           << summary.script_errors << " errors (see scripts/*.error.txt).\n";
+                std::cout << "Pictures: " << summary.editable_pictures << " editable PNG bundles, "
+                          << summary.picture_errors << " errors (see pictures/*.error.txt).\n";
                 std::cout << "Views: " << summary.editable_views << " editable PNG bundles, "
                           << summary.view_errors << " errors (see views/*.error.txt).\n";
             }

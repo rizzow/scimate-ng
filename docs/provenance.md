@@ -72,3 +72,13 @@ Committed fixtures are synthetic byte sequences in the tests. The local SCI0
 template game is an additional validation input only; none of its assets are
 copied into this repository. No behavioral comparison against the running
 Windows editor has been performed.
+
+The SCI0 picture renderer in `core/src/picture.cpp` adapts Sierra line rounding,
+pen circle/texture tables and pen clipping from
+`SCICompanionLib/Src/Resources/PicCommands.cpp` at revision
+`f1a603b48b1aa7abf94f78574a8f69a653e2ca62` (Philip Fortier, 2015, GPL-2.0-or-later;
+that file credits SCI Studio 3 by Brian Provinciano). The notice is retained.
+Opcode/coordinate and fill semantics were cross-checked against
+[ScummVM's picture renderer](https://github.com/scummvm/scummvm/blob/master/engines/sci/graphics/picture.cpp).
+The bounded parser, three-plane model, PNG bundles and verified stroke-based
+edit serialization are new code. No Windows drawing/UI dependencies are imported.

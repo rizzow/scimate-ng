@@ -2,6 +2,7 @@
 #include "scimate/game_io.hpp"
 #include "scimate/script.hpp"
 #include "scimate/view_io.hpp"
+#include "scimate/picture_io.hpp"
 #include "files.hpp"
 
 #include <iomanip>
@@ -71,6 +72,7 @@ ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
     std::filesystem::create_directory(destination / "payloads");
     std::filesystem::create_directory(destination / "scripts");
     std::filesystem::create_directory(destination / "views");
+    std::filesystem::create_directory(destination / "pictures");
     write_game(game.original, destination / "original");
     for (std::size_t i = 0; i < game.resources.size(); ++i) {
         write_file(destination / "payloads" / payload_filename(i), game.resources[i].payload);
@@ -87,6 +89,21 @@ ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
             if (supported) {
                 export_sci0_view(game.resources[i].payload,destination / "views" / stem);
                 ++summary.editable_views;
+            }
+        }
+        if (game.resources[i].entry.id.type == ResourceType::pic) {
+            const auto stem = std::filesystem::path(payload_filename(i)).stem().string();
+            bool supported = true;
+            try { read_sci0_picture(game.resources[i].payload); }
+            catch (const std::runtime_error& error) {
+                supported = false;
+                ++summary.picture_errors;
+                const std::string diagnostic = std::string("Picture PNG export failed; raw payload remains available.\n") + error.what() + "\n";
+                write_file(destination / "pictures" / (stem + ".error.txt"),Bytes(diagnostic.begin(),diagnostic.end()));
+            }
+            if (supported) {
+                export_sci0_picture(game.resources[i].payload,destination / "pictures" / stem);
+                ++summary.editable_pictures;
             }
         }
         if (game.resources[i].entry.id.type == ResourceType::script) {
@@ -127,6 +144,18 @@ void import_sci0_game(const std::filesystem::path& export_directory,
             if (read_file(view_directory / "original.bin",65535) != original)
                 throw std::runtime_error("view snapshot differs from original resource");
             auto edited = import_sci0_view(view_directory);
+            if (edited != original) {
+                if (bytes != original && bytes != edited) throw std::runtime_error("conflicting binary and PNG edits for record " + std::to_string(i));
+                bytes = std::move(edited);
+            }
+        }
+        const auto picture_directory = export_directory / "pictures" / std::filesystem::path(payload_filename(i)).stem();
+        if (game.resources[i].entry.id.type == ResourceType::pic && std::filesystem::exists(picture_directory)) {
+            if (!std::filesystem::is_directory(std::filesystem::symlink_status(picture_directory)))
+                throw std::runtime_error("expected picture directory: " + picture_directory.string());
+            if (read_file(picture_directory / "original.bin",65535) != original)
+                throw std::runtime_error("picture snapshot differs from original resource");
+            auto edited = import_sci0_picture(picture_directory);
             if (edited != original) {
                 if (bytes != original && bytes != edited) throw std::runtime_error("conflicting binary and PNG edits for record " + std::to_string(i));
                 bytes = std::move(edited);
