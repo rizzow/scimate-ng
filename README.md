@@ -32,26 +32,32 @@ command's usage and a pointer to its help. Exit codes remain 0 for success,
 ## Build and test
 
 Requires CMake 3.20+ and a C++17 compiler. The CLI/application layer also needs
-libpng 1.6 and zlib; the core alone still has no external dependencies.
+libpng 1.6 and zlib. The default build includes both `scimate` and
+`scimate-desktop`, so Qt 6.2+ Widgets/Concurrent (and Qt Test for tests) is required.
+The core alone still has no external dependencies.
 
-On macOS: `brew install libpng`. On Debian/Ubuntu: install `libpng-dev`.
-On Windows: install `libpng:x64-windows` through vcpkg and pass its CMake
-toolchain file when configuring. CMake does not download dependencies.
+On macOS: `brew install libpng qtbase`. On Debian/Ubuntu: install `libpng-dev`
+and `qt6-base-dev`. On Windows: install Qt 6 and `libpng:x64-windows` through
+vcpkg, and pass the Qt prefix and vcpkg CMake toolchain when configuring.
+CMake does not download dependencies.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --config Debug
-ctest --test-dir build -C Debug --output-on-failure
+ctest --test-dir build -C Debug -E '^desktop$' --output-on-failure
 ```
 
 Use a separate build directory as above. Git ignores typical CMake/CTest metadata,
 compiled artifacts, and SCIMate binaries from accidental in-source builds too.
+If Qt is not found automatically, supply its installation with
+`-DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qtbase` on Apple Silicon macOS.
+For a Qt-free CLI build, explicitly set `-DSCIMATE_BUILD_DESKTOP=OFF`.
 
 To build only the core:
 
 ```sh
 cmake -S . -B build-core -DSCIMATE_BUILD_CLI=OFF \
-  -DSCIMATE_BUILD_APPLICATION=OFF -DBUILD_TESTING=OFF
+  -DSCIMATE_BUILD_APPLICATION=OFF -DSCIMATE_BUILD_DESKTOP=OFF -DBUILD_TESTING=OFF
 cmake --build build-core
 ```
 
@@ -71,22 +77,22 @@ Project creation keeps the decoded game in memory instead of re-reading every
 exported PNG. Application workflows expose optional per-phase/resource progress
 callbacks; existing CLI usage and the Qt-free application API remain available.
 
-The GUI is optional; the commands above still build the **`scimate` CLI without
-Qt**. Enable the separate **`scimate-desktop`** target with Qt 6 Widgets and
-Concurrent installed (Qt 6.2+; Qt Test is also needed when testing):
+The normal build produces the separate **`scimate`** and **`scimate-desktop`**
+executables in the same build directory. Existing CMake caches retain old options:
+if `build/` was configured with desktop disabled, enable it once as follows:
 
 ```sh
 # macOS: brew install qtbase (a full Qt installation also works)
-cmake -S . -B build-desktop -DSCIMATE_BUILD_DESKTOP=ON \
+cmake -S . -B build -DSCIMATE_BUILD_DESKTOP=ON \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qtbase
-cmake --build build-desktop --parallel
-ctest --test-dir build-desktop -E '^desktop$' --output-on-failure
-# Optional GUI tests (launch Qt): ctest --test-dir build-desktop -R '^desktop$' --output-on-failure
-open build-desktop/scimate-desktop.app
+cmake --build build --parallel
+ctest --test-dir build -E '^desktop$' --output-on-failure
+# Optional GUI tests (launch Qt): ctest --test-dir build -R '^desktop$' --output-on-failure
+open build/scimate-desktop.app
 ```
 
 Use your Qt installation prefix on other platforms. Linux packages include
-`qt6-base-dev`; run `build-desktop/scimate-desktop` there. Windows produces
+`qt6-base-dev`; run `build/scimate-desktop` there. Windows produces
 `scimate-desktop.exe` (usually under `Debug/`). The macOS app currently uses
 installed Qt libraries; it is not a self-contained distribution bundle.
 
