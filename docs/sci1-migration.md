@@ -33,12 +33,19 @@ DCL/rearranged LZW are not implemented.
 - Applies the documented standard SCI0-to-SCI1 kernel numbering transformation.
 - Bridges FOpen/FPuts/FGets/FClose through SCI1 FileIO suboperations, validating
   argument counts and relocating the expanded main export table.
-- Refuses parser calls (Parse/Said), SCI0 DoSound calls, DoAvoider, unsupported
+- Supports a ScummVM SCI0 late sound compatibility profile: validates sound
+  resources with the SCI0 late decoder and statically proves DoSound suboperation
+  and argument-count frames before remapping the kernel to 0x2d. Resource bytes
+  and sound suboperation numbers are retained. Vocabulary 997 must be present
+  and omit nodePtr, which is ScummVM's documented SCI0 late dispatch condition.
+  This condition verifies target dispatch; it does not infer source sound format.
+  Dynamic/unproven call frames, early sound and incompatible dispatch fail.
+- Refuses parser calls (Parse/Said), DoAvoider, unsupported
   kernel IDs, address widening and unsupported layouts. These require semantic
   adaptations, not game-identity exceptions or selector-name guesses.
 - Reopens the generated container to verify resource identities and payloads.
 
-**Consequently, parser/sound games are not yet convertible by this draft.**
+**Consequently, parser games are not yet convertible by this draft.**
 Removing a title check does not solve those missing adaptations. They must be
 implemented generically before the requested real-world playback proof is met.
 Output is explicitly UNVERIFIED. No interpreter compatibility is inferred from
@@ -47,12 +54,12 @@ successful serialization or a user-selected `--format` argument.
 ## Manual validation gate
 
 ```sh
-cmake -S . -B build-sci1 -DCMAKE_BUILD_TYPE=Debug -DSCIMATE_BUILD_DESKTOP=OFF
-cmake --build build-sci1 --config Debug
-ctest --test-dir build-sci1 -C Debug --output-on-failure
-./build-sci1/scimate inspect /path/to/private/source-game
-./build-sci1/scimate migrate --to sci1 /path/to/private/source-game ./build-sci1/migrated-game
-./build-sci1/scimate inspect --format sci1 ./build-sci1/migrated-game
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --config Debug
+ctest --test-dir build -C Debug --output-on-failure
+./build/scimate inspect /path/to/private/source-game
+./build/scimate migrate --to sci1 /path/to/private/source-game ./build/migrated-game
+./build/scimate inspect --format sci1 ./build/migrated-game
 ```
 
 These are instructions for manual execution, not evidence that they passed.
@@ -82,4 +89,8 @@ Format/compatibility facts were inspected in ScummVM's
 [kernel numbering](https://github.com/scummvm/scummvm/blob/master/engines/sci/engine/kernel.cpp),
 [kernel signatures](https://github.com/scummvm/scummvm/blob/master/engines/sci/engine/kernel_tables.h),
 and [debugger](https://github.com/scummvm/scummvm/blob/master/engines/sci/console.cpp).
+Sound compatibility follows the independent sound-version selection in
+[features.cpp](https://github.com/scummvm/scummvm/blob/master/engines/sci/engine/features.cpp)
+and SCI0 sound signatures in the kernel table. It targets ScummVM and does not
+claim compatibility with the original Sierra SCI1 sound driver.
 No ScummVM source, interpreters, detection tables or game assets are bundled.

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Compatibility boundaries derived from ScummVM kernel/features/script sources.
 #include "scimate/sci1.hpp"
+#include "scimate/sound.hpp"
 #include "script_internal.hpp"
 #include <array>
 #include <sstream>
@@ -14,6 +15,73 @@ void put(Bytes& bytes, unsigned value) {
 void patch(Bytes& bytes, std::size_t offset, unsigned value) {
     if (value > 65535 || offset > bytes.size() || bytes.size()-offset < 2) throw std::runtime_error("migration address outside 16-bit script");
     bytes[offset] = static_cast<std::uint8_t>(value); bytes[offset+1] = static_cast<std::uint8_t>(value >> 8);
+}
+// This is a ScummVM compatibility profile, not a native SCI1 sound port.
+// Validate the source ABI and resource encoding independently of the runtime
+// dispatch guard. ScummVM selects SCI0 late sound when nodePtr is absent.
+void validate_sound_dispatch(const Game& game) {
+    const Bytes* selectors = nullptr;
+    for (const auto& resource : game.resources) {
+        if (resource.entry.id.type == ResourceType::vocab && resource.entry.id.number == 997 && !selectors)
+            selectors = &resource.payload;
+    }
+    if (!selectors) throw std::runtime_error("SCI0 sound compatibility requires selector vocabulary 997 to verify ScummVM dispatch");
+    const auto& bytes = *selectors;
+    const auto count = unsigned(word(bytes, 0, bytes.size())) + 1;
+    if (count > (bytes.size()-2)/2) throw std::runtime_error("truncated selector vocabulary 997");
+    for (unsigned i = 0; i < count; ++i) {
+        const auto offset = word(bytes, 2+2*i, bytes.size());
+        if (offset < 2+2*count) throw std::runtime_error("selector name overlaps vocabulary 997 offset table");
+        const auto length = word(bytes, offset, bytes.size());
+        if (offset+2u+length > bytes.size()) throw std::runtime_error("truncated selector name in vocabulary 997");
+        if (length == 7 && std::string(bytes.begin()+offset+2, bytes.begin()+offset+2+length) == "nodePtr")
+            throw std::runtime_error("SCI0 sound compatibility cannot preserve late sound dispatch with nodePtr present; early sound needs a semantic port");
+    }
+    std::set<std::uint16_t> seen_sounds;
+    for (const auto& resource : game.resources) if (resource.entry.id.type == ResourceType::sound &&
+                                                  seen_sounds.insert(resource.entry.id.number).second) {
+        try {
+            const auto sound = read_sci0_sound(resource.payload);
+            if (sound.header[0] == 2 && sound.sample_header.empty())
+                throw std::runtime_error("sample flag set without a digital sample header");
+        }
+        catch (const std::exception& error) {
+            throw std::runtime_error("sound " + std::to_string(resource.entry.id.number) + ": " + error.what());
+        }
+    }
+}
+void validate_sound_call(const ParsedScript& parsed, std::size_t index) {
+    const auto& call = parsed.instructions.at(index);
+    const auto frame = call.operands.at(1);
+    if (frame < 2 || frame > 6 || frame % 2)
+        throw std::runtime_error("unsupported SCI0 DoSound argument frame at " + std::to_string(call.start));
+    // Walk a contiguous, side-effect-free push sequence. Never infer a subop
+    // from the nearest pushi: object arguments may also use immediate values.
+    std::vector<int> pushed;
+    auto cursor = call.start;
+    const auto needed = frame/2+1; // Includes the argument-count stack word.
+    while (pushed.size() < needed && index > 0) {
+        const auto& inst = parsed.instructions.at(--index);
+        if (inst.end != cursor || parsed.labels.count(cursor) || parsed.procedures.count(cursor)) break;
+        cursor = inst.start;
+        int value = -1;
+        if (inst.opcode == 28) value = static_cast<int>(inst.operands.at(0));
+        else if (inst.opcode >= 59 && inst.opcode <= 61) value = static_cast<int>(inst.opcode-59);
+        else if (inst.opcode == 27 || inst.opcode == 51 || inst.opcode == 55 || inst.opcode == 56 ||
+                 inst.opcode == 58 || inst.opcode == 62 || (inst.opcode >= 68 && inst.opcode <= 71)) {}
+        else if (inst.opcode == 26 || inst.opcode == 40 || inst.opcode == 46 || inst.opcode == 49 ||
+                 inst.opcode == 57 || (inst.opcode >= 64 && inst.opcode <= 67)) continue;
+        else break;
+        pushed.push_back(value);
+    }
+    if (pushed.size() != needed || pushed.back() != static_cast<int>(frame/2))
+        throw std::runtime_error("SCI0 DoSound frame cannot be proven statically at " + std::to_string(call.start));
+    const auto subop = pushed.at(pushed.size()-2);
+    constexpr std::array<unsigned,13> min_args{2,2,1,2,1,2,2,1,1,2,2,1,1};
+    constexpr std::array<unsigned,13> max_args{2,2,2,2,2,2,2,1,2,2,2,1,1};
+    if (subop < 0 || subop > 12 || frame/2 < min_args.at(static_cast<unsigned>(subop)) ||
+        frame/2 > max_args.at(static_cast<unsigned>(subop)))
+        throw std::runtime_error("unsupported SCI0 DoSound suboperation/frame at " + std::to_string(call.start));
 }
 // Expand the original main export table and relocate absolute addresses. Code
 // references are relative, so an equal shift of instruction and target cancels.
@@ -95,17 +163,23 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     if (!main_object) throw std::runtime_error("main export 0 must identify a decoded object");
     auto first_export = static_cast<unsigned>(parsed_main.exports.size());
     if (first_export > 252) throw std::runtime_error("main export table cannot accommodate four byte-sized file-I/O bridges");
-    std::size_t scripts = 0, remapped = 0, bridged = 0;
+    std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0;
+    bool sound_dispatch_checked = false;
     for (auto& entry : unique) if (entry.first.first == ResourceType::script) {
         ++scripts;
         auto& payload = entry.second.payload;
         auto parsed = parse(payload);
-        for (const auto& inst : parsed.instructions) if (inst.opcode == 33) {
+        for (std::size_t instruction_index = 0; instruction_index < parsed.instructions.size(); ++instruction_index) {
+            const auto& inst = parsed.instructions[instruction_index];
+            if (inst.opcode != 33) continue;
             const auto kernel = inst.operands[0];
             if (kernel == 0x24 || kernel == 0x25)
                 throw std::runtime_error("parser migration requires a generic SCI1 parser adaptation; no game-ID compatibility exceptions are permitted");
-            if (kernel == 0x31)
-                throw std::runtime_error("SCI0 DoSound requires sound script/resource adaptation; compatibility cannot be inferred from game identity or selector names");
+            if (kernel == 0x31) {
+                if (!sound_dispatch_checked) { validate_sound_dispatch(game); sound_dispatch_checked = true; }
+                validate_sound_call(parsed, instruction_index);
+                ++sound_calls;
+            }
             if (kernel > 0x71) throw std::runtime_error("unsupported SCI0 kernel ID in script " + std::to_string(entry.first.second));
             if (kernel == 0x55) throw std::runtime_error("SCI0 DoAvoider requires a semantic port; migration refused");
             if (kernel >= 0x29 && kernel <= 0x2c) {
@@ -142,6 +216,8 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
            << "Target: SCI1 late directory map, nine-byte volume headers, uncompressed payloads.\n"
            << "Original EGA graphics, parser vocabulary, game-object name and relative LOFS semantics retained.\n"
            << "Main export expansion relocates absolute addresses; four FileIO bridges appended.\n"
+           << "Validated SCI0 late DoSound calls: " << sound_calls << "; kernel remapped to 0x2d.\n"
+           << (sound_calls ? "Sound resources retained after SCI0 late decoding; ScummVM late-sound dispatch verified by vocabulary 997.\n" : "No DoSound compatibility profile required.\n")
            << "Source scripts strictly validated; no game-specific assumptions, assets or detection hashes fabricated.\n"
            << "UNVERIFIED: runtime detection, graphics/sound compatibility, save/restore and gameplay require manual ScummVM validation.\n"
            << "This is a ScummVM-targeted compatibility candidate, not a claim of original Sierra interpreter compatibility or a general SCI1.1 migration.\n";

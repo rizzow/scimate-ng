@@ -46,6 +46,50 @@ Game sample() {
     return game;
 }
 void tests() {
+    // SCI0 sound ABI is retained only after proving both call frames and the
+    // resource layout; selector names alone do not establish compatibility.
+    constexpr unsigned sound_args[]{2,2,1,2,1,2,2,1,1,2,2,1,1};
+    for (unsigned subop = 0; subop <= 12; ++subop) {
+        auto sound_game = sample();
+        Bytes code{0x39,static_cast<std::uint8_t>(sound_args[subop]),0x39,static_cast<std::uint8_t>(subop)};
+        if (sound_args[subop] == 2)
+            code.push_back(subop == 4 || subop == 6 || subop == 8 ? 0x76 : 0x7c); // integer / object
+        code.insert(code.end(),{0x43,0x31,static_cast<std::uint8_t>(2*sound_args[subop]),0x48});
+        Bytes script; put(script,2,2); put(script,code.size()+4,2);
+        script.insert(script.end(),code.begin(),code.end()); put(script,0,2);
+        sound_game.resources[2].payload = script;
+        Bytes sound(33,0); sound.insert(sound.end(),{0,0x90,60,100,10,0x80,60,0,0,0xfc});
+        sound_game.resources.push_back(resource(ResourceType::sound,8,sound));
+        const auto result = migrate_sci0_to_sci1(sound_game);
+        const auto reopened = read_sci1_game(result.files,Sci1Format::sci1_late);
+        bool found_sound = false, found_call = false;
+        for (const auto& item : reopened.resources) {
+            if (item.entry.id.type == ResourceType::sound) {
+                require(item.payload == sound,"validated sound payload changed"); found_sound = true;
+            }
+            if (item.entry.id.type == ResourceType::script && item.entry.id.number == 20) {
+                const auto decoded = scimate::script_detail::parse(item.payload);
+                for (const auto& inst : decoded.instructions) if (inst.opcode == 33) {
+                    require(inst.operands[0] == 0x2d,"DoSound kernel not remapped"); found_call = true;
+                }
+            }
+        }
+        require(found_sound && found_call,"sound migration lost resources/calls");
+        auto invalid = sound_game;
+        invalid.resources.back().payload.resize(10);
+        fails([&] { migrate_sci0_to_sci1(invalid); },"sound 8");
+        invalid = sound_game;
+        invalid.resources[1].payload = {0,0,4,0,7,0,'n','o','d','e','P','t','r'};
+        fails([&] { migrate_sci0_to_sci1(invalid); },"nodePtr");
+        invalid = sound_game;
+        invalid.resources[2].payload[7] = 13;
+        fails([&] { migrate_sci0_to_sci1(invalid); },"suboperation");
+        invalid = sound_game;
+        invalid.resources[2].payload[6] = 0x36; // push accumulator: dynamic subop
+        invalid.resources[2].payload.erase(invalid.resources[2].payload.begin()+7);
+        patch(invalid.resources[2].payload,2,script.size()-3);
+        fails([&] { migrate_sci0_to_sci1(invalid); },"suboperation");
+    }
     for (auto format : {Sci1Format::sci1_late,Sci1Format::sci11}) {
         const std::vector<Resource> input{resource(ResourceType::heap,60000,{1,2,3}),resource(ResourceType::script,0,{0,0})};
         auto files = write_sci1_game(input,format);
