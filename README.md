@@ -82,6 +82,8 @@ underscores. The parent directory is created as needed; existing folders are not
 overwritten. Changing the preference does not move existing projects.
 Animation applies to view previews in both Resources and Explain; Play/Pause
 still lets you control the current preview independently.
+The resizable Preferences pane groups project storage and resource previews,
+with a full-width directory row and native Browse, Save, and Cancel controls.
 
 The desktop build includes an application icon for the macOS Finder/Dock and Qt
 windows. Source artwork and regeneration notes live in
