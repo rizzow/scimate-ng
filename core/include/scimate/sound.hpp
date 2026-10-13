@@ -8,7 +8,7 @@ struct SoundEvent {
 };
 bool operator==(const SoundEvent &a, const SoundEvent &b);
 struct Sound {
-  Bytes header; // SCI0 late: sample flag and sixteen voice/device byte pairs.
+  Bytes header; // 33-byte late voice/device pairs, or 17-byte early packed nibbles.
   std::vector<SoundEvent> events;
   std::uint32_t end_tick = 0;
   Bytes trailer; // Retained bytes after the MIDI stop event.
@@ -18,7 +18,7 @@ struct Sound {
   std::size_t sample_prefix = 0;
   Bytes original;
 };
-Sound read_sci0_sound(const Bytes &payload);
+Sound read_sci0_sound(const Bytes &payload, unsigned header_bytes = 33);
 Bytes write_sci0_sound(const Sound &sound);
 // Standard MIDI format 0/1, PPQN timing; tempo maps converted to SCI's 60 Hz
 // clock.

@@ -4,6 +4,7 @@
 #include "scimate/assets.hpp"
 #include "scimate/picture_io.hpp"
 #include "scimate/sound.hpp"
+#include "scimate/structured_resource.hpp"
 #include "scimate/view_io.hpp"
 #include <algorithm>
 #include <charconv>
@@ -117,19 +118,25 @@ std::string descriptor(ResourceId id, const std::string &representation) {
 std::string glyph_name(std::size_t index) {
   return "glyph-" + std::to_string(index) + ".png";
 }
+Sound editable_sound(const Bytes& payload) {
+  try { return read_sci0_sound(payload); }
+  catch (const std::runtime_error&) { return read_sci0_sound(payload,17); }
+}
 std::string prepare(ResourceId id, const Bytes &payload, Files &files) {
   if (id.type == ResourceType::sound) {
-    const auto sound = read_sci0_sound(payload);
+    const auto sound = editable_sound(payload);
     files["sound.mid"] = encode_sound_midi(sound);
     std::ostringstream channels;
     channels << "channel\tvoices\tdevices\n";
-    for (unsigned i = 0; i < 16; ++i)
-      channels << i << '\t' << unsigned(sound.header[1 + i * 2]) << '\t'
-               << unsigned(sound.header[2 + i * 2]) << '\n';
+    for (unsigned i = 0; i < 16; ++i) {
+      const bool early = sound.header.size()==17;
+      channels << i << '\t' << (early ? unsigned(sound.header[1+i]>>4) : unsigned(sound.header[1+i*2])) << '\t'
+               << (early ? unsigned(sound.header[1+i]&15) : unsigned(sound.header[2+i*2])) << '\n';
+    }
     files["channels.tsv"] = bytes(channels.str());
     if (!sound.sample_header.empty())
       files["sample.wav"] = encode_sound_wave(sound);
-    return sound.sample_header.empty() ? "midi" : "midi-pcm";
+    return sound.header.size()==17 ? "midi-early" : sound.sample_header.empty() ? "midi" : "midi-pcm";
   }
   if (id.type == ResourceType::font) {
     auto font = read_sci0_font(payload);
@@ -170,18 +177,21 @@ std::string prepare(ResourceId id, const Bytes &payload, Files &files) {
     files["words.tsv"] = bytes(out.str());
     return "vocab0";
   }
-  files["payload.bin"] = payload;
-  return "raw";
+  files["resource.json"] = bytes(export_resource_json(id,payload));
+  files["resource.schema.json"] = bytes(resource_json_schema(id,payload));
+  return "json";
 }
 Bytes load(ResourceId id, const std::string &representation,
            const Bytes &original, const std::filesystem::path &path) {
   if (representation == "raw")
     return detail::read_file(path / "payload.bin", 65535);
-  if (representation == "midi" || representation == "midi-pcm") {
+  if (representation == "json")
+    return import_resource_json(id,original,text(detail::read_file(path / "resource.json",16*1024*1024)));
+  if (representation == "midi" || representation == "midi-pcm" || representation == "midi-early") {
     check(id.type == ResourceType::sound);
-    auto sound = read_sci0_sound(original);
+    auto sound = read_sci0_sound(original,representation=="midi-early"?17:33);
     check(representation ==
-          (sound.sample_header.empty() ? "midi" : "midi-pcm"));
+          (sound.header.size()==17 ? "midi-early" : sound.sample_header.empty() ? "midi" : "midi-pcm"));
     decode_sound_midi(detail::read_file(path / "sound.mid", 16 * 1024 * 1024),
                       sound);
     auto channels = table(path / "channels.tsv");
@@ -190,8 +200,8 @@ Bytes load(ResourceId id, const std::string &representation,
     for (unsigned i = 0; i < 16; ++i) {
       auto f = row(channels);
       check(f.size() == 3 && f[0] == std::to_string(i));
-      sound.header[1 + i * 2] = integer(f[1], 255);
-      sound.header[2 + i * 2] = integer(f[2], 255);
+      if(sound.header.size()==17) sound.header[1+i]=(integer(f[1],15)<<4)|integer(f[2],15);
+      else {sound.header[1+i*2]=integer(f[1],255);sound.header[2+i*2]=integer(f[2],255);}
     }
     end(channels);
     if (representation == "midi-pcm")
@@ -308,13 +318,15 @@ AssetExportSummary export_sci0_asset(ResourceId id, const Bytes &payload,
     } else
       representation = prepare(id, payload, files);
   } catch (const std::runtime_error &error) {
-    representation = "raw";
+    representation = "json";
     files.clear();
-    files["payload.bin"] = payload;
+    files["resource.json"] = bytes(export_resource_json(id,payload));
+    files["resource.schema.json"] = bytes(resource_json_schema(id,payload));
     diagnostic = error.what();
     summary.conversion_error = true;
   }
-  summary.editable = representation != "raw";
+  summary.editable = representation != "raw" &&
+      (representation != "json" || resource_json_is_semantic(id,payload));
   if (representation == "view")
     export_sci0_view(payload, destination);
   else if (representation == "picture")
@@ -328,7 +340,7 @@ AssetExportSummary export_sci0_asset(ResourceId id, const Bytes &payload,
   if (!diagnostic.empty())
     detail::write_file(
         destination / "conversion.error.txt",
-        bytes("Editable conversion unavailable; edit payload.bin instead.\n" +
+        bytes("High-level conversion unavailable; edit the labelled byte records in resource.json.\n" +
               diagnostic + "\n"));
   detail::write_file(destination / "asset.tsv",
                      bytes(descriptor(id, representation)));
@@ -355,7 +367,8 @@ Bytes import_sci0_asset(const std::filesystem::path &directory,
       read_sci0_picture(original);
       expected = "picture";
     } else if (resource.type == ResourceType::sound) {
-      expected = read_sci0_sound(original).sample_header.empty() ? "midi" : "midi-pcm";
+      const auto sound=editable_sound(original);
+      expected = sound.header.size()==17 ? "midi-early" : sound.sample_header.empty() ? "midi" : "midi-pcm";
     } else if (resource.type == ResourceType::font) {
       read_sci0_font(original);
       expected = "font";
@@ -369,12 +382,12 @@ Bytes import_sci0_asset(const std::filesystem::path &directory,
       read_sci0_vocabulary(original);
       expected = "vocab0";
     } else {
-      expected = "raw";
+      expected = "json";
     }
   } catch (const std::runtime_error &) {
-    expected = "raw";
+    expected = "json";
   }
-  check(f[2] == expected,
+  check(f[2] == expected || f[2] == "raw",
         "asset manifest: representation differs from original resource");
   auto edited = load(resource, f[2], original, directory);
   check(edited.size() <= 65535, "asset: payload exceeds 65535-byte limit");

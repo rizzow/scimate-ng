@@ -64,13 +64,14 @@ void sci_delta(Bytes &out, std::uint32_t delta) {
 bool operator==(const SoundEvent &a, const SoundEvent &b) {
   return a.tick == b.tick && a.message == b.message;
 }
-Sound read_sci0_sound(const Bytes &payload) {
+Sound read_sci0_sound(const Bytes &payload, unsigned header_bytes) {
   payload_limit(payload);
   Reader r(payload);
   Sound s;
-  s.header = r.take(33);
-  require(s.header[0] == 0 || s.header[0] == 2,
-          "sound: unsupported SCI0 late sample flag/header");
+  require(header_bytes == 17 || header_bytes == 33, "sound: header must be 17 or 33 bytes");
+  s.header = r.take(header_bytes);
+  require(s.header[0] == 0 || (header_bytes == 33 && s.header[0] == 2),
+          "sound: unsupported SCI0 sample flag/header");
   unsigned status = 0;
   std::uint32_t tick = 0;
   for (;;) {
@@ -136,7 +137,8 @@ Sound read_sci0_sound(const Bytes &payload) {
   return s;
 }
 Bytes write_sci0_sound(const Sound &s) {
-  require(s.header.size() == 33 && (s.header[0] == 0 || s.header[0] == 2) &&
+  require((s.header.size() == 17 || s.header.size() == 33) &&
+              (s.header[0] == 0 || (s.header.size() == 33 && s.header[0] == 2)) &&
               s.end_tick <= max_tick,
           "sound: invalid header/end tick");
   std::uint32_t tick = 0;
@@ -147,7 +149,7 @@ Bytes write_sci0_sound(const Sound &s) {
     tick = e.tick;
   }
   if (!s.original.empty()) {
-    auto old = read_sci0_sound(s.original);
+    auto old = read_sci0_sound(s.original, s.header.size());
     if (old.header == s.header && old.events == s.events &&
         old.end_tick == s.end_tick && old.trailer == s.trailer &&
         old.sample_header == s.sample_header && old.samples == s.samples &&
@@ -172,7 +174,7 @@ Bytes write_sci0_sound(const Sound &s) {
             "sound: invalid PCM header/rate/length");
     // Preserve marker padding and unknown sample-header bytes, plus any
     // trailing data.
-    auto old = read_sci0_sound(s.original);
+    auto old = read_sci0_sound(s.original, s.header.size());
     require(old.sample_prefix == s.sample_prefix && !old.sample_header.empty(),
             "sound: inconsistent sample snapshot");
     auto header = s.sample_header;
@@ -190,7 +192,7 @@ Bytes write_sci0_sound(const Sound &s) {
   }
   out.insert(out.end(), trailer.begin(), trailer.end());
   payload_limit(out);
-  auto reopened = read_sci0_sound(out);
+  auto reopened = read_sci0_sound(out, s.header.size());
   require(reopened.events == s.events && reopened.end_tick == s.end_tick &&
               reopened.header == s.header && reopened.samples == s.samples &&
               reopened.sample_rate == s.sample_rate,

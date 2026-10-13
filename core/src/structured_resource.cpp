@@ -180,10 +180,25 @@ Document mt32(ResourceId id,const Bytes& b) {
   for(unsigned partial=0;partial<4;++partial) {add(d,O{{"id","timbre_"+std::to_string(timbre)+"_partial_"+std::to_string(partial)},{"kind","mt32-partial"},{"offset",pos+14+partial*58}});for(unsigned parameter=0;parameter<58;++parameter)field(d,b,pos+14+partial*58+parameter,1,"parameter_"+std::to_string(parameter));}
  }
  auto pos=492+std::size_t(count)*246;
- if(pos<b.size()) {Reader r(b,pos,b.size());require(r.le(2)==0xabcd,"patch JSON: unknown MT-32 extension");pos+=2;require(b.size()-pos>=384,"patch JSON: truncated MT-32 program bank");patches(pos,48);pos+=384;
-  if(pos<b.size()) {Reader rhythm(b,pos,b.size());require(rhythm.le(2)==0xdcba && rhythm.remaining()>=265,"patch JSON: invalid MT-32 rhythm extension");pos+=2;cells(d,b,pos,pos+256,"mt32-rhythm-byte");pos+=256;cells(d,b,pos,pos+9,"mt32-partial-reserve");pos+=9;}
- }
+ if(pos+2<=b.size() && b[pos]==0xab && b[pos+1]==0xcd) {pos+=2;require(b.size()-pos>=384,"patch JSON: truncated MT-32 program bank");patches(pos,48);pos+=384;}
+ if(pos<b.size()) {Reader rhythm(b,pos,b.size());require(rhythm.be(2)==0xdcba && rhythm.remaining()>=265,"patch JSON: invalid MT-32 rhythm extension");pos+=2;cells(d,b,pos,pos+256,"mt32-rhythm-byte");pos+=256;cells(d,b,pos,pos+9,"mt32-partial-reserve");pos+=9;}
  require(pos==b.size(),"patch JSON: unknown trailing MT-32 data");return d;
+}
+Document gm(ResourceId id,const Bytes& b) {
+ require(b.size()>=1155 && script_detail::word(b,1153,b.size())==b.size()-1155,"patch JSON: invalid GM initialization length");auto d=base(id,"gm-mapping");d.semantic=true;
+ for(unsigned program=0;program<128;++program) {add(d,O{{"id",program},{"kind","gm-program"}});field(d,b,program,1,"program_map");field(d,b,128+program,1,"key_shift",Binding::signed_integer);field(d,b,256+program,1,"volume_adjustment",Binding::signed_integer);field(d,b,384+program,1,"percussion_map");field(d,b,513+program,1,"velocity_map");}
+ add(d,O{{"id","rhythm"},{"kind","gm-rhythm"}});field(d,b,512,1,"volume_adjustment",Binding::signed_integer);
+ for(unsigned map=0;map<4;++map)for(unsigned velocity=0;velocity<128;++velocity) {auto pos=641+map*128+velocity;add(d,O{{"id","velocity_"+std::to_string(map)+"_"+std::to_string(velocity)},{"kind","gm-velocity"},{"map",map},{"input",velocity}});field(d,b,pos,1,"output");}
+ Reader r(b,1155,b.size());unsigned status=0;std::size_t index=0;
+ while(r.remaining()) {
+  auto begin=r.pos;auto next=r.byte();bool explicit_status=next>=128;
+  if(explicit_status)status=next;else --r.pos;
+  require(status>=128 && status<=0xf0,"patch JSON: invalid GM initialization status");
+  add(d,O{{"id",index++},{"kind","gm-initialization-message"},{"offset",begin},{"status",status}});
+  if(status==0xf0) {unsigned parameter=0;while(r.remaining() && b[r.pos]!=0xf7) {field(d,b,r.pos,1,"sysex_"+std::to_string(parameter++),Binding::integer,127);r.byte();}require(r.remaining()>0,"patch JSON: unterminated SysEx");r.byte();status=0;}
+  else {auto count=(status>>4)==12 || (status>>4)==13?1u:2u;for(unsigned i=0;i<count;++i) {field(d,b,r.pos,1,"parameter_"+std::to_string(i),Binding::integer,127);r.byte();}}
+ }
+ return d;
 }
 Document describe(ResourceId id,const Bytes& b) {
  require(b.size()<=65535 && unsigned(id.type)<=9 && id.number<=2047,"resource JSON: invalid SCI0 payload/identity");
@@ -191,7 +206,10 @@ Document describe(ResourceId id,const Bytes& b) {
   if(id.type==ResourceType::script)return script(id,b);
   if(id.type==ResourceType::vocab) {auto d=vocabulary(id,b);if(d.semantic)return d;}
   if(id.type==ResourceType::patch && id.number==3)return adlib(id,b);
-  if(id.type==ResourceType::patch && (id.number==0 || id.number==1))return mt32(id,b);
+  if(id.type==ResourceType::patch && (id.number==0 || id.number==1 || id.number==4)) {
+   if(b.size()>=1155 && script_detail::word(b,1153,b.size())==b.size()-1155)return gm(id,b);
+   if(id.number!=4)return mt32(id,b);
+  }
  }catch(const std::runtime_error& error) {
   auto d=base(id,"opaque-bytes");d.root.object()["diagnostic"]=error.what();cells(d,b,0,b.size(),"uninterpreted-byte");return d;
  }
