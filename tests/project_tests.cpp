@@ -26,7 +26,18 @@ int main(int argc, char** argv) {
         const auto workspace = root / "project";
         fails([&] { create_project(source, workspace, "\n"); }, "control character");
         require(!fs::exists(workspace), "invalid name created files");
-        const auto created = create_project(source, workspace, "Larry's \"project\"");
+        std::vector<OperationProgress> progress;
+        const auto created = create_project(source, workspace, "Larry's \"project\"", [&](const OperationProgress& value) { progress.push_back(value); });
+        require(!progress.empty(), "creation has no progress");
+        std::size_t last = 0;
+        for (const auto& value : progress) {
+            require(value.phase != "Loading edited resources", "creation redundantly reopens exports");
+            if (value.phase == "Exporting resources") {
+                require(value.completed >= last && value.completed <= value.total, "invalid resource progress");
+                last = value.completed;
+            }
+        }
+        require(last == created.game.resources.size(), "export progress never completes");
         require(created.name == "Larry's \"project\"", "project name changed");
         require(created.game.resources.size() == 6, "resources missing");
         fails([&] { create_project(source, workspace, "overwrite"); }, "already exists");

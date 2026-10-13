@@ -15,6 +15,13 @@ namespace {
 using detail::read_file;
 using detail::write_file;
 using detail::create_destination;
+void report(const ProgressCallback& callback, const std::string& phase,
+            std::size_t done = 0, std::size_t total = 0, const std::string& detail = {}) {
+    if (callback) callback({phase, done, total, detail});
+}
+std::string resource_label(const Resource& resource) {
+    return std::string(resource_type_name(resource.entry.id.type)) + " " + std::to_string(resource.entry.id.number);
+}
 
 std::string payload_filename(std::size_t index) {
     std::ostringstream name;
@@ -48,23 +55,30 @@ std::string volume_filename(std::uint8_t number) {
     return name.str();
 }
 
-Game open_sci0_game(const std::filesystem::path& directory) {
+Game open_sci0_game(const std::filesystem::path& directory, const ProgressCallback& progress) {
+    report(progress, "Reading resource map", 0, 0, directory.string());
     GameFiles files;
     files.map = read_file(directory / "resource.map", max_map_bytes);
     std::size_t total = files.map.size();
     const auto entries = read_sci0_map(files.map);
     for (const auto& entry : entries) {
         if (files.volumes.count(entry.volume) != 0) continue;
+        report(progress, "Reading resource volumes", 0, 0, volume_filename(entry.volume));
         auto bytes = read_file(directory / volume_filename(entry.volume), max_game_bytes - total);
         total += bytes.size();
         files.volumes.emplace(entry.volume, std::move(bytes));
     }
+    report(progress, "Decoding resources", 0, 0, std::to_string(entries.size()) + " map entries");
     return read_sci0_game(std::move(files));
 }
 
 ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
-                      const std::filesystem::path& destination) {
-    const auto game = open_sci0_game(game_directory);
+                      const std::filesystem::path& destination, const ProgressCallback& progress) {
+    return export_sci0_game(open_sci0_game(game_directory, progress), destination, progress);
+}
+
+ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& destination,
+                              const ProgressCallback& progress) {
     const auto text = manifest(game);
     ExportSummary summary;
     create_destination(destination);
@@ -73,8 +87,10 @@ ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
     std::filesystem::create_directory(destination / "scripts");
     std::filesystem::create_directory(destination / "views");
     std::filesystem::create_directory(destination / "pictures");
+    report(progress, "Saving original resources", 0, 0, destination.string());
     write_game(game.original, destination / "original");
     for (std::size_t i = 0; i < game.resources.size(); ++i) {
+        report(progress, "Exporting resources", i, game.resources.size(), resource_label(game.resources[i]));
         write_file(destination / "payloads" / payload_filename(i), game.resources[i].payload);
         if (game.resources[i].entry.id.type == ResourceType::view) {
             const auto stem = std::filesystem::path(payload_filename(i)).stem().string();
@@ -121,19 +137,21 @@ ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
             write_file(destination / "scripts" / (stem + extension), Bytes(listing.begin(), listing.end()));
         }
     }
+    report(progress, "Exporting resources", game.resources.size(), game.resources.size(), "Writing manifest");
     // Written last so an interrupted export lacks its completion manifest.
     write_file(destination / "manifest.tsv", Bytes(text.begin(), text.end()));
     return summary;
 }
 
-Game open_sci0_export(const std::filesystem::path& export_directory) {
-    auto game = open_sci0_game(export_directory / "original");
+Game open_sci0_export(const std::filesystem::path& export_directory, const ProgressCallback& progress) {
+    auto game = open_sci0_game(export_directory / "original", progress);
     const auto text = manifest(game);
     const auto saved = read_file(export_directory / "manifest.tsv", text.size());
     if (saved != Bytes(text.begin(), text.end()))
         throw std::runtime_error("manifest does not match original game (unsupported version or metadata edits)");
     std::size_t total = 0;
     for (std::size_t i = 0; i < game.resources.size(); ++i) {
+        report(progress, "Loading edited resources", i, game.resources.size(), resource_label(game.resources[i]));
         auto bytes = read_file(export_directory / "payloads" / payload_filename(i), 65535);
         const auto& original = game.resources[i].payload;
         const auto view_directory = export_directory / "views" / std::filesystem::path(payload_filename(i)).stem();
@@ -164,15 +182,19 @@ Game open_sci0_export(const std::filesystem::path& export_directory) {
         total += bytes.size();
         game.resources[i].payload = std::move(bytes);
     }
+    report(progress, "Loading edited resources", game.resources.size(), game.resources.size(), "Validated workspace");
     return game;
 }
 
 void import_sci0_game(const std::filesystem::path& export_directory,
-                      const std::filesystem::path& destination) {
-    const auto game = open_sci0_export(export_directory);
+                      const std::filesystem::path& destination, const ProgressCallback& progress) {
+    const auto game = open_sci0_export(export_directory, progress);
+    report(progress, "Reconstructing and verifying resources");
     const auto rebuilt = rebuild_sci0_game(game);
     create_destination(destination);
+    report(progress, "Writing rebuilt resources", 0, 0, destination.string());
     write_game(rebuilt, destination);
+    report(progress, "Verifying saved resources");
     const auto reopened = open_sci0_game(destination);
     if (reopened.original.map != rebuilt.map || reopened.original.volumes != rebuilt.volumes)
         throw std::runtime_error("saved game differs from verified rebuild");

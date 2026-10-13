@@ -30,6 +30,10 @@ cmake --build build-core
 
 ## Desktop projects
 
+Project creation keeps the decoded game in memory instead of re-reading every
+exported PNG. Application workflows expose optional per-phase/resource progress
+callbacks; existing CLI usage and the Qt-free application API remain available.
+
 The GUI is optional; the commands above still build the **`scimate` CLI without
 Qt**. Enable the separate **`scimate-desktop`** target with Qt 6 Widgets and
 Concurrent installed (Qt 6.2+; Qt Test is also needed when testing):

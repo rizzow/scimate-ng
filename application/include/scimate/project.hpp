@@ -12,8 +12,8 @@ struct Project {
 };
 Project create_project(const std::filesystem::path& source_game,
                        const std::filesystem::path& new_directory,
-                       const std::string& name);
-Project open_project(const std::filesystem::path& directory);
+                       const std::string& name, const ProgressCallback& progress = {});
+Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress = {});
 void build_project(const std::filesystem::path& directory,
-                   const std::filesystem::path& new_game_directory);
+                   const std::filesystem::path& new_game_directory, const ProgressCallback& progress = {});
 } // namespace scimate

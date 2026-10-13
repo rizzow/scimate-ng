@@ -4,13 +4,23 @@
 #include "scimate/resource_game.hpp"
 #include <filesystem>
 #include <string>
+#include <functional>
 
 namespace scimate {
+struct OperationProgress {
+    std::string phase;
+    std::size_t completed = 0, total = 0;
+    std::string detail;
+};
+// Called synchronously on the worker/calling thread, never from a UI thread
+// implicitly. Counts are per phase; a zero total denotes an unmeasured phase.
+using ProgressCallback = std::function<void(const OperationProgress&)>;
+
 std::string volume_filename(std::uint8_t number);
-Game open_sci0_game(const std::filesystem::path& directory);
+Game open_sci0_game(const std::filesystem::path& directory, const ProgressCallback& progress = {});
 
 // Validate the manifest/snapshots and load current payload and PNG edits.
-Game open_sci0_export(const std::filesystem::path& directory);
+Game open_sci0_export(const std::filesystem::path& directory, const ProgressCallback& progress = {});
 
 struct ExportSummary {
     std::size_t script_listings = 0;
@@ -26,11 +36,15 @@ struct ExportSummary {
 // Script resources also receive inspection-only .asm listings (or .error.txt).
 // Supported EGA views and pictures receive editable PNG bundles under views/ and pictures/.
 ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
-                      const std::filesystem::path& destination);
+                      const std::filesystem::path& destination, const ProgressCallback& progress = {});
+
+// Export an already decoded game without reading it again.
+ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& destination,
+                              const ProgressCallback& progress = {});
 
 // Import binary payload, view, or picture PNG edits; conflicting edits fail.
 // The game manifest and original snapshots must agree.
 // Rebuilds and verifies the result before creating a new output directory.
 void import_sci0_game(const std::filesystem::path& export_directory,
-                      const std::filesystem::path& destination);
+                      const std::filesystem::path& destination, const ProgressCallback& progress = {});
 } // namespace scimate
