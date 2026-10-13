@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
 #include "explanation_tree.hpp"
+#include "game_info.hpp"
 #include "project_fixture.hpp"
 #include <QtTest>
 #include <QComboBox>
 #include <QLineEdit>
+#include <QLabel>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QImage>
@@ -23,6 +25,28 @@
 class DesktopTests : public QObject {
     Q_OBJECT
 private slots:
+    void gameInfoMetadata() {
+        scimate::Project project;
+        project.name = "<User-defined title>";
+        project.directory = std::filesystem::u8path("/example/project");
+        project.game.resources = {
+            {{{scimate::ResourceType::text, 1}, 0, 0}, 0, {'a', 0}},
+            {{{scimate::ResourceType::text, 1}, 0, 0}, 0, {'b', 'c', 0}},
+            {{{scimate::ResourceType::view, 2}, 0, 10}, 0, {1, 2, 3, 4}}
+        };
+        GameInfoDialog dialog(project);
+        auto* name = dialog.findChild<QLabel*>("gameInfoProjectName");
+        QVERIFY(name); QCOMPARE(name->text(), QString("<User-defined title>"));
+        QCOMPARE(name->textFormat(), Qt::PlainText);
+        QCOMPARE(dialog.findChild<QLabel*>("gameInfoResourceCount")->text(), QString("3"));
+        QCOMPARE(dialog.findChild<QLabel*>("gameInfoPayloadBytes")->text(), QString("9"));
+        QVERIFY(dialog.findChild<QLabel*>("gameInfoFormat")->text().contains("SCI0"));
+        auto* types = dialog.findChild<QTableWidget*>("gameInfoResourceTypes");
+        QCOMPARE(types->rowCount(), 2);
+        QCOMPARE(types->item(1, 0)->text(), QString("text"));
+        QCOMPARE(types->item(1, 1)->text(), QString("2"));
+        QCOMPARE(types->item(1, 2)->text(), QString("5"));
+    }
     void explanationReferences() {
         ExplanationTree tree;
         tree.setReport("Views\n  [fact] View 5: 2 loops\n    [fact] Loop 1: 2 cels\n"
@@ -54,10 +78,13 @@ private slots:
         const auto source = temp.path() + "/source";
         project_fixture::create(std::filesystem::u8path(source.toUtf8().constData()));
         MainWindow window; window.show();
+        auto* gameInfo = window.findChild<QAction*>("gameInfo");
+        QVERIFY(gameInfo); QVERIFY(!gameInfo->isEnabled());
         window.createProject(source, temp.path() + "/workspace", "My project");
         QVERIFY(window.findChild<QWidget*>("progressPanel")->isVisible());
         QTRY_VERIFY_WITH_TIMEOUT(!window.busy(), 10000);
         QVERIFY(window.project());
+        QVERIFY(gameInfo->isEnabled());
         QCOMPARE(window.project()->name, std::string("My project"));
         window.renameProject("Renamed project");
         QCOMPARE(window.project()->name, std::string("Renamed project"));

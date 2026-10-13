@@ -56,7 +56,7 @@ private:
     void editText();
     ProjectPtr project_;
     bool busy_ = false;
-    QAction *new_, *open_, *refresh_, *build_, *folder_, *close_, *rename_, *explain_;
+    QAction *new_, *open_, *refresh_, *build_, *folder_, *close_, *rename_, *explain_, *gameInfo_;
     ExplanationTree* explanation_;
     QTabWidget* browserTabs_;
     QMenu* recent_;

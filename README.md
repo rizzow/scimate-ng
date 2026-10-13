@@ -74,6 +74,13 @@ supporting generator and update `.clangd`'s `CompilationDatabase` path.
 
 ## Desktop projects
 
+**Project → Game Info…** shows the loaded project's name and directory, validated
+SCI0 resource format, record counts (including duplicate IDs), unique resource
+IDs, decoded sizes by resource type, and original map/volume sizes. It uses the
+loaded data without reopening the game. Exact interpreter version and game
+identity are marked unknown; the original game directory is not retained in
+portable projects. Refresh from Disk first to include external resource edits.
+
 Preferences stores the **Project directory** (default: `~/SCIMate Projects`) and
 **Animate views by default** (initially off). On macOS, open Preferences from the
 application menu or with **⌘,**; other platforms expose it in File. New projects

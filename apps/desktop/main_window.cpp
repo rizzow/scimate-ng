@@ -2,6 +2,7 @@
 #include "main_window.hpp"
 #include "explanation_tree.hpp"
 #include "preferences.hpp"
+#include "game_info.hpp"
 #include "scimate/script.hpp"
 #include "scimate/asset_io.hpp"
 #include "scimate/explain.hpp"
@@ -63,7 +64,7 @@ MainWindow::MainWindow() {
     recent_ = file->addMenu("Recent Projects");
     close_ = file->addAction("Close Project", this, [this] {
         project_.reset(); model_->removeRows(0, model_->rowCount()); preview();
-        explanation_->clear(); explain_->setEnabled(false);
+        explanation_->clear(); explain_->setEnabled(false); gameInfo_->setEnabled(false);
         heading_->setText("SCIMate NG"); heading_->setToolTip({}); location_->setText("Create a project from an SCI0 game, or open an existing project.");
         setWindowTitle("SCIMate NG");
         refresh_->setEnabled(false); build_->setEnabled(false); folder_->setEnabled(false); close_->setEnabled(false); rename_->setEnabled(false);
@@ -78,6 +79,12 @@ MainWindow::MainWindow() {
     preferencesAction->setShortcut(QKeySequence::Preferences);
     file->addAction("Quit", this, &QWidget::close)->setShortcut(QKeySequence::Quit);
     auto* projectMenu = menuBar()->addMenu("&Project");
+    gameInfo_ = projectMenu->addAction("Game Info…", this, [this] {
+        if (!project_ || busy_) return;
+        GameInfoDialog dialog(*project_, this);
+        dialog.exec();
+    });
+    gameInfo_->setObjectName("gameInfo");
     explain_ = projectMenu->addAction("Explain Project", this, [this] {
         if (!project_ || busy_) return;
         const auto project = project_;
@@ -227,7 +234,7 @@ MainWindow::MainWindow() {
     connect(filter_, &QLineEdit::textChanged, proxy_, &QSortFilterProxyModel::setFilterFixedString);
     connect(table_->selectionModel(), &QItemSelectionModel::currentRowChanged, this, [this] { preview(); });
     connect(cels_, &QComboBox::currentIndexChanged, this, [this] { previewCel(); });
-    for (auto* action : {refresh_, folder_, build_, close_, rename_, explain_}) action->setEnabled(false);
+    for (auto* action : {refresh_, folder_, build_, close_, rename_, explain_, gameInfo_}) action->setEnabled(false);
     updateRecents();
     restoreGeometry(QSettings().value("windowGeometry").toByteArray());
 }
@@ -235,7 +242,7 @@ MainWindow::MainWindow() {
 void MainWindow::run(const QString& message, std::function<ProjectPtr(const scimate::ProgressCallback&)> operation, bool explain) {
     if (busy_) return;
     busy_ = true;
-    for (auto* action : {new_, open_, refresh_, folder_, build_, close_, rename_, explain_}) action->setEnabled(false);
+    for (auto* action : {new_, open_, refresh_, folder_, build_, close_, rename_, explain_, gameInfo_}) action->setEnabled(false);
     browserTabs_->setEnabled(false);
     play_->setChecked(false); play_->setEnabled(false);
     cels_->setEnabled(false); export_->setEnabled(false); editText_->setEnabled(false);
@@ -270,7 +277,7 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
             statusBar()->showMessage("Operation failed; previous project remains open.");
             QMessageBox::critical(this, "SCIMate", result.error);
         }
-        for (auto* action : {refresh_, folder_, build_, close_, rename_, explain_}) action->setEnabled(bool(project_));
+        for (auto* action : {refresh_, folder_, build_, close_, rename_, explain_, gameInfo_}) action->setEnabled(bool(project_));
         cels_->setEnabled(true); editText_->setEnabled(true);
         if (browserTabs_->currentIndex() == 1) previewExplanation();
         else preview();
