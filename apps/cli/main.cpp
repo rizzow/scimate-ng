@@ -7,6 +7,7 @@
 #include "scimate/view_io.hpp"
 #include "scimate/picture_io.hpp"
 #include "scimate/asset_io.hpp"
+#include "help.hpp"
 
 #include <array>
 #include <charconv>
@@ -107,6 +108,7 @@ std::vector<std::uint8_t> read_file(const char* path, bool script = false) {
 } // namespace
 
 int main(int argc, char** argv) {
+    if (const auto result = scimate::cli::show_help(argc, argv, true, migrate_help)) return *result;
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
         std::cout << usage;
         return 0;
@@ -154,7 +156,7 @@ int main(int argc, char** argv) {
     if (format != "sci0" && !listing && !inspect) valid = false;
     if (!valid || (!migrating && !listing && !inspect && !explain && !disassemble && !exporting && !importing && !view_export && !view_import && !picture_export && !picture_import && !resource_export && !resource_import && !asset_export && !asset_import) ||
         (explain ? (paths.size() != 1 && paths.size() != 3) : paths.size() != (resource_export ? 4u : (resource_import || asset_export || asset_import) ? 2u : ((migrating || exporting || importing || view_export || view_import || picture_export || picture_import) ? 2u : 1u)))) {
-        std::cerr << (migrating ? migrate_help : (explain ? explain_help : usage));
+        scimate::cli::usage_error(command, true, migrate_help);
         return 2;
     }
     try {

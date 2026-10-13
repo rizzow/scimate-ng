@@ -5,6 +5,23 @@ read/write pipeline and a Qt project-management desktop app. The core uses
 C++17 and has no Qt or other external dependencies. The `scimate` CLI and
 `scimate-desktop` GUI are separate executables.
 
+## Command-line help
+
+Run `scimate` without arguments, or use `scimate --help`, for a grouped command
+overview. Every command supports `--help` and `-h`; `scimate help <command>`
+shows the same command-specific usage, examples, formats, and editing limits.
+
+```sh
+./build/scimate --help
+./build/scimate help export
+./build/scimate sound-import --help
+./build/scimate resource-export -h
+```
+
+Use `--` before paths beginning with `--`. Invalid arguments print the selected
+command's usage and a pointer to its help. Exit codes remain 0 for success,
+1 for input/output or resource errors, and 2 for invalid usage.
+
 ## Build and test
 
 Requires CMake 3.20+ and a C++17 compiler. The CLI/application layer also needs
