@@ -19,8 +19,8 @@
 
 namespace {
 constexpr std::string_view usage =
-    "Usage: scimate list [--format sci0|sci1|sci11] <resource.map>\n"
-    "       scimate inspect [--format sci0|sci1|sci11] <game-directory>\n"
+    "Usage: scimate list [--format sci0|sci1|sci1-ega|sci11] <resource.map>\n"
+    "       scimate inspect [--format sci0|sci1|sci1-ega|sci11] <game-directory>\n"
     "       scimate explain [--format sci0] <game-directory> [view|script <number>]\n"
     "       scimate disassemble [--format sci0] <decoded-script.bin>\n"
     "       scimate export [--format sci0] <game-directory> <new-export-directory>\n"
@@ -74,14 +74,15 @@ error or absent focused resource, 2 usage error. SCI0 only. Use -- to end option
 
 constexpr std::string_view migrate_help = R"(Usage: scimate migrate [--to sci1] <SCI0-game-directory> <new-SCI1-game-directory>
 
-Experimental format-based export targeting ScummVM's SCI1 late runtime path.
-Writes a directory map, resource.000 and migration-report.txt. Remaps kernel
-calls and adds FileIO bridges while retaining EGA assets and parser gameplay.
-Parser and SCI0 sound adaptation are not implemented; such calls are rejected.
+Experimental format-based export targeting ScummVM's SCI1 runtime paths.
+Parser-bearing games target SCI1 EGA with converted words, grammar and suffix
+resource IDs; other games target SCI1 late. Remaps kernel calls and adds FileIO
+bridges, retaining EGA assets and validated SCI0 late sound compatibility.
+Writes resource.map, resource.000 and migration-report.txt describing the target.
 
 Examples:
   scimate migrate /path/to/source-game ./migrated-sci1
-  scimate inspect --format sci1 ./migrated-sci1
+  scimate inspect --format sci1-ega ./migrated-sci1
 
 The source is an actual SCI0 game directory, not the exported payload bundle.
 The destination must not exist. Resources are internally round-trip checked;
@@ -146,7 +147,7 @@ int main(int argc, char** argv) {
         if (options && arg == "--format") {
             if (format_seen || i+1 == argc) { valid = false; break; }
             format = argv[++i]; format_seen = true;
-            if (format != "sci0" && format != "sci1" && format != "sci11") { valid = false; break; }
+            if (format != "sci0" && format != "sci1" && format != "sci11" && format != "sci1-ega") { valid = false; break; }
         } else if (options && arg == "--to" && migrating) {
             if (target_seen || i+1 == argc || std::string_view(argv[i+1]) != "sci1") { valid = false; break; }
             target_seen = true; ++i;
@@ -162,12 +163,13 @@ int main(int argc, char** argv) {
     try {
         if (migrating) {
             scimate::migrate_sci0_to_sci1_directory(paths[0], paths[1]);
-            std::cout << "Wrote experimental SCI1 late candidate: " << paths[1]
+            std::cout << "Wrote experimental SCI1 candidate: " << paths[1]
                       << "\nRuntime proof remains UNVERIFIED; see migration-report.txt.\n";
             if (!std::cout) throw std::runtime_error("failed to write migration result");
             return 0;
         }
-        const auto sci1_format = format == "sci11" ? scimate::Sci1Format::sci11 : scimate::Sci1Format::sci1_late;
+        const auto sci1_format = format == "sci11" ? scimate::Sci1Format::sci11 :
+                                format == "sci1-ega" ? scimate::Sci1Format::sci1_ega : scimate::Sci1Format::sci1_late;
         if (explain) {
             std::optional<scimate::ResourceId> focus;
             if (paths.size() == 3) {

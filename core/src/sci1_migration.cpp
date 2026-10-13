@@ -2,6 +2,7 @@
 // Compatibility boundaries derived from ScummVM kernel/features/script sources.
 #include "scimate/sci1.hpp"
 #include "scimate/sound.hpp"
+#include "scimate/assets.hpp"
 #include "script_internal.hpp"
 #include <array>
 #include <sstream>
@@ -83,6 +84,65 @@ void validate_sound_call(const ParsedScript& parsed, std::size_t index) {
         frame/2 > max_args.at(static_cast<unsigned>(subop)))
         throw std::runtime_error("unsupported SCI0 DoSound suboperation/frame at " + std::to_string(call.start));
 }
+using Resources = std::map<std::pair<ResourceType,std::uint16_t>,Resource>;
+void adapt_parser(Resources& resources) {
+    if (resources.count({ResourceType::vocab,10}) || resources.count({ResourceType::vocab,910}) || resources.count({ResourceType::vocab,911}))
+        throw std::runtime_error("parser migration: secondary-language vocabularies require a separate conversion");
+    const auto source = resources.find({ResourceType::vocab,0});
+    const auto grammar = resources.find({ResourceType::vocab,900});
+    if (source == resources.end() || grammar == resources.end())
+        throw std::runtime_error("parser migration requires SCI0 word vocabulary 0 and grammar vocabulary 900");
+    if (grammar->second.payload.empty() || grammar->second.payload.size()%20)
+        throw std::runtime_error("parser migration: grammar must contain complete 20-byte rules");
+    if (resources.count({ResourceType::vocab,902}))
+        throw std::runtime_error("parser migration: vocabulary 902 conflicts with the target suffix resource");
+    // SCI0 keeps the final definition of a repeated spelling. SCI1 supports
+    // ambiguity, so collapse duplicates explicitly to retain SCI0 semantics.
+    std::map<std::string,Word> words;
+    for (const auto& entry : read_sci0_vocabulary(source->second.payload)) words[entry.text] = entry;
+    if (words.empty()) throw std::runtime_error("parser migration: word vocabulary is empty");
+    Bytes converted(510,0); // 255 little-endian initial-character offsets.
+    for (const auto& entry : words) {
+        const auto& word_entry = entry.second;
+        if (word_entry.text.empty() || word_entry.text.size() > 254)
+            throw std::runtime_error("parser migration: unsupported word length");
+        const auto initial = static_cast<unsigned char>(word_entry.text.front());
+        if (initial == 0 || initial == 255 || converted.size()+word_entry.text.size()+5 > 65531)
+            throw std::runtime_error("parser migration: vocabulary exceeds SCI1 limits");
+        if (word(converted,2*initial,510) == 0) patch(converted,2*initial,static_cast<unsigned>(converted.size()));
+        converted.push_back(0); // Full spelling, no preceding-word prefix.
+        converted.insert(converted.end(),word_entry.text.begin(),word_entry.text.end());
+        converted.push_back(0);
+        converted.push_back(static_cast<std::uint8_t>(word_entry.word_class >> 4));
+        converted.push_back(static_cast<std::uint8_t>((word_entry.word_class << 4) | (word_entry.group >> 8)));
+        converted.push_back(static_cast<std::uint8_t>(word_entry.group));
+    }
+    const auto suffix = resources.find({ResourceType::vocab,901});
+    if (suffix != resources.end()) {
+        auto moved = suffix->second;
+        moved.entry.id.number = 902;
+        resources.erase(suffix);
+        resources.emplace(std::make_pair(ResourceType::vocab,std::uint16_t(902)),std::move(moved));
+    }
+    auto moved_grammar = grammar->second;
+    moved_grammar.entry.id.number = 901;
+    resources.erase(grammar);
+    resources.emplace(std::make_pair(ResourceType::vocab,std::uint16_t(901)),std::move(moved_grammar));
+    auto moved_words = source->second;
+    moved_words.entry.id.number = 900;
+    moved_words.payload = std::move(converted);
+    resources.erase(source);
+    resources.emplace(std::make_pair(ResourceType::vocab,std::uint16_t(900)),std::move(moved_words));
+    // SCI0's debug kernel-name table describes the old ABI and also makes
+    // ScummVM detect SCI0. SCI1 permits its absence and uses the standard ABI.
+    resources.erase({ResourceType::vocab,999});
+    bool view_present = false;
+    for (const auto& entry : resources) if (entry.first.first == ResourceType::view) {
+        (void)read_sci0_view(entry.second.payload);
+        if (entry.first.second < 1000) view_present = true;
+    }
+    if (!view_present) throw std::runtime_error("SCI1 EGA parser migration requires a valid EGA view for interpreter detection");
+}
 // Expand the original main export table and relocate absolute addresses. Code
 // references are relative, so an equal shift of instruction and target cancels.
 // Unsupported source targets are rejected by strict parsing before relocation.
@@ -163,7 +223,7 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     if (!main_object) throw std::runtime_error("main export 0 must identify a decoded object");
     auto first_export = static_cast<unsigned>(parsed_main.exports.size());
     if (first_export > 252) throw std::runtime_error("main export table cannot accommodate four byte-sized file-I/O bridges");
-    std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0;
+    std::size_t scripts = 0, remapped = 0, bridged = 0, sound_calls = 0, parser_calls = 0;
     bool sound_dispatch_checked = false;
     for (auto& entry : unique) if (entry.first.first == ResourceType::script) {
         ++scripts;
@@ -173,8 +233,12 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
             const auto& inst = parsed.instructions[instruction_index];
             if (inst.opcode != 33) continue;
             const auto kernel = inst.operands[0];
-            if (kernel == 0x24 || kernel == 0x25)
-                throw std::runtime_error("parser migration requires a generic SCI1 parser adaptation; no game-ID compatibility exceptions are permitted");
+            if (kernel >= 0x24 && kernel <= 0x26) {
+                const auto expected = kernel == 0x24 ? 4u : 2u;
+                if (inst.operands.at(1) != expected)
+                    throw std::runtime_error("unsupported parser migration argument frame in script " + std::to_string(entry.first.second));
+                ++parser_calls;
+            }
             if (kernel == 0x31) {
                 if (!sound_dispatch_checked) { validate_sound_dispatch(game); sound_dispatch_checked = true; }
                 validate_sound_call(parsed, instruction_index);
@@ -198,11 +262,13 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     // Reparse after remapping so main-relative operands and references are based
     // on the actual modified bytes before expanding the export table.
     main->second.payload = add_file_bridges(main->second.payload, parse(main->second.payload), first_export);
+    const auto format = parser_calls ? Sci1Format::sci1_ega : Sci1Format::sci1_late;
+    if (parser_calls) adapt_parser(unique);
     std::vector<Resource> output;
     for (auto& entry : unique) output.push_back(std::move(entry.second));
     Sci1Migration result;
-    result.files = write_sci1_game(output,Sci1Format::sci1_late);
-    const auto reopened = read_sci1_game(result.files,Sci1Format::sci1_late);
+    result.files = write_sci1_game(output,format);
+    const auto reopened = read_sci1_game(result.files,format);
     if (reopened.resources.size() != output.size()) throw std::runtime_error("migration resource count verification failed");
     for (std::size_t i = 0; i < output.size(); ++i)
         if (reopened.resources[i].entry.id.type != output[i].entry.id.type ||
@@ -210,11 +276,13 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
             reopened.resources[i].payload != output[i].payload)
             throw std::runtime_error("migration container round-trip verification failed");
     std::ostringstream report;
-    report << "SCIMATE experimental generic SCI0 -> SCI1 late migration\n"
+    report << "SCIMATE experimental generic SCI0 -> SCI1 migration\n"
            << "Resources: " << output.size() << "; duplicate SCI0 IDs resolved using first map entry (ScummVM semantics).\n"
            << "Scripts scanned: " << scripts << "; remapped kernel calls: " << remapped << "; file-I/O bridge calls: " << bridged << ".\n"
-           << "Target: SCI1 late directory map, nine-byte volume headers, uncompressed payloads.\n"
-           << "Original EGA graphics, parser vocabulary, game-object name and relative LOFS semantics retained.\n"
+           << (parser_calls ? "Target: SCI1 EGA packed-ID map, eight-byte volume headers, uncompressed payloads.\n" : "Target: SCI1 late directory map, nine-byte volume headers, uncompressed payloads.\n")
+           << "Original EGA graphics, game-object name and relative LOFS semantics retained.\n"
+           << "Parser calls retained: " << parser_calls << "; "
+           << (parser_calls ? "word vocabulary 0 converted to 900; grammar 900 -> 901, suffixes 901 -> 902; obsolete SCI0 kernel names omitted.\n" : "no parser resource conversion required.\n")
            << "Main export expansion relocates absolute addresses; four FileIO bridges appended.\n"
            << "Validated SCI0 late DoSound calls: " << sound_calls << "; kernel remapped to 0x2d.\n"
            << (sound_calls ? "Sound resources retained after SCI0 late decoding; ScummVM late-sound dispatch verified by vocabulary 997.\n" : "No DoSound compatibility profile required.\n")

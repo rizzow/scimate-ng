@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "game_fixtures.hpp"
 #include "scimate/sci1.hpp"
+#include "scimate/assets.hpp"
 #include "../core/src/script_internal.hpp"
 #include <iostream>
 
@@ -46,6 +47,45 @@ Game sample() {
     return game;
 }
 void tests() {
+    auto parser_game = sample();
+    parser_game.resources[2].payload = {2,0,14,0,0x43,0x24,4,0x43,0x25,2,0x43,0x26,2,0x48,0,0};
+    parser_game.resources.push_back(resource(ResourceType::vocab,0,write_sci0_vocabulary({{"look",0x80,0x123},{"tree",0x10,0x456}})));
+    Bytes grammar(20,0); grammar[0] = 1;
+    parser_game.resources.push_back(resource(ResourceType::vocab,900,grammar));
+    const Bytes suffix{0,0xff,0xff};
+    parser_game.resources.push_back(resource(ResourceType::vocab,901,suffix));
+    parser_game.resources.push_back(resource(ResourceType::vocab,999,{1,2,3}));
+    View view; view.loops.resize(1);
+    ViewCel cel; cel.width = 2; cel.height = 10; cel.pixels.assign(20,1);
+    view.loops[0].cels.push_back(cel);
+    parser_game.resources.push_back(resource(ResourceType::view,0,write_sci0_view(view)));
+    const auto parser_result = migrate_sci0_to_sci1(parser_game);
+    const auto parser_output = read_sci1_game(parser_result.files,Sci1Format::sci1_ega);
+    bool words_found = false, grammar_found = false, suffix_found = false;
+    for (const auto& item : parser_output.resources) if (item.entry.id.type == ResourceType::vocab) {
+        require(item.entry.id.number != 0 && item.entry.id.number != 999,"obsolete parser/kernel vocabulary retained");
+        if (item.entry.id.number == 900) {
+            const Bytes records{0,'l','o','o','k',0,8,1,0x23,0,'t','r','e','e',0,1,4,0x56};
+            require(Bytes(item.payload.begin()+510,item.payload.end()) == records,"SCI1 word spelling/class/group changed");
+            require(scimate::script_detail::word(item.payload,2*unsigned('l'),510) == 510,"word index offset incorrect");
+            words_found = true;
+        }
+        if (item.entry.id.number == 901) { require(item.payload == grammar,"grammar changed during relocation"); grammar_found = true; }
+        if (item.entry.id.number == 902) { require(item.payload == suffix,"suffix rules changed during relocation"); suffix_found = true; }
+    }
+    require(words_found && grammar_found && suffix_found,"parser resource relocation incomplete");
+    require(parser_result.report.find("SCI1 EGA") != std::string::npos,"parser target was not reported");
+    auto broken_ega = parser_result.files; broken_ega.volumes[0].pop_back();
+    fails([&] { read_sci1_game(broken_ega,Sci1Format::sci1_ega); },"truncated");
+    fails([] { write_sci1_game({resource(ResourceType::script,2048,{})},Sci1Format::sci1_ega); },"packed limit");
+    fails([] { write_sci1_game({resource(ResourceType::heap,0,{})},Sci1Format::sci1_ega); },"packed limit");
+    auto bad_parser = parser_game;
+    bad_parser.resources.push_back(resource(ResourceType::vocab,902,{0}));
+    fails([&] { migrate_sci0_to_sci1(bad_parser); },"conflicts");
+    bad_parser = parser_game; bad_parser.resources[4].payload.pop_back();
+    fails([&] { migrate_sci0_to_sci1(bad_parser); },"20-byte");
+    bad_parser = parser_game; bad_parser.resources[2].payload[6] = 2;
+    fails([&] { migrate_sci0_to_sci1(bad_parser); },"argument frame");
     // SCI0 sound ABI is retained only after proving both call frames and the
     // resource layout; selector names alone do not establish compatibility.
     constexpr unsigned sound_args[]{2,2,1,2,1,2,2,1,1,2,2,1,1};

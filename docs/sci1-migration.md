@@ -22,6 +22,11 @@ Container support does not imply full interpreter or payload conversion.
 SCI1.1 script/heap migration, other map variants, VGA resource conversion and
 DCL/rearranged LZW are not implemented.
 
+Parser-bearing migrations use the SCI1 EGA profile: packed resource IDs and
+six-byte map records, eight-byte volume headers, and stored payloads. Inspect
+these using `--format sci1-ega`. SCI1 EGA is a SCI1 interpreter generation; it
+does not use SCI1.1 split script/heap resources or VGA artwork.
+
 ## Generic compatibility constraints
 
 `scimate migrate --to sci1 <source-game-directory> <new-destination>` currently:
@@ -40,14 +45,25 @@ DCL/rearranged LZW are not implemented.
   and omit nodePtr, which is ScummVM's documented SCI0 late dispatch condition.
   This condition verifies target dispatch; it does not infer source sound format.
   Dynamic/unproven call frames, early sound and incompatible dispatch fail.
-- Refuses parser calls (Parse/Said), DoAvoider, unsupported
+- Adapts parser-bearing games to SCI1 EGA, the version where unmodified ScummVM
+  enables the parser without title-specific exceptions. Parse/Said/SetSynonyms
+  calls retain their ABI after argument-frame checks. Word vocabulary 0 becomes
+  null-terminated SCI1 vocabulary 900, grammar 900 moves to 901, and optional
+  suffix vocabulary 901 moves to 902. Word classes/group IDs and grammar/suffix
+  bytes are preserved; repeated spellings retain SCI0's final definition.
+  Said and synonym sections remain in sectioned scripts and their pointers
+  undergo the existing main-script relocation. The obsolete SCI0 kernel-name
+  debug vocabulary 999 is omitted because it describes the replaced kernel ABI.
+- Refuses DoAvoider, unsupported
   kernel IDs, address widening and unsupported layouts. These require semantic
   adaptations, not game-identity exceptions or selector-name guesses.
 - Reopens the generated container to verify resource identities and payloads.
 
-**Consequently, parser games are not yet convertible by this draft.**
-Removing a title check does not solve those missing adaptations. They must be
-implemented generically before the requested real-world playback proof is met.
+Parser conversion requires a valid EGA view in ScummVM's detection range,
+SCI0 word vocabulary 0 and complete 20-byte grammar rules in vocabulary 900.
+Conflicting vocabulary 902 and secondary-language vocabulary sets are rejected.
+No game-identity exception is used to enable the parser. This remains an
+experimental conversion: real-world playback proof has not been established.
 Output is explicitly UNVERIFIED. No interpreter compatibility is inferred from
 successful serialization or a user-selected `--format` argument.
 
@@ -59,7 +75,7 @@ cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 ./build/scimate inspect /path/to/private/source-game
 ./build/scimate migrate --to sci1 /path/to/private/source-game ./build/migrated-game
-./build/scimate inspect --format sci1 ./build/migrated-game
+./build/scimate inspect --format sci1-ega ./build/migrated-game
 ```
 
 These are instructions for manual execution, not evidence that they passed.
@@ -68,7 +84,8 @@ validate the missing generic adaptation rather than bypassing the check.
 
 Once conversion succeeds, add the generated directory to unmodified ScummVM.
 Record the ScummVM version and configured game path. Its debugger `version`
-command must show SCI1 late, with map, volume, LOFS, graphics and sound modes
+command must show SCI1 EGA for parser-bearing output (SCI1 late otherwise), with
+map, volume, LOFS, graphics and sound modes
 captured too. Demonstrate startup, walking/animation, interactions, room
 transitions, sound, and save/restore. Parser gameplay must work through a generic
 adaptation; title-specific ScummVM exceptions do not establish generic support.
