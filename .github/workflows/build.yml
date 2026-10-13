@@ -1,8 +1,16 @@
 name: Build and test
 on: [push, pull_request]
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   desktop:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install Qt and PNG
@@ -19,6 +27,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install PNG (Linux)
@@ -40,3 +49,15 @@ jobs:
         run: cmake --build build --config Release
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+  ci:
+    name: CI
+    if: always()
+    needs: [desktop, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all build and test jobs to pass
+        env:
+          DESKTOP_RESULT: ${{ needs.desktop.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: test "$DESKTOP_RESULT" = success && test "$BUILD_RESULT" = success
