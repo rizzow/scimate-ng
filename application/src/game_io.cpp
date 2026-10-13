@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#include "scimate/game_io.hpp"
+#include "scimate/script.hpp"
+#include "files.hpp"
+
+#include <iomanip>
+#include <sstream>
+#include <stdexcept>
+#include <utility>
+
+namespace scimate {
+namespace {
+using detail::read_file;
+using detail::write_file;
+using detail::create_destination;
+
+std::string payload_filename(std::size_t index) {
+    std::ostringstream name;
+    name << std::setfill('0') << std::setw(7) << index << ".bin";
+    return name.str();
+}
+
+std::string manifest(const Game& game) {
+    std::ostringstream text;
+    text << "SCIMATE-SCI0-EXPORT\t1\n"
+         << "index\ttype\tnumber\tvolume\toffset\tcompression\tdecoded_size\tfile\n";
+    for (std::size_t i = 0; i < game.resources.size(); ++i) {
+        const auto& r = game.resources[i];
+        text << i << '\t' << static_cast<unsigned>(r.entry.id.type) << '\t' << r.entry.id.number
+             << '\t' << static_cast<unsigned>(r.entry.volume) << '\t' << r.entry.offset
+             << '\t' << r.compression << '\t' << r.payload.size() << '\t' << payload_filename(i) << '\n';
+    }
+    return text.str();
+}
+
+void write_game(const GameFiles& files, const std::filesystem::path& directory) {
+    for (const auto& volume : files.volumes)
+        write_file(directory / volume_filename(volume.first), volume.second);
+    write_file(directory / "resource.map", files.map);
+}
+} // namespace
+
+std::string volume_filename(std::uint8_t number) {
+    std::ostringstream name;
+    name << "resource." << std::setfill('0') << std::setw(3) << static_cast<unsigned>(number);
+    return name.str();
+}
+
+Game open_sci0_game(const std::filesystem::path& directory) {
+    GameFiles files;
+    files.map = read_file(directory / "resource.map", max_map_bytes);
+    std::size_t total = files.map.size();
+    const auto entries = read_sci0_map(files.map);
+    for (const auto& entry : entries) {
+        if (files.volumes.count(entry.volume) != 0) continue;
+        auto bytes = read_file(directory / volume_filename(entry.volume), max_game_bytes - total);
+        total += bytes.size();
+        files.volumes.emplace(entry.volume, std::move(bytes));
+    }
+    return read_sci0_game(std::move(files));
+}
+
+ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
+                      const std::filesystem::path& destination) {
+    const auto game = open_sci0_game(game_directory);
+    const auto text = manifest(game);
+    ExportSummary summary;
+    create_destination(destination);
+    std::filesystem::create_directory(destination / "original");
+    std::filesystem::create_directory(destination / "payloads");
+    std::filesystem::create_directory(destination / "scripts");
+    write_game(game.original, destination / "original");
+    for (std::size_t i = 0; i < game.resources.size(); ++i) {
+        write_file(destination / "payloads" / payload_filename(i), game.resources[i].payload);
+        if (game.resources[i].entry.id.type == ResourceType::script) {
+            std::string listing;
+            std::string extension = ".asm";
+            try {
+                listing = disassemble_sci0_script(game.resources[i].payload, game.resources[i].entry.id.number);
+                ++summary.script_listings;
+            } catch (const std::runtime_error& error) {
+                extension = ".error.txt";
+                ++summary.script_errors;
+                listing = "Script disassembly failed; raw payload remains available.\n" + std::string(error.what()) + "\n";
+            }
+            const auto stem = std::filesystem::path(payload_filename(i)).stem().string();
+            write_file(destination / "scripts" / (stem + extension), Bytes(listing.begin(), listing.end()));
+        }
+    }
+    // Written last so an interrupted export lacks its completion manifest.
+    write_file(destination / "manifest.tsv", Bytes(text.begin(), text.end()));
+    return summary;
+}
+
+void import_sci0_game(const std::filesystem::path& export_directory,
+                      const std::filesystem::path& destination) {
+    auto game = open_sci0_game(export_directory / "original");
+    const auto text = manifest(game);
+    const auto saved = read_file(export_directory / "manifest.tsv", text.size());
+    if (saved != Bytes(text.begin(), text.end()))
+        throw std::runtime_error("manifest does not match original game (unsupported version or metadata edits)");
+    std::size_t total = 0;
+    for (std::size_t i = 0; i < game.resources.size(); ++i) {
+        auto bytes = read_file(export_directory / "payloads" / payload_filename(i), 65535);
+        if (bytes.size() > max_decoded_bytes - total) throw std::runtime_error("decoded game exceeds 256 MiB limit");
+        total += bytes.size();
+        game.resources[i].payload = std::move(bytes);
+    }
+    const auto rebuilt = rebuild_sci0_game(game);
+    create_destination(destination);
+    write_game(rebuilt, destination);
+    const auto reopened = open_sci0_game(destination);
+    if (reopened.original.map != rebuilt.map || reopened.original.volumes != rebuilt.volumes)
+        throw std::runtime_error("saved game differs from verified rebuild");
+}
+} // namespace scimate

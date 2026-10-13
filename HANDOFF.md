@@ -2,6 +2,26 @@
 
 Date: 2026-10-13
 
+## Script inspection implementation update
+
+Exports now include human-readable SCI0 disassembly under `scripts/*.asm`, with
+explicit diagnostic sidecars on unsupported/malformed scripts. All 31 scripts
+in the local template produced listings. `scimate disassemble --format sci0`
+also reads standalone decoded payloads. This is disassembly, not decompiled
+SCI source; import ignores the listings and still consumes binary payloads.
+No compiler/decompiler has been ported. See `docs/sci0-scripts.md`.
+
+## Milestone 2 implementation update
+
+SCI0 volume reading, bounded LZW/Huffman decoding, export/import, and verified
+reconstruction are now implemented. The core remains filesystem/UI independent;
+`scimate_application` owns file I/O and the ordinal payload/manifest interchange
+format. Unchanged imports preserve map/referenced volumes byte-for-byte; edited
+imports recalculate offsets and store changed payloads uncompressed. Output
+directories must be new. See `docs/sci0-roundtrip.md`, `README.md`, and
+`docs/validation.md` for guarantees, limits, and checks. The template resources
+round-trip, but edited-game behavior in an SCI interpreter is not verified.
+
 ## Milestone 1 implementation update — 2026-10-13
 
 The first milestone is now implemented: a dependency-free C++17 core, strict

@@ -2,7 +2,9 @@
 
 The `scimate_core` library exposes standard C++ data and a parser accepting a
 byte vector. The CLI owns file I/O and presentation. Dependencies point inward;
-no application or desktop layer is needed for this first workflow.
+Map-only listing needs no application layer. Volume and filesystem workflows
+are described in [SCI0 round-trips](sci0-roundtrip.md); the desktop layer remains
+future work.
 
 Each SCI0 record is six bytes, decoded explicitly as little-endian:
 
