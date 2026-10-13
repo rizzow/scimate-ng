@@ -24,6 +24,7 @@ public:
         const auto index = static_cast<unsigned>(locals_.size());
         locals_.push_back(value); return index;
     }
+    void set_local(unsigned index, unsigned value) { checked_word(value); locals_.at(index) = value; }
     unsigned string_local(const std::string& value) {
         if (value.find('\0') != std::string::npos) fail("embedded null in string");
         const auto index = local();

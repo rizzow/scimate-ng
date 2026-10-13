@@ -45,6 +45,22 @@ as script locals. Malformed or undefined grammar references are rejected rather
 than replaced with a guessed grammar. No private game's vocabulary or bytecode
 is embedded in these helpers or their synthetic fixtures.
 
+The grammar compiler expands leading nonterminals into terminal-led productions
+before export. Semantic tags and pending nonterminals stay in each production;
+the generated runtime can consume words and extend trees using word-sized
+kind/value symbols. Alternative ordering follows source production order and
+expansion depth. Normalized tables use local-index offsets, not native pointers.
+Expansion limits reject oversized or infinitely recursive derivations instead
+of truncating them. The legacy debugging force-storage opcode remains explicitly
+unsupported pending a semantic proof.
+
+An emitted SCI procedure selects matching productions from the normalized table
+using the source class/group masks. Its caller can enumerate alternatives from a
+given index, preserving ambiguity rather than taking the first matching word
+alone. This procedure uses ordinary VM arithmetic and local-variable operations;
+it does not call the native Parse/Said kernels. Sentence traversal, tree storage
+and Said evaluation still need to be connected before VGA export is enabled.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

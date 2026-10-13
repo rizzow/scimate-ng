@@ -7,6 +7,7 @@
 #include "../core/src/script_internal.hpp"
 #include "../core/src/parser_lexicon.hpp"
 #include "../core/src/parser_tables.hpp"
+#include "../core/src/parser_grammar.hpp"
 #include <iostream>
 
 namespace {
@@ -51,6 +52,42 @@ Game sample() {
     return game;
 }
 void tests() {
+    // The leading rule wraps both predicate and subject trees. Normalization
+    // consumes the verb first without losing the subject's pending nonterminal.
+    const parser_detail::GrammarTable nested_grammar{{
+        {0x555,0x141,0x123,0,0,0,0,0,0,0},
+        {0x123,0x141,0x124,0x142,0x125,0,0,0,0,0},
+        {0x124,0x146,0x800,0,0,0,0,0,0,0},
+        {0x125,0x14d,21,0,0,0,0,0,0,0}
+    }};
+    const auto normalized_grammar = parser_detail::compile_grammar(nested_grammar);
+    using GrammarKind = parser_detail::GrammarSymbolKind;
+    const std::vector<parser_detail::GrammarSymbol> expected_production{
+        {GrammarKind::open},{GrammarKind::tag,0x141},{GrammarKind::tag,0x124},{GrammarKind::class_mask,0x800},
+        {GrammarKind::close},{GrammarKind::open},{GrammarKind::tag,0x142},{GrammarKind::tag,0x125},
+        {GrammarKind::nonterminal,0x125},{GrammarKind::close}
+    };
+    require(normalized_grammar.productions.size() == 3 && normalized_grammar.productions.back().id == 0x123 &&
+            normalized_grammar.productions.back().symbols == expected_production,
+            "portable grammar normalization lost semantic tags or pending input");
+    parser_detail::ScriptBuilder grammar_builder;
+    const auto grammar_layout = parser_detail::emit_compiled_grammar(grammar_builder,normalized_grammar);
+    const auto grammar_entry = parser_detail::emit_rule_selector(grammar_builder,grammar_layout);
+    grammar_builder.export_procedure(grammar_entry);
+    const auto generated_grammar = script_detail::parse(grammar_builder.finish());
+    require(grammar_layout.count_local == 0 && grammar_layout.offsets_local == 1 && generated_grammar.exports.size() == 1,
+            "portable grammar table was not emitted as SCI locals");
+    bool uses_class_group_masks = false;
+    for (const auto& instruction : generated_grammar.instructions) {
+        require(instruction.opcode != sci_vm::opcode::call_kernel,"grammar selector unexpectedly depends on native parser kernels");
+        if (instruction.opcode == sci_vm::opcode::bitwise_and) uses_class_group_masks = true;
+    }
+    require(uses_class_group_masks,"grammar selector lost class/group bitmask matching");
+    fails([&] { parser_detail::compile_grammar(nested_grammar,{2,1024}); },"limits");
+    auto recursive_grammar = nested_grammar;
+    recursive_grammar.records.insert(recursive_grammar.records.begin()+2,
+        {0x124,0x141,0x124,0,0,0,0,0,0,0});
+    fails([&] { parser_detail::compile_grammar(recursive_grammar,{16,1024}); },"limits");
     Bytes grammar_fixture;
     for (const auto value : {0x555,0x141,0x123,0,0,0,0,0,0,0,
                             0x123,0x146,0x800,0,0,0,0,0,0,0}) put(grammar_fixture,value,2);
