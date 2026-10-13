@@ -37,6 +37,9 @@ cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
+Use a separate build directory as above. Git ignores typical CMake/CTest metadata,
+compiled artifacts, and SCIMate binaries from accidental in-source builds too.
+
 To build only the core:
 
 ```sh

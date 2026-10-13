@@ -1,5 +1,51 @@
 /build*/
 /cmake-build*/
+
+# CMake / CTest metadata, including accidental in-source builds.
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+DartConfiguration.tcl
+install_manifest.txt
+compile_commands.json
+/Makefile
+/build.ninja
+/rules.ninja
+/.ninja_deps
+/.ninja_log
+/Testing/
+/CMakeScripts/
+/_deps/
+/CPackConfig.cmake
+/CPackSourceConfig.cmake
+/_CPack_Packages/
+/Debug/
+/Release/
+/RelWithDebInfo/
+/MinSizeRel/
+
+# Compiled objects, libraries and debugging symbols.
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.dSYM/
+
+# In-source SCIMate executables and Qt-generated files.
+/scimate
+/scimate-desktop
+/scimate-desktop.app/
+/*_tests
+/*_autogen/
+
 /.idea/
 .DS_Store
 
