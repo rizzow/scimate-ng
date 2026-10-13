@@ -28,7 +28,11 @@ check(0 "type\tnumber\tvolume\toffset\npic\t42\t1\t1193046\npatch\t2047\t63\t671
 check(0 "type\tnumber\tvolume\toffset\n" "" list --format sci0 "${FIXTURE_DIR}/empty.map")
 check(1 "" "byte 0: truncated record" list --format sci0 "${FIXTURE_DIR}/bad.map")
 check(1 "" "cannot open map file" list --format sci0 "${FIXTURE_DIR}/absent.map")
-check(2 "" "Usage:" list "${FIXTURE_DIR}/valid.map")
+check(0 "type\tnumber\tvolume\toffset\npic\t42\t1\t1193046\npatch\t2047\t63\t67108863\n" ""
+  list "${FIXTURE_DIR}/valid.map")
+check(2 "" "Usage:" list --format)
+check(2 "" "Usage:" list --format sci0 --format sci0 "${FIXTURE_DIR}/valid.map")
+check(2 "" "Usage:" list --unknown "${FIXTURE_DIR}/valid.map")
 check(2 "" "Usage:" list --format sci1 "${FIXTURE_DIR}/valid.map")
 check(2 "" "Usage:" list --format sci0 "${FIXTURE_DIR}/valid.map" extra)
 check(2 "" "Usage:")

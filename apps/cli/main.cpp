@@ -13,13 +13,14 @@
 
 namespace {
 constexpr std::string_view usage =
-    "Usage: scimate list --format sci0 <resource.map>\n"
-    "       scimate inspect --format sci0 <game-directory>\n"
-    "       scimate disassemble --format sci0 <decoded-script.bin>\n"
-    "       scimate export --format sci0 <game-directory> <new-export-directory>\n"
-    "       scimate import --format sci0 <export-directory> <new-game-directory>\n"
-    "       scimate view-export --format sci0 <decoded-view.bin> <new-view-directory>\n"
-    "       scimate view-import --format sci0 <view-directory> <new-view.bin>\n"
+    "Usage: scimate list [--format sci0] <resource.map>\n"
+    "       scimate inspect [--format sci0] <game-directory>\n"
+    "       scimate disassemble [--format sci0] <decoded-script.bin>\n"
+    "       scimate export [--format sci0] <game-directory> <new-export-directory>\n"
+    "       scimate import [--format sci0] <export-directory> <new-game-directory>\n"
+    "       scimate view-export [--format sci0] <decoded-view.bin> <new-view-directory>\n"
+    "       scimate view-import [--format sci0] <view-directory> <new-view.bin>\n"
+    "SCI0 is the default format. Use -- to end options for paths beginning with --.\n"
     "Lists type, number, volume, and byte offset (decimal) in map order.\n"
     "list reads only the map; inspect validates volumes and decodes SCI0 methods 0/1/2.\n"
     "export writes payloads and originals; import rebuilds payload edits into a new directory.\n"
@@ -56,40 +57,50 @@ int main(int argc, char** argv) {
     const bool importing = command == "import";
     const bool view_export = command == "view-export";
     const bool view_import = command == "view-import";
-    if ((!listing && !inspect && !disassemble && !exporting && !importing && !view_export && !view_import) ||
-        argc != ((exporting || importing || view_export || view_import) ? 6 : 5) ||
-        std::string_view(argv[2]) != "--format" || std::string_view(argv[3]) != "sci0") {
+    std::vector<const char*> paths;
+    bool valid = true, format_seen = false, options = true;
+    for (int i = 2; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if (options && arg == "--") { options = false; continue; }
+        if (options && arg == "--format") {
+            if (format_seen || i+1 == argc || std::string_view(argv[i+1]) != "sci0") { valid = false; break; }
+            format_seen = true; ++i;
+        } else if (options && arg.substr(0,2) == "--") { valid = false; break; }
+        else paths.push_back(argv[i]);
+    }
+    if (!valid || (!listing && !inspect && !disassemble && !exporting && !importing && !view_export && !view_import) ||
+        paths.size() != ((exporting || importing || view_export || view_import) ? 2u : 1u)) {
         std::cerr << usage;
         return 2;
     }
     try {
         if (view_export || view_import) {
-            if (view_export) scimate::export_sci0_view_file(argv[4],argv[5]);
-            else scimate::import_sci0_view_file(argv[4],argv[5]);
-            std::cout << (view_export ? "Exported editable view: " : "Encoded and verified view: ") << argv[5] << '\n';
+            if (view_export) scimate::export_sci0_view_file(paths[0],paths[1]);
+            else scimate::import_sci0_view_file(paths[0],paths[1]);
+            std::cout << (view_export ? "Exported editable view: " : "Encoded and verified view: ") << paths[1] << '\n';
             if (!std::cout) throw std::runtime_error("failed to write result");
             return 0;
         }
         if (disassemble) {
-            std::cout << scimate::disassemble_sci0_script(read_file(argv[4], true));
+            std::cout << scimate::disassemble_sci0_script(read_file(paths[0], true));
             if (!std::cout) throw std::runtime_error("failed to write disassembly");
             return 0;
         }
         if (exporting || importing) {
             if (exporting) {
-                const auto summary = scimate::export_sci0_game(argv[4], argv[5]);
+                const auto summary = scimate::export_sci0_game(paths[0], paths[1]);
                 std::cout << "Scripts: " << summary.script_listings << " readable listings, "
                           << summary.script_errors << " errors (see scripts/*.error.txt).\n";
                 std::cout << "Views: " << summary.editable_views << " editable PNG bundles, "
                           << summary.view_errors << " errors (see views/*.error.txt).\n";
             }
-            else scimate::import_sci0_game(argv[4], argv[5]);
-            std::cout << (exporting ? "Exported to " : "Rebuilt and verified: ") << argv[5] << '\n';
+            else scimate::import_sci0_game(paths[0], paths[1]);
+            std::cout << (exporting ? "Exported to " : "Rebuilt and verified: ") << paths[1] << '\n';
             if (!std::cout) throw std::runtime_error("failed to write result");
             return 0;
         }
         if (inspect) {
-            const auto game = scimate::open_sci0_game(argv[4]);
+            const auto game = scimate::open_sci0_game(paths[0]);
             std::cout << "index\ttype\tnumber\tvolume\toffset\tcompression\tdecoded_size\n";
             for (std::size_t i = 0; i < game.resources.size(); ++i) {
                 const auto& r = game.resources[i];
@@ -100,7 +111,7 @@ int main(int argc, char** argv) {
             if (!std::cout) throw std::runtime_error("failed to write listing");
             return 0;
         }
-        const auto entries = scimate::read_sci0_map(read_file(argv[4]));
+        const auto entries = scimate::read_sci0_map(read_file(paths[0]));
         std::cout << "type\tnumber\tvolume\toffset\n";
         for (const auto& entry : entries) {
             std::cout << scimate::resource_type_name(entry.id.type) << '\t'
@@ -110,7 +121,7 @@ int main(int argc, char** argv) {
         if (!std::cout) throw std::runtime_error("failed to write listing");
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "scimate: " << argv[4] << ": " << error.what() << '\n';
+        std::cerr << "scimate: " << paths[0] << ": " << error.what() << '\n';
         return 1;
     }
 }

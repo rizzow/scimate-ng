@@ -30,7 +30,7 @@ cmake --build build-core
 ## List resources
 
 ```sh
-./build/scimate list --format sci0 /path/to/game/resource.map
+./build/scimate list /path/to/game/resource.map
 ```
 
 With a multi-configuration generator, the executable is in `build/Debug/`
@@ -38,7 +38,7 @@ With a multi-configuration generator, the executable is in `build/Debug/`
 
 Output is a tab-separated table of resource type name, number, volume number,
 and byte offset. Numbers are decimal. Entries retain map order and duplicates.
-Select SCI0 explicitly with `--format sci0`. No volume files are
+SCI0 is the default; `--format sci0` remains optional. No volume files are
 required for listing; maps referring to `resource.001` work without
 assuming a `resource.000`. The CLI reads at most 16 MiB and validates the entire
 map before printing a table. Exit codes: 0 success, 1 read/parse/output error,
@@ -48,13 +48,13 @@ map before printing a table. Exit codes: 0 success, 1 read/parse/output error,
 
 ```sh
 # Validate headers and decode all referenced resources.
-./build/scimate inspect --format sci0 /path/to/game
+./build/scimate inspect /path/to/game
 
 # Create an export directory containing editable payloads and original files.
-./build/scimate export --format sci0 /path/to/game /path/to/new-export
+./build/scimate export /path/to/game /path/to/new-export
 
 # Edit raw files in new-export/payloads/, then reconstruct into a new directory.
-./build/scimate import --format sci0 /path/to/new-export /path/to/new-game
+./build/scimate import /path/to/new-export /path/to/new-game
 ```
 
 SCI0 compression methods 0 (stored), 1 (LZW), and 2 (Huffman) are supported.
@@ -90,9 +90,9 @@ and the transparent index in `view.tsv`. Mirrored loops follow their source.
 For a single decoded view:
 
 ```sh
-./build/scimate view-export --format sci0 view.bin new-view-folder
+./build/scimate view-export view.bin new-view-folder
 # Edit new-view-folder/loop-0-cel-0.png, etc.
-./build/scimate view-import --format sci0 new-view-folder edited-view.bin
+./build/scimate view-import new-view-folder edited-view.bin
 ```
 
 Unchanged image imports preserve the original bytes. Conflicting edits to a
@@ -112,7 +112,7 @@ unsupported or malformed scripts get `scripts/NNNNNNN.error.txt` instead.
 You can also disassemble a single decoded payload to stdout:
 
 ```sh
-./build/scimate disassemble --format sci0 /path/to/export/payloads/0000000.bin
+./build/scimate disassemble /path/to/export/payloads/0000000.bin
 ```
 
 The input is a raw decoded script, not a standalone patch file or volume record.

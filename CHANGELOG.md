@@ -12,6 +12,7 @@
   pipeline. Reject unsupported colors/alpha and conflicting raw/image edits.
 - Add `view-export` and `view-import` subcommands for individual decoded views.
 - Use libpng only in the application layer; core-only builds remain independent.
+- Make SCI0 the CLI default while retaining explicit `--format sci0` support.
 - Add view codec, palette/alpha, PNG, malformed-input, mirroring, exact/edited
   round-trip, conflict, and full CLI workflow tests.
 

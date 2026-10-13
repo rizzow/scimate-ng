@@ -6,7 +6,7 @@ Date: 2026-10-13
 
 SCI0 EGA views now export as editable indexed PNG/metadata bundles and import
 through the full game reconstruction workflow. Individual `view-export` and
-`view-import` commands are also available. Use explicit `--format sci0` selection.
+`view-import` commands are also available. SCI0 is the default CLI format.
 The application layer now requires libpng 1.6; the core still does not.
 See `docs/sci0-views.md` for editing rules, conflict behavior, and limits.
 All 383 LSL3 view entries exported as 5,258 source-frame PNGs, and an unchanged

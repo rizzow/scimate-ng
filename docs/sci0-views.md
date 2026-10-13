@@ -1,17 +1,17 @@
 # Editable SCI0 views
 
-Use the main `scimate` CLI for the entire workflow. Select SCI0 explicitly with
-`--format sci0`. Other formats are rejected.
+Use the main `scimate` CLI for the entire workflow. SCI0 is the default;
+explicit `--format sci0` remains accepted. Other formats are rejected.
 
 ## Whole-game workflow
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel
-./build/scimate export --format sci0 /path/to/game /path/to/new-export
+./build/scimate export /path/to/game /path/to/new-export
 # Edit PNGs under new-export/views/NNNNNNN/ with your image editor.
-./build/scimate import --format sci0 /path/to/new-export /path/to/new-game
-./build/scimate inspect --format sci0 /path/to/new-game
+./build/scimate import /path/to/new-export /path/to/new-game
+./build/scimate inspect /path/to/new-game
 ```
 
 The export summary reports successful view bundles and failures. Ordinals in
@@ -26,9 +26,9 @@ are reconstructed; interpreters and other ancillary game files are not copied.
 ## Individual view workflow
 
 ```sh
-./build/scimate view-export --format sci0 /path/to/decoded-view.bin /path/to/new-view-folder
+./build/scimate view-export /path/to/decoded-view.bin /path/to/new-view-folder
 # Edit frame PNGs and allowed metadata in that folder.
-./build/scimate view-import --format sci0 /path/to/new-view-folder /path/to/new-view.bin
+./build/scimate view-import /path/to/new-view-folder /path/to/new-view.bin
 ```
 
 These commands consume/produce a decoded view payload, not a standalone SCI
