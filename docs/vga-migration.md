@@ -31,6 +31,20 @@ argument frames, accumulator results and event claiming. Original vocabulary,
 Said data and synonym sections supply the semantics; game names, script numbers
 and selector names must not serve as compatibility exceptions.
 
+The portable parser now has an internal bytecode builder and emitted lexicon
+procedures. They generate sectioned SCI scripts with wide branch/call fixups,
+export tables, dictionary locals and relocated string pointers. Dictionary
+lookup runs as SCI bytecode through the standard StrCmp kernel; it returns a
+one-based record index, followed by separate class/group accessors. Final SCI0
+meanings win when spellings repeat. This is an internal building block, not yet
+a replacement for Parse or Said.
+
+Grammar and suffix readers preserve source rule IDs, start symbols, semantic
+tags, class masks and suffix transformations. Their data can be emitted directly
+as script locals. Malformed or undefined grammar references are rejected rather
+than replaced with a guessed grammar. No private game's vocabulary or bytecode
+is embedded in these helpers or their synthetic fixtures.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

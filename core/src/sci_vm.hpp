@@ -5,6 +5,12 @@
 namespace scimate::sci_vm {
 namespace section { inline constexpr unsigned strings = 5; }
 namespace opcode {
+inline constexpr unsigned add = 1, subtract = 2, multiply = 3, divide = 4;
+inline constexpr unsigned bitwise_and = 9, equal = 13, less_signed = 17, less_unsigned = 21;
+inline constexpr unsigned load_local_to_accumulator = 65, load_local_to_stack = 69;
+inline constexpr unsigned load_indexed_local_to_accumulator = 73, load_indexed_local_to_stack = 77;
+inline constexpr unsigned store_accumulator_to_local = 81, store_accumulator_to_parameter = 83;
+inline constexpr unsigned increment_temporary_to_accumulator = 98;
 inline constexpr unsigned bitwise_not = 0, negate = 11, logical_not = 12;
 inline constexpr unsigned allocate_temporaries = 31, load_temporary_to_accumulator = 66;
 inline constexpr unsigned load_temporary_to_stack = 70, store_accumulator_to_temporary = 82;
@@ -36,9 +42,13 @@ inline constexpr unsigned file_open = 0x29, file_puts = 0x2a, file_gets = 0x2b, 
 inline constexpr unsigned do_sound = 0x31, do_avoider = 0x55, last = 0x71;
 inline constexpr unsigned removed_file_functions = 4;
 }
-namespace sci1_kernel { inline constexpr unsigned file_io = 0x74; }
+namespace sci1_kernel {
+inline constexpr unsigned file_io = 0x74, string_compare = 0x45, string_length = 0x46;
+inline constexpr unsigned string_copy = 0x47, string_at = 0x62;
+}
 namespace file_io { inline constexpr unsigned open = 0, close = 1, read_string = 5, write_string = 6; }
 namespace section { inline constexpr unsigned code = 2, exports = 7, relocations = 8; }
+namespace section { inline constexpr unsigned locals = 10; }
 inline constexpr unsigned word_bytes = 2, section_header_bytes = 4, max_script_address = 65535;
 constexpr unsigned encoded_opcode(unsigned value, bool byte_operand = false) {
     return (value << 1) | (byte_operand ? 1u : 0u);

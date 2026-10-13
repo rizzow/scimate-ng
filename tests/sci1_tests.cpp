@@ -5,6 +5,8 @@
 #include "scimate/picture.hpp"
 #include "scimate/view.hpp"
 #include "../core/src/script_internal.hpp"
+#include "../core/src/parser_lexicon.hpp"
+#include "../core/src/parser_tables.hpp"
 #include <iostream>
 
 namespace {
@@ -49,6 +51,45 @@ Game sample() {
     return game;
 }
 void tests() {
+    Bytes grammar_fixture;
+    for (const auto value : {0x555,0x141,0x123,0,0,0,0,0,0,0,
+                            0x123,0x146,0x800,0,0,0,0,0,0,0}) put(grammar_fixture,value,2);
+    const auto grammar_table = parser_detail::read_grammar_table(grammar_fixture);
+    require(grammar_table.root_id() == 0x555 && grammar_table.start_id() == 0x123,
+            "portable parser assumed fixed grammar identities");
+    auto invalid_grammar = grammar_fixture; invalid_grammar[4] = 0x24;
+    fails([&] { parser_detail::read_grammar_table(invalid_grammar); },"undefined grammar start");
+    const Bytes suffix_fixture{'*','i','e','s',0,1,0,'*','y',0,1,0,'*',0,255,255};
+    const auto suffix_table = parser_detail::read_suffix_table(suffix_fixture);
+    require(suffix_table.size() == 1 && suffix_table[0].alternative == "ies" && suffix_table[0].replacement == "y" &&
+            suffix_table[0].result_class == 0x100 && suffix_table[0].class_mask == 0x100,
+            "portable parser suffix strings or big-endian classes changed");
+    fails([&] { parser_detail::read_suffix_table(Bytes{'*','s'}); },"truncated");
+    parser_detail::ScriptBuilder lexicon_builder;
+    const auto lexicon = parser_detail::emit_lexicon(lexicon_builder,
+        {{"look",0x800,12},{"coin",0x100,21},{"coin",0x100,22}});
+    lexicon_builder.export_procedure(lexicon.lookup);
+    lexicon_builder.export_procedure(lexicon.word_class);
+    lexicon_builder.export_procedure(lexicon.group);
+    const auto lexicon_script = lexicon_builder.finish();
+    const auto lexicon_metadata = script_detail::parse(lexicon_script);
+    require(lexicon.count == 2 && lexicon_metadata.exports.size() == 3,"portable parser lexicon exports/deduplication failed");
+    bool lexicon_locals = false, lexicon_relocations = false;
+    for (const auto& section : lexicon_metadata.sections) {
+        if (section.type == 10) {
+            const auto start = section.start+4;
+            require(script_detail::word(lexicon_script,start+4,section.end) == 22 &&
+                    script_detail::word(lexicon_script,start+10,section.end) == 12,
+                    "portable parser vocabulary did not preserve final SCI0 meanings");
+            lexicon_locals = true;
+        }
+        if (section.type == 8) lexicon_relocations = script_detail::word(lexicon_script,section.start+4,section.end) == 2;
+    }
+    require(lexicon_locals && lexicon_relocations,"portable parser string locals lack relocation records");
+    parser_detail::ScriptBuilder unresolved_builder;
+    const auto unresolved = unresolved_builder.label();
+    unresolved_builder.export_procedure(unresolved); unresolved_builder.emit(sci_vm::opcode::return_);
+    fails([&] { unresolved_builder.finish(); },"unbound");
     // Independent VGA cel fixture: literal, repeated colour and transparency.
     const Bytes view_fixture{1,0x80,0,0,1,0,0,0,10,0,1,0,0,0,16,0,
         8,0,1,0,0xff,2,255,0,2,17,18,0x83,42,0xc3};
