@@ -12,7 +12,7 @@ struct MigrationStats {
 };
 script_detail::ParsedScript parse_migration_script(const Resource& resource);
 std::string migration_report(std::size_t resource_count, const MigrationStats& stats,
-                             const std::vector<std::string>& selected_fallbacks);
+                             const std::vector<std::string>& selected_fallbacks, bool vga = false);
 std::vector<std::string> auxiliary_references(const Game& game);
 std::string object_layout_diagnostics(const ScriptMetadata& scripts);
 }

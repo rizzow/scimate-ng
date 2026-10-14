@@ -19,6 +19,7 @@ struct ParserInput {
     std::vector<Bytes> specifications;
     std::map<std::uint16_t,std::vector<SynonymPair>> synonyms;
     std::set<unsigned> reserved_scripts;
+    unsigned global_count = 0;
 };
 inline unsigned parser_selector(const vocabulary_detail::Names& names, const char* requested) {
     for (unsigned i = 0; i < names.entries.size(); ++i) {
@@ -58,7 +59,12 @@ inline ParserInput collect_parser_input(const Game& game) {
                 reserve(instruction.operands.at(0));
         }
         for (const auto& object : script.objects) for (const auto value : object.values) reserve(value);
+        bool globals_seen = false;
         for (const auto& section : script.sections) {
+            if (entry.first.second == 0 && section.type == sci_vm::section::locals && !globals_seen) {
+                input.global_count = static_cast<unsigned>((section.end-section.start-sci_vm::section_header_bytes)/sci_vm::word_bytes);
+                globals_seen = true;
+            }
             constexpr unsigned synonyms_section = 3, said_section = 4;
             const auto begin = section.start+sci_vm::section_header_bytes;
             if (section.type == synonyms_section) {

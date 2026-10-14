@@ -11,6 +11,11 @@
 #include "sci_vm.hpp"
 #include "migration_analysis.hpp"
 #include "migration_bridges.hpp"
+#include "migration_owner.hpp"
+#include "migration_identity.hpp"
+#include "parser_runtime.hpp"
+#include "scimate/picture.hpp"
+#include "scimate/view.hpp"
 #include <array>
 #include <initializer_list>
 
@@ -452,9 +457,191 @@ GameFiles write_verified_game(const std::vector<Resource>& output, Sci1Format fo
     return files;
 }
 
+unsigned append_owner_selector(Resources& resources, const ScriptMetadata& scripts) {
+    auto& vocabulary = resources.at({ResourceType::vocab,parser_detail::parser_resource::selectors}).payload;
+    auto names = vocabulary_detail::read_names(vocabulary,true);
+    std::set<unsigned> used;
+    for (const auto& entry : scripts) {
+        for (const auto& object : entry.second.objects) {
+            used.insert(object.selectors.begin(),object.selectors.end());
+            used.insert(object.methods.begin(),object.methods.end());
+        }
+        for (const auto& instruction : entry.second.instructions)
+            if (instruction.opcode == op::load_immediate || instruction.opcode == op::push_immediate)
+                used.insert(instruction.operands.at(0));
+    }
+    auto owner = static_cast<unsigned>(names.entries.size());
+    while (used.count(owner)) ++owner;
+    if (owner > sci_vm::max_script_address) throw std::runtime_error("portable parser: no unreserved owner selector");
+    names.entries.resize(owner+1);
+    const std::string name = "scimateOwnerScript";
+    names.entries[owner] = Bytes(name.begin(),name.end());
+    Bytes encoded(2+2*names.entries.size(),0); patch(encoded,0,owner);
+    for (unsigned i = 0; i < names.entries.size(); ++i) if (names.entries[i]) {
+        patch(encoded,2+2*i,static_cast<unsigned>(encoded.size()));
+        put(encoded,static_cast<unsigned>(names.entries[i]->size()));
+        encoded.insert(encoded.end(),names.entries[i]->begin(),names.entries[i]->end());
+    }
+    if (encoded.size() > parser_detail::lookup_page_payload_limit)
+        throw std::runtime_error("portable parser: owner selector vocabulary exceeds resource capacity");
+    vocabulary = std::move(encoded);
+    return owner;
+}
+
+std::size_t install_vga_parser(Resources& resources, const Game& source, const ScriptMetadata& scripts) {
+    const auto input = parser_detail::collect_parser_input(source);
+    const auto names = vocabulary_detail::read_names(resources.at({ResourceType::vocab,997}).payload,true);
+    const auto owner = append_owner_selector(resources,scripts);
+    const parser_detail::SynonymSelectors selectors{parser_detail::parser_selector(names,"elements"),
+        parser_detail::parser_selector(names,"number"),owner};
+    auto runtime = parser_detail::write_parser_runtime(input,selectors);
+    auto& main = resources.at({ResourceType::script,0});
+    const auto first_export = parse_migration_script(main).exports.size();
+    constexpr unsigned parser_bridges = 3;
+    if (first_export+parser_bridges > 256) throw std::runtime_error("portable parser: main bridge exports exceed byte operands");
+    for (const auto& entry : scripts) {
+        auto& resource = resources.at({ResourceType::script,entry.first});
+        for (const auto& instruction : entry.second.instructions) {
+            if (instruction.opcode != op::call_kernel) continue;
+            const auto kernel = instruction.operands.at(0);
+            if (kernel < kernel0::parse || kernel > kernel0::set_synonyms) continue;
+            resource.payload.at(instruction.start) = static_cast<std::uint8_t>(
+                sci_vm::encoded_opcode(op::call_base,instruction.width == 1));
+            write_first_operand(resource.payload,instruction,static_cast<unsigned>(first_export)+kernel-kernel0::parse);
+        }
+    }
+    std::vector<Bytes> forwarders;
+    for (const auto exported : {parser_detail::ParserExport::parse,parser_detail::ParserExport::said,parser_detail::ParserExport::set_synonyms})
+        forwarders.push_back(forward_script_export(runtime.entry_script,static_cast<unsigned>(exported)));
+    main.payload = append_script_exports(main.payload,parse_migration_script(main),forwarders);
+    for (auto& entry : resources) if (entry.first.first == ResourceType::script)
+        entry.second.payload = append_script_owner_method(entry.second.payload,entry.first.second,owner);
+    const auto count = runtime.scripts.size();
+    for (auto& generated : runtime.scripts) {
+        Resource resource{{{ResourceType::script,generated.number},0,0},0,std::move(generated.payload)};
+        if (!resources.emplace(std::make_pair(ResourceType::script,generated.number),std::move(resource)).second)
+            throw std::runtime_error("portable parser: generated script shadows a source resource");
+    }
+    resources.erase({ResourceType::vocab,999});
+    return count;
+}
+
+std::set<unsigned> convert_vga_graphics(Resources& resources) {
+    bool detectable_view = false;
+    std::set<unsigned> filled_pictures;
+    for (auto& entry : resources) {
+        auto& resource = entry.second;
+        if (entry.first.first == ResourceType::view) {
+            resource.payload = write_sci1_vga_view(read_sci0_view(resource.payload));
+            detectable_view |= entry.first.second < 1000;
+        } else if (entry.first.first == ResourceType::pic) {
+            const auto picture = read_sci0_picture(resource.payload);
+            if (picture.contains_fill) filled_pictures.insert(entry.first.second);
+            resource.payload = write_sci1_vga_picture(picture,ega_picture_palette(),
+                picture.contains_fill ? VgaPictureMode::background : VgaPictureMode::overlay);
+        }
+    }
+    if (!detectable_view) throw std::runtime_error("VGA migration requires a source view in the interpreter detection range");
+    return filled_pictures;
+}
+
+bool source_uses_early_picture_flags(const Resources& resources, const ScriptMetadata& scripts) {
+    bool needs_flags = false;
+    for (const auto& entry : scripts) for (const auto& instruction : entry.second.instructions)
+        needs_flags |= instruction.opcode == op::call_kernel && instruction.operands.at(0) == kernel0::draw_picture &&
+            instruction.operands.at(1) >= 3*sci_vm::word_bytes;
+    if (!needs_flags) return false; // No supplied overlay flag to translate.
+    const auto names = vocabulary_detail::read_names(resources.at({ResourceType::vocab,997}).payload,true);
+    const auto overlay = parser_detail::parser_selector(names,"overlay");
+    // Match the source interpreter's SCI0-late graphics ABI detection point.
+    // No fallback from title identity or unrelated selector presence is used.
+    for (const auto& entry : scripts) for (const auto& object : entry.second.objects) {
+        if (!object.is_class || object.values.size() < 4) continue;
+        const auto name = entry.second.strings.find(object.values[3]);
+        if (name == entry.second.strings.end() || name->second != "\"Rm\"") continue;
+        for (std::size_t m = 0; m < object.methods.size(); ++m) if (object.methods[m] == overlay) {
+            for (const auto& instruction : entry.second.instructions) {
+                if (instruction.start < object.addresses[m]) continue;
+                if (instruction.opcode == op::return_) break;
+                if (instruction.opcode != op::call_kernel || instruction.operands.at(0) != kernel0::draw_picture) continue;
+                const auto frame = instruction.operands.at(1);
+                if (frame == 3*sci_vm::word_bytes) return true;
+                if (frame == 4*sci_vm::word_bytes) return false;
+            }
+        }
+    }
+    throw std::runtime_error("VGA migration: source DrawPic overlay ABI cannot be established from its implementation");
+}
+
+unsigned install_vga_picture_bridge(Resources& resources, const ScriptMetadata& scripts, bool early_flags,
+                                    const std::set<unsigned>& filled_pictures) {
+    using namespace parser_detail; using namespace parser_detail::codegen;
+    auto number = sci_vm::maximum_packed_resource_id;
+    std::set<unsigned> reserved;
+    for (const auto& entry : resources) reserved.insert(entry.first.second);
+    for (const auto& entry : scripts) for (const auto& instruction : entry.second.instructions) {
+        if (instruction.opcode == op::call_external || instruction.opcode == op::load_immediate || instruction.opcode == op::push_immediate)
+            reserved.insert(instruction.operands.at(0));
+    }
+    for (const auto& entry : scripts) for (const auto& object : entry.second.objects)
+        reserved.insert(object.values.begin(),object.values.end());
+    const auto classes = resources.find({ResourceType::vocab,parser_detail::parser_resource::classes});
+    if (classes != resources.end()) {
+        const auto& bytes = classes->second.payload;
+        if (bytes.size()%4) throw std::runtime_error("VGA migration: incomplete class-to-script mapping");
+        for (std::size_t offset = 2; offset < bytes.size(); offset += 4) reserved.insert(word(bytes,offset,bytes.size()));
+    }
+    while (number && reserved.count(number)) --number;
+    if (!number) throw std::runtime_error("VGA migration: no unreserved graphics bridge script ID");
+    ScriptBuilder builder;
+    const auto message = builder.string_local("VGA migration: unsupported picture overlay, palette or mirroring");
+    const auto entry = builder.label(), unsupported = builder.label(), forward = builder.label();
+    constexpr unsigned saved_accumulator = 0;
+    builder.bind(entry); builder.emit(op::allocate_temporaries,{1}); builder.emit(op::store_accumulator_to_temporary,{saved_accumulator});
+    branch_if(builder,binary(op::less_unsigned,parameter(0),codegen::number(1)),unsupported);
+    branch_if(builder,binary(op::less_unsigned,parameter(0),codegen::number(5)),unsupported,false);
+    const auto palette_done = builder.label();
+    branch_if(builder,binary(op::less_unsigned,parameter(0),codegen::number(4)),palette_done);
+    branch_if(builder,parameter(4),unsupported); builder.bind(palette_done);
+    const auto flags_done = builder.label();
+    branch_if(builder,binary(op::less_unsigned,parameter(0),codegen::number(2)),flags_done);
+    constexpr unsigned mirrored_picture_flag = 1u << 14;
+    branch_if(builder,binary(op::bitwise_and,parameter(2),codegen::number(mirrored_picture_flag)),unsupported);
+    builder.bind(flags_done);
+    branch_if(builder,binary(op::less_unsigned,parameter(0),codegen::number(3)),forward);
+    if (early_flags) {
+        parameter(3)(builder); builder.emit(op::logical_not); builder.emit(op::store_accumulator_to_parameter,{3});
+    }
+    branch_if(builder,parameter(3),forward); // SCI1's nonzero flag replaces the background.
+    for (const auto picture : filled_pictures)
+        branch_if(builder,binary(op::equal,parameter(1),codegen::number(picture)),unsupported);
+    builder.bind(forward); builder.emit(op::push_zero); builder.emit(op::rest,{1});
+    temporary(saved_accumulator)(builder); builder.emit(op::call_kernel,{sci_vm::sci1_kernel::draw_picture,0});
+    return_value(builder,temporary(saved_accumulator));
+    builder.bind(unsupported); kernel(sci_vm::sci1_kernel::display,{local(message)})(builder);
+    return_value(builder,temporary(saved_accumulator));
+    builder.export_procedure(entry);
+    Resource generated{{{ResourceType::script,static_cast<std::uint16_t>(number)},0,0},0,builder.finish()};
+    auto& main = resources.at({ResourceType::script,0});
+    const auto main_script = parse_migration_script(main);
+    const auto exported = main_script.exports.size();
+    if (exported > 255) throw std::runtime_error("VGA migration: graphics bridge export exceeds byte operands");
+    main.payload = append_script_exports(main.payload,main_script,{forward_script_export(number,0)});
+    for (const auto& source : scripts) {
+        auto& resource = resources.at({ResourceType::script,source.first});
+        for (const auto& instruction : source.second.instructions)
+            if (instruction.opcode == op::call_kernel && instruction.operands.at(0) == kernel0::draw_picture) {
+                resource.payload.at(instruction.start) = static_cast<std::uint8_t>(sci_vm::encoded_opcode(op::call_base,instruction.width == 1));
+                write_first_operand(resource.payload,instruction,static_cast<unsigned>(exported));
+            }
+    }
+    resources.emplace(std::make_pair(ResourceType::script,static_cast<std::uint16_t>(number)),std::move(generated));
+    return number;
+}
+
 } // namespace
 
-Sci1Migration migrate_sci0_to_sci1(const Game& game) {
+Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics) {
     using namespace migration_detail;
     auto resources = resolve_duplicate_resources(game);
     if (!resources.count({ResourceType::script,0})) throw std::runtime_error("migration requires script 0");
@@ -466,12 +653,27 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game) {
     append_main_file_bridges(resources,first_bridge_export);
     verify_preserved_script_layouts(resources,scripts);
 
-    const auto format = stats.parser_calls ? Sci1Format::sci1_ega : Sci1Format::sci1_late;
-    if (stats.parser_calls) adapt_parser(resources);
+    const auto vga = graphics == Sci1Graphics::vga;
+    const auto format = stats.parser_calls || vga ? Sci1Format::sci1_ega : Sci1Format::sci1_late;
+    std::size_t runtime_scripts = 0;
+    unsigned graphics_script = 0;
+    if (vga) {
+        const auto early_picture_flags = source_uses_early_picture_flags(resources,scripts);
+        if (stats.parser_calls) runtime_scripts = install_vga_parser(resources,game,scripts);
+        resources.erase({ResourceType::vocab,999});
+        const auto filled_pictures = convert_vga_graphics(resources);
+        graphics_script = install_vga_picture_bridge(resources,scripts,early_picture_flags,filled_pictures);
+        auto& main = resources.at({ResourceType::script,0});
+        main.payload = rename_main_game_object(main.payload,"scimate-vga");
+    } else if (stats.parser_calls) adapt_parser(resources);
     const auto output = take_resources(resources);
     Sci1Migration result;
     result.files = write_verified_game(output,format);
-    result.report = migration_report(output.size(),stats,selected_fallbacks) + object_layout_diagnostics(scripts);
+    result.report = migration_report(output.size(),stats,selected_fallbacks,vga) + object_layout_diagnostics(scripts);
+    if (vga) result.report += "VGA profile: all picture/view resources converted; game name is scimate-vga.\n"
+        "Portable parser runtime scripts: " + std::to_string(runtime_scripts) + ". Native Parse/Said/SetSynonyms calls redirected.\n"
+        "DrawPic bridge script: " + std::to_string(graphics_script) + "; unsupported flood-fill overlays, nonzero EGA palettes and mirrored pictures display an explicit error and are not drawn.\n"
+        "UNVERIFIED: dynamic script/selector IDs, dynamic Said, loaded-script synonym witnesses and VGA gameplay.\n";
     result.auxiliary_file_references = auxiliary_references(game);
     for (const auto& repair : volume_repairs) result.report += repair;
     return result;

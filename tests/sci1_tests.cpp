@@ -206,9 +206,9 @@ void tests() {
     for (const auto& record : nested_grammar.records)
         for (const auto value : record) put(parser_source_grammar,value,2);
     parser_source.resources.push_back(resource(ResourceType::vocab,900,parser_source_grammar));
-    Bytes source_selectors; put(source_selectors,2,2); source_selectors.resize(8);
+    Bytes source_selectors; put(source_selectors,4,2); source_selectors.resize(12);
     unsigned selector_slot = 0;
-    for (const std::string name : {"claimed","wordFail","syntaxFail"}) {
+    for (const std::string name : {"claimed","wordFail","syntaxFail","number","elements"}) {
         const auto offset = source_selectors.size();
         source_selectors[2+2*selector_slot] = static_cast<std::uint8_t>(offset);
         source_selectors[3+2*selector_slot++] = static_cast<std::uint8_t>(offset >> 8);
@@ -246,6 +246,38 @@ void tests() {
     }
     require(calls_lookup_page && disposes_synonym_list,
             "Parser runtime omitted Said dispatch or synonym list disposal");
+    const auto selected_runtime = parser_detail::write_parser_runtime(parser_input,parser_detail::SynonymSelectors{4,3,1234});
+    require(script_detail::parse(selected_runtime.scripts.front().payload).exports.size() == 5,
+            "Portable parser runtime omitted its SetSynonyms export");
+    auto vga_source = sample();
+    vga_source.resources[1].payload = source_selectors;
+    vga_source.resources[2].payload = {2,0,14,0,0x43,0x24,4,0x43,0x25,2,0x43,0x26,2,0x48,0,0};
+    vga_source.resources.push_back(resource(ResourceType::vocab,0,
+        write_sci0_vocabulary({{"look",0x800,12},{"coin",0x100,21}})));
+    vga_source.resources.push_back(resource(ResourceType::vocab,900,parser_source_grammar));
+    View vga_source_view; vga_source_view.loops.resize(1);
+    ViewCel vga_source_cel; vga_source_cel.width = 1; vga_source_cel.height = 1; vga_source_cel.pixels = {1};
+    vga_source_view.loops.front().cels.push_back(vga_source_cel);
+    vga_source.resources.push_back(resource(ResourceType::view,0,write_sci0_view(vga_source_view)));
+    vga_source.resources.push_back(resource(ResourceType::pic,200,{0xf0,4,0xf8,0,0,0,0xff}));
+    const auto vga_candidate = migrate_sci0_to_sci1(vga_source,Sci1Graphics::vga);
+    const auto vga_game = read_sci1_game(vga_candidate.files,Sci1Format::sci1_vga);
+    const auto vga_resources = index_resources(vga_game);
+    require(vga_resources.at({ResourceType::view,0})->payload.at(1) == 0x80 &&
+            vga_resources.at({ResourceType::pic,200})->payload.at(0) == 0xfe,
+            "VGA migration retained EGA picture/view resource formats");
+    const auto vga_main = script_detail::parse(vga_resources.at({ResourceType::script,0})->payload);
+    require(vga_main.exports.size() == 9 &&
+            vga_main.strings.at(vga_main.objects.front().values.at(3)) == "\"scimate-vga\"",
+            "VGA migration omitted runtime bridges or retained source game identity");
+    const auto vga_calls = script_detail::parse(vga_resources.at({ResourceType::script,20})->payload);
+    require(vga_calls.instructions.at(0).opcode == sci_vm::opcode::call_base &&
+            vga_calls.instructions.at(0).operands.at(0) == 5 && vga_calls.instructions.at(1).operands.at(0) == 6 &&
+            vga_calls.instructions.at(2).operands.at(0) == 7,
+            "VGA migration did not redirect source Parse/Said/SetSynonyms calls");
+    require(vga_candidate.report.find("SCI1 VGA early") != std::string::npos &&
+            vga_candidate.report.find("UNVERIFIED") != std::string::npos,
+            "VGA migration report misidentified the target or claimed runtime proof");
     bool has_pronoun_state = false;
     for (const auto& section : pipeline_script.sections) if (section.type == 10) {
         const auto reference = section.start+4+pipeline.pronouns.reference*2;

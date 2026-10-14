@@ -10,6 +10,7 @@ inline constexpr unsigned bitwise_and = 9, equal = 13, less_signed = 17, less_un
 inline constexpr unsigned bitwise_or = 10;
 inline constexpr unsigned load_local_to_accumulator = 65, load_local_to_stack = 69;
 inline constexpr unsigned load_indexed_local_to_accumulator = 73, load_indexed_local_to_stack = 77;
+inline constexpr unsigned load_indexed_global_to_accumulator = 72;
 inline constexpr unsigned store_accumulator_to_local = 81, store_accumulator_to_parameter = 83;
 inline constexpr unsigned store_stack_to_indexed_local = 93;
 inline constexpr unsigned increment_temporary_to_accumulator = 98;
@@ -39,12 +40,15 @@ inline constexpr unsigned load_global_to_stack = 68, load_parameter_to_stack = 7
 constexpr bool is_branch(unsigned value) { return value >= branch_true && value <= jump; }
 }
 namespace sci0_kernel {
+inline constexpr unsigned draw_picture = 0x08;
 inline constexpr unsigned parse = 0x24, said = 0x25, set_synonyms = 0x26;
 inline constexpr unsigned file_open = 0x29, file_puts = 0x2a, file_gets = 0x2b, file_close = 0x2c;
 inline constexpr unsigned do_sound = 0x31, do_avoider = 0x55, last = 0x71;
 inline constexpr unsigned removed_file_functions = 4;
 }
 namespace sci1_kernel {
+inline constexpr unsigned draw_picture = 0x08, display = 0x1b;
+inline constexpr unsigned is_object = 0x06;
 inline constexpr unsigned script_id = 0x02;
 inline constexpr unsigned memory = 0x72, new_list = 0x2e, dispose_list = 0x2f;
 inline constexpr unsigned new_node = 0x30, first_node = 0x31, next_node = 0x34, node_value = 0x36, add_to_end = 0x39;

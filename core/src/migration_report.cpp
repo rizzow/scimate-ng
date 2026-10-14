@@ -5,16 +5,19 @@
 #include <sstream>
 namespace scimate::migration_detail {
 std::string migration_report(std::size_t resource_count, const MigrationStats& stats,
-                              const std::vector<std::string>& selected_fallbacks) {
+                              const std::vector<std::string>& selected_fallbacks, bool vga) {
     const auto& [scripts,remapped,bridged,sound_calls,parser_calls,opaque_exports,unusual_file_frames,legacy_branches] = stats;
     std::ostringstream report;
     report << "SCIMATE experimental generic SCI0 -> SCI1 migration\n"
            << "Resources: " << resource_count << "; duplicate SCI0 IDs resolved using first map entry (ScummVM semantics).\n"
            << "Scripts scanned: " << scripts << "; remapped kernel calls: " << remapped << "; file-I/O bridge calls: " << bridged << ".\n"
-           << (parser_calls ? "Target: SCI1 EGA packed-ID map, eight-byte volume headers, uncompressed payloads.\n" : "Target: SCI1 late directory map, nine-byte volume headers, uncompressed payloads.\n")
-           << "Original EGA graphics, game-object name and relative LOFS semantics retained.\n"
-           << "Parser calls retained: " << parser_calls << "; "
-           << (parser_calls ? "word vocabulary 0 converted to 900; grammar 900 -> 901, suffixes 901 -> 902; obsolete SCI0 kernel names omitted.\n" : "no parser resource conversion required.\n")
+           << (vga ? "Target: SCI1 VGA early packed-ID map, eight-byte volume headers, uncompressed payloads.\n" :
+               parser_calls ? "Target: SCI1 EGA packed-ID map, eight-byte volume headers, uncompressed payloads.\n" : "Target: SCI1 late directory map, nine-byte volume headers, uncompressed payloads.\n")
+           << (vga ? "Original artwork/colours converted to VGA; distinct game name assigned; relative LOFS retained.\n" :
+                     "Original EGA graphics, game-object name and relative LOFS semantics retained.\n")
+           << (vga ? "Parser calls redirected: " : "Parser calls retained: ") << parser_calls << "; "
+           << (vga ? "source parser data compiled into portable SCI bytecode; native parser independence remains runtime-unverified.\n" :
+               parser_calls ? "word vocabulary 0 converted to 900; grammar 900 -> 901, suffixes 901 -> 902; obsolete SCI0 kernel names omitted.\n" : "no parser resource conversion required.\n")
            << "Main bridge code and replacement export table appended; original addresses retained.\n"
            << "FileIO bridges forward actual parameters including &rest; unusual encoded frames retained: " << unusual_file_frames << " (runtime signature validation remains required).\n"
            << "Validated SCI0 late DoSound calls: " << sound_calls << "; kernel remapped to 0x2d.\n"

@@ -40,6 +40,8 @@ inline ParserPipeline emit_parser_pipeline(ScriptBuilder& builder, const std::ve
         builder.bind(empty); set_local(builder,pointer,number(0));
     }
     set_local(builder,sentence.failure,number(0)); set_local(builder,tree.failed,number(0));
+    set_local(builder,tokens.failure,number(0)); set_local(builder,tokens.count,number(0));
+    branch_if(builder,local(synonyms.selection_failure),failed);
     branch_if(builder,procedure(tokens.procedure,{parameter(1)}),failed,false);
     procedure(synonyms.apply,{})(builder);
     procedure(pronouns.replace,{})(builder);

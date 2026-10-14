@@ -2,17 +2,18 @@
 #pragma once
 #include "parser_input.hpp"
 #include "parser_pages.hpp"
+#include <optional>
 
 namespace scimate::parser_detail {
 // Stable exports used by the source-script rewrite. Synonym selection remains
 // the caller's responsibility; append copies a proven loaded script's pairs.
-enum class ParserExport : unsigned { parse, said, clear_synonyms, append_synonyms };
+enum class ParserExport : unsigned { parse, said, clear_synonyms, append_synonyms, set_synonyms };
 struct ParserRuntimeScript { std::uint16_t number; Bytes payload; };
 struct ParserRuntime {
     std::uint16_t entry_script;
     std::vector<ParserRuntimeScript> scripts;
 };
-inline ParserRuntime write_parser_runtime(const ParserInput& input) {
+inline ParserRuntime write_parser_runtime(const ParserInput& input, std::optional<SynonymSelectors> synonyms = std::nullopt) {
     auto pages = write_said_pages(input.specifications);
     const auto numbers = allocate_parser_scripts(input,pages.size()+1);
     std::vector<unsigned> lookup_scripts(numbers.begin()+1,numbers.end());
@@ -24,6 +25,7 @@ inline ParserRuntime write_parser_runtime(const ParserInput& input) {
     builder.export_procedure(bridges.said);
     builder.export_procedure(pipeline.synonyms.clear);
     builder.export_procedure(pipeline.synonyms.append);
+    if (synonyms) builder.export_procedure(emit_synonym_selection(builder,pipeline.synonyms,*synonyms,input.synonyms,input.global_count));
     if (builder.serialized_size() > lookup_page_payload_limit)
         throw std::runtime_error("portable parser: runtime exceeds early SCI1 container capacity");
     ParserRuntime runtime{numbers.front(),{}};

@@ -15,7 +15,8 @@ untouched pixels. Callers must provide drawing masks for every intended write.
 Pictures with flood fills are refused in this mode because their result can
 depend on the existing background. The default `background` mode remains a
 full-room bitmap conversion. Neither this mode choice nor mirrored EGA dithering
-is yet handled by the migration's DrawPic rewrite.
+has full migration support yet. The VGA DrawPic bridge refuses flood-fill
+overlays and mirrored pictures at runtime with an explicit displayed error.
 
 These limits follow [ScummVM's picture drawing code](https://github.com/scummvm/scummvm/blob/master/engines/sci/graphics/picture.cpp):
 embedded cels test the existing priority plane, while vector flood fills inspect

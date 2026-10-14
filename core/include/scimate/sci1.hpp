@@ -5,7 +5,7 @@
 
 namespace scimate {
 // Explicit DOS resource formats, not interpreter auto-detection.
-enum class Sci1Format { sci1_late, sci11, sci1_ega };
+enum class Sci1Format { sci1_late, sci11, sci1_ega, sci1_vga = sci1_ega };
 std::vector<ResourceMapEntry> read_sci1_map(const Bytes& bytes, Sci1Format format);
 Bytes decode_sci1(std::uint16_t method, const Bytes& input, std::size_t expected_size);
 Game read_sci1_game(GameFiles files, Sci1Format format);
@@ -19,8 +19,11 @@ struct Sci1Migration {
     std::vector<std::string> auxiliary_file_references;
 };
 // Experimental format-based SCI0 -> SCI1 late/ScummVM compatibility export.
-// Remaps kernels and bridges SCI0 file I/O. Preserves EGA graphics and addresses
-// in scripts other than main. Unsupported cases fail rather than guess.
+// Remaps kernels and bridges SCI0 file I/O. The default retains EGA graphics;
+// appended bridges preserve original script addresses. Unsupported cases fail.
 // A generated container is NOT evidence of successful interpreter playback.
-Sci1Migration migrate_sci0_to_sci1(const Game& game);
+// VGA additionally installs portable parser bytecode, converts graphics and
+// changes the game name. Unsupported runtime picture/synonym cases report errors.
+enum class Sci1Graphics { ega, vga };
+Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics = Sci1Graphics::ega);
 } // namespace scimate

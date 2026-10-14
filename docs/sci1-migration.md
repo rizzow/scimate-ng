@@ -5,9 +5,13 @@ never a game title, object name, hardcoded resource list, or game-specific
 ScummVM exception. A real game may be used privately to validate the mechanism;
 it does not define migration rules.
 
-**Status: incomplete experimental implementation; no playback proof.** Builds,
-tests and playback remain manual. VGA work is deferred until a real SCI0 game is
-exported and played in an unmodified ScummVM reporting an SCI1 interpreter.
+**Status: experimental implementation; comprehensive playback proof remains
+outstanding.** Builds, tests and playback remain manual.
+
+An experimental `--graphics vga` path is now integrated; see
+[VGA migration](vga-migration.md) for its runtime guards and remaining proof.
+The earlier EGA candidate ran in a private manual session, but comprehensive
+VGA gameplay validation remains outstanding.
 
 ## Format support
 
@@ -19,8 +23,9 @@ whose packed lengths exclude those four bytes. Compression methods 0 (stored),
 Writers produce uncompressed records. Resource types through heap are supported.
 
 Container support does not imply full interpreter or payload conversion.
-SCI1.1 script/heap migration, other map variants, VGA resource conversion and
-DCL/rearranged LZW are not implemented.
+The SCI1.1 script/heap transform is available separately; the CLI does not port
+whole games to that profile. VGA conversion is experimental. Other map variants
+and DCL/rearranged LZW are not implemented.
 
 Parser-bearing migrations use the SCI1 EGA profile: packed resource IDs and
 six-byte map records, eight-byte volume headers, and stored payloads. Inspect
