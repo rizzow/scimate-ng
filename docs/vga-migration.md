@@ -143,6 +143,14 @@ scripts with wide IDs and continues only on the unknown-specification result.
 Assigning collision-free script IDs and rewriting the game calls remain export
 integration work; page partitioning does not establish runtime proof.
 
+Active synonym state now owns ordered memory blocks of source word pairs. Clearing
+frees them; appending copies them independently of source-script lifetime. Token
+transformation visits every pair in list order, allowing a replacement to feed a
+later alias, and runs before pronoun replacement. Collection remains separate:
+the bridge must preserve native loaded-script eligibility. ScriptID loads scripts
+and therefore cannot serve as an availability probe. A title-specific list or an
+assumption that every mapped script is loaded would change parser semantics.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

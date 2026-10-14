@@ -60,6 +60,11 @@ Game sample() {
     return game;
 }
 void tests() {
+    const auto synonym_pairs = parser_detail::read_synonym_pairs({1,0,2,0,2,0,3,0});
+    require(synonym_pairs.size() == 2 && synonym_pairs[0].original == 1 && synonym_pairs[0].replacement == 2 &&
+            synonym_pairs[1].original == 2 && synonym_pairs[1].replacement == 3,
+            "Synonym word order, byte order or chained replacements changed");
+    fails([&] { parser_detail::read_synonym_pairs({1,0,2}); },"incomplete");
     const Bytes said_fixture{0,12,0xf2,0xf5,0,21,0xf6,0xf9,0xff};
     const auto said_tokens = parser_detail::tokenize_said(said_fixture,0,said_fixture.size());
     const auto said_tree = parser_detail::compile_said(said_fixture,0,said_fixture.size());
@@ -196,6 +201,10 @@ void tests() {
         has_pronoun_state = script_detail::word(pipeline_bytes,reference,section.end) == 0x1000;
     }
     require(has_pronoun_state,"portable pronoun state did not start with the undefined-reference marker");
+    bool has_empty_synonyms = false;
+    for (const auto& section : pipeline_script.sections) if (section.type == 10)
+        has_empty_synonyms = script_detail::word(pipeline_bytes,section.start+4+pipeline.synonyms.blocks*2,section.end) == 0;
+    require(has_empty_synonyms,"Active synonyms did not start empty");
     Bytes grammar_fixture;
     for (const auto value : {0x555,0x141,0x123,0,0,0,0,0,0,0,
                             0x123,0x146,0x800,0,0,0,0,0,0,0}) put(grammar_fixture,value,2);
