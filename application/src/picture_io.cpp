@@ -31,6 +31,20 @@ Bytes import_sci0_picture(const std::filesystem::path& directory) {
  if(!changed) return picture.original;
  return write_sci0_picture(picture);
 }
+VgaPicture import_vga_picture_edit(const std::filesystem::path& directory) {
+ auto original = read_sci0_picture(detail::read_file(directory/workspace_detail::original_file,65535));
+ if(detail::read_file(directory/"picture.tsv",1024)!=Bytes(manifest.begin(),manifest.end()))
+  throw std::runtime_error("picture manifest: invalid structure or metadata");
+ auto result = decode_vga_picture_visual_png(detail::read_file(directory/names[0],16*1024*1024));
+ result.picture.original = original.original;
+ result.picture.contains_fill = original.contains_fill;
+ result.picture.written = original.written;
+ for (unsigned plane = 1; plane < 3; ++plane)
+  result.picture.planes[plane] = decode_picture_plane_png(detail::read_file(directory/names[plane],16*1024*1024));
+ for (unsigned plane = 0; plane < 3; ++plane) for (std::size_t i = 0; i < original.planes[plane].size(); ++i)
+  if (result.picture.planes[plane][i] != original.planes[plane][i]) result.picture.written[plane][i] = 1;
+ return result;
+}
 void export_sci0_picture_file(const std::filesystem::path& payload,const std::filesystem::path& destination) {
  export_sci0_picture(detail::read_file(payload,65535),destination);
 }

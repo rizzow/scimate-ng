@@ -299,6 +299,17 @@ void tests() {
     vga_source.resources.push_back(resource(ResourceType::view,0,write_sci0_view(vga_source_view)));
     vga_source.resources.push_back(resource(ResourceType::pic,200,{0xf0,4,0xf8,0,0,0,0xff}));
     const auto vga_candidate = migrate_sci0_to_sci1(vga_source,Sci1Graphics::vga);
+    auto edited_picture = read_sci0_picture(vga_source.resources.back().payload);
+    edited_picture.planes[0][0] = 16;
+    auto edited_palette = ega_picture_palette(); edited_palette[16] = {12,34,56};
+    const VgaPictureEdits picture_edits{{200,{edited_picture,edited_palette}}};
+    const auto edited_candidate = migrate_sci0_to_sci1(vga_source,Sci1Graphics::vga,picture_edits);
+    const auto edited_game = read_sci1_game(edited_candidate.files,Sci1Format::sci1_vga);
+    const auto edited_resources = index_resources(edited_game);
+    const auto decoded_edit = read_sci1_vga_picture(edited_resources.at({ResourceType::pic,200})->payload);
+    require(decoded_edit.picture.planes[0][0] == 16 && decoded_edit.palette[16] == edited_palette[16],
+            "SCI1 build discarded a direct VGA picture or RGB palette edit");
+    fails([&] { migrate_sci0_to_sci1(vga_source,Sci1Graphics::ega,picture_edits); },"require VGA");
     const auto vga_game = read_sci1_game(vga_candidate.files,Sci1Format::sci1_vga);
     const auto vga_resources = index_resources(vga_game);
     require(vga_resources.at({ResourceType::view,0})->payload.at(1) == 0x80 &&

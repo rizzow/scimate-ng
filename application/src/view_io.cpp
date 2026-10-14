@@ -4,6 +4,7 @@
 #include "scimate/workspace.hpp"
 #include "scimate/output.hpp"
 #include "scimate/format_constants.hpp"
+#include "scimate/picture_io.hpp"
 #include "tables.hpp"
 #include <png.h>
 #include <array>
@@ -89,6 +90,31 @@ Bytes decode_picture_plane_png(const Bytes& bytes) {
     auto cel=decode_png(bytes,0,true);
     if(cel.width!=format::picture_width || cel.height!=format::picture_height) throw std::runtime_error("picture PNG: dimensions must be 320x190");
     return cel.pixels;
+}
+VgaPicture decode_vga_picture_visual_png(const Bytes& bytes) {
+    if (bytes.size() > format::max_interchange_bytes || bytes.size() < 25 || bytes[24] > 8)
+        throw std::runtime_error("VGA picture PNG: input/channel limit exceeded");
+    Png p;
+    if (!png_image_begin_read_from_memory(&p.image,bytes.data(),bytes.size())) png_error(p);
+    if (p.image.width != format::picture_width || p.image.height != format::picture_height)
+        throw std::runtime_error("VGA picture PNG: dimensions must be 320x190");
+    p.image.format = PNG_FORMAT_RGBA;
+    Bytes rgba(PNG_IMAGE_SIZE(p.image));
+    if (!png_image_finish_read(&p.image,nullptr,rgba.data(),0,nullptr)) png_error(p);
+    VgaPicture result; result.palette = ega_picture_palette();
+    unsigned colors = 16;
+    for (std::size_t i = 0; i < rgba.size(); i += 4) {
+        if (rgba[i+3] != 255) throw std::runtime_error("VGA picture PNG: visual plane must be opaque");
+        const std::array<std::uint8_t,3> rgb{rgba[i],rgba[i+1],rgba[i+2]};
+        unsigned index = 0;
+        while (index < colors && result.palette[index] != rgb) ++index;
+        if (index == colors) {
+            if (colors == 255) throw std::runtime_error("VGA picture PNG: more than 239 additional colours; no automatic quantization");
+            result.palette[colors++] = rgb;
+        }
+        result.picture.planes[0].push_back(static_cast<std::uint8_t>(index));
+    }
+    return result;
 }
 
 void export_sci0_view(const Bytes& payload, const std::filesystem::path& destination) {

@@ -536,7 +536,11 @@ struct VgaGraphicsPlan {
     std::set<unsigned> filled_pictures;
     std::map<unsigned,std::vector<unsigned>> continuations;
 };
-VgaGraphicsPlan convert_vga_graphics(Resources& resources, const ScriptMetadata& scripts) {
+VgaGraphicsPlan convert_vga_graphics(Resources& resources, const ScriptMetadata& scripts, const VgaPictureEdits& edits) {
+    for (const auto& edit : edits)
+        if (edit.first > sci_vm::maximum_packed_resource_id ||
+            !resources.count({ResourceType::pic,static_cast<std::uint16_t>(edit.first)}))
+            throw std::runtime_error("VGA picture edit has no source resource: pic "+std::to_string(edit.first));
     bool detectable_view = false;
     VgaGraphicsPlan plan;
     std::set<unsigned> reserved;
@@ -558,9 +562,10 @@ VgaGraphicsPlan convert_vga_graphics(Resources& resources, const ScriptMetadata&
             resource.payload = write_sci1_vga_view(read_sci0_view(resource.payload));
             detectable_view |= entry.first.second < 1000;
         } else if (entry.first.first == ResourceType::pic) {
-            const auto picture = read_sci0_picture(resource.payload);
+            const auto edited = edits.find(entry.first.second);
+            const auto picture = edited == edits.end() ? read_sci0_picture(resource.payload) : edited->second.picture;
             if (picture.contains_fill) plan.filled_pictures.insert(entry.first.second);
-            auto parts = write_sci1_vga_picture_parts(picture,ega_picture_palette(),
+            auto parts = write_sci1_vga_picture_parts(picture,edited == edits.end() ? ega_picture_palette() : edited->second.palette,
                 picture.contains_fill ? VgaPictureMode::background : VgaPictureMode::overlay);
             resource.payload = std::move(parts.front());
             for (std::size_t i = 1; i < parts.size(); ++i) {
@@ -688,7 +693,9 @@ unsigned install_vga_picture_bridge(Resources& resources, const ScriptMetadata& 
 
 } // namespace
 
-Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics) {
+Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics, const VgaPictureEdits& pictures) {
+    if (!pictures.empty() && graphics != Sci1Graphics::vga)
+        throw std::runtime_error("VGA picture edits require VGA graphics");
     using namespace migration_detail;
     auto resources = resolve_duplicate_resources(game);
     if (!resources.count({ResourceType::script,0})) throw std::runtime_error("migration requires script 0");
@@ -708,7 +715,7 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics) {
         const auto early_picture_flags = source_uses_early_picture_flags(resources,scripts);
         if (stats.parser_calls) runtime_scripts = install_vga_parser(resources,game,scripts);
         resources.erase({ResourceType::vocab,999});
-        const auto filled_pictures = convert_vga_graphics(resources,scripts);
+        const auto filled_pictures = convert_vga_graphics(resources,scripts,pictures);
         graphics_script = install_vga_picture_bridge(resources,scripts,early_picture_flags,filled_pictures);
         auto& main = resources.at({ResourceType::script,0});
         main.payload = rename_main_game_object(main.payload,"scimate-vga");
