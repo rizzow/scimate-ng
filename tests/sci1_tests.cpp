@@ -64,6 +64,14 @@ Game sample() {
     return game;
 }
 void tests() {
+    const Bytes nonwildcard_suffix_fixture{0,'s',0,0x01,0x00,0,0,0x08,0x00,0,0,0xff};
+    const auto suffix_rules = parser_detail::read_suffix_table(nonwildcard_suffix_fixture);
+    require(suffix_rules.size() == 1 && suffix_rules.front().alternative == "s" &&
+            suffix_rules.front().replacement.empty() && suffix_rules.front().result_class == 0x100 &&
+            suffix_rules.front().class_mask == 0x800,
+            "Suffix decoding requires wildcard separators or lost big-endian classes");
+    require(parser_detail::read_suffix_table({0,0,0xff}).empty(),"Suffix terminator requires a complete dummy rule");
+    fails([&] { parser_detail::read_suffix_table({0,'s',0,1}); },"truncated word");
     const auto synonym_pairs = parser_detail::read_synonym_pairs({1,0,2,0,2,0,3,0});
     require(synonym_pairs.size() == 2 && synonym_pairs[0].original == 1 && synonym_pairs[0].replacement == 2 &&
             synonym_pairs[1].original == 2 && synonym_pairs[1].replacement == 3,

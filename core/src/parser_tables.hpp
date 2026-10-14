@@ -63,26 +63,27 @@ struct SuffixRule {
 inline std::vector<SuffixRule> read_suffix_table(const Bytes& bytes) {
     std::vector<SuffixRule> rules;
     if (bytes.empty()) return rules;
-    std::size_t cursor = 0;
+    // Separators precede the strings but are not validated by the interpreter.
+    // Start after the first separator, as with subsequent records below.
+    std::size_t cursor = 1;
     const auto string = [&]() {
         const auto start = cursor;
         while (cursor < bytes.size() && bytes[cursor]) ++cursor;
         if (cursor == bytes.size()) invalid_parser_table("unterminated suffix string");
         std::string value(bytes.begin()+start,bytes.begin()+cursor); ++cursor; return value;
     };
-    while (cursor < bytes.size()) {
-        if (bytes[cursor] != '*') invalid_parser_table("missing suffix wildcard");
-        ++cursor;
-        if (cursor+1 >= bytes.size()) invalid_parser_table("truncated suffix record");
-        // Legacy resources terminate with an empty suffix and a 0xffff class.
-        if (bytes[cursor] == 0 && table_word(bytes,cursor+1,true) == 0xffff) break;
+    while (cursor < bytes.size() && bytes.size()-cursor > 1) {
+        // The interpreter checks the following byte for the end marker before
+        // reading a string or class. It does not require a complete dummy rule.
+        if (bytes[cursor+1] == 0xff) break;
         SuffixRule rule;
         rule.alternative = string();
         rule.result_class = table_word(bytes,cursor,true); cursor += sci_vm::word_bytes;
-        if (cursor >= bytes.size() || bytes[cursor] != '*') invalid_parser_table("missing replacement wildcard");
+        if (cursor >= bytes.size()) invalid_parser_table("truncated suffix record");
         ++cursor; rule.replacement = string();
         rule.class_mask = table_word(bytes,cursor,true); cursor += sci_vm::word_bytes;
         rules.push_back(std::move(rule));
+        if (cursor < bytes.size()) ++cursor; // Separator before the next string.
     }
     return rules;
 }
