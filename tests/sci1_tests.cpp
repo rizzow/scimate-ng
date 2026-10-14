@@ -15,6 +15,7 @@
 #include "../core/src/parser_pipeline.hpp"
 #include "../core/src/parser_bridges.hpp"
 #include "../core/src/parser_said_lookup.hpp"
+#include "../core/src/parser_pages.hpp"
 #include <iostream>
 
 namespace {
@@ -164,6 +165,31 @@ void tests() {
         has_lookup_index = true;
     }
     require(has_lookup_index,"Said lookup records were not emitted as script locals");
+    parser_detail::ScriptBuilder empty_page_builder;
+    const auto empty_page_lookup = parser_detail::emit_said_lookup(empty_page_builder,{});
+    empty_page_builder.export_procedure(empty_page_lookup.procedure);
+    const auto page_overhead = empty_page_builder.serialized_size()-2;
+    const auto specification_cost = [](const Bytes& bytes) {
+        return 2*(4+bytes.size()+1+parser_detail::said_node_count(parser_detail::compile_said(bytes,0,bytes.size()))*6);
+    };
+    const auto page_limit = page_overhead+std::max(specification_cost(said_fixture),specification_cost(reference_said));
+    const auto lookup_pages = parser_detail::write_said_pages({said_fixture,reference_said,said_fixture},page_limit);
+    require(lookup_pages.size() == 2 && lookup_pages[0].specifications == 1 && lookup_pages[1].specifications == 1,
+            "Said lookup paging lost deduplication or capacity partitioning");
+    for (const auto& page : lookup_pages)
+        require(page.payload.size() <= page_limit && script_detail::parse(page.payload).exports.size() == 1,
+                "Said lookup page exceeds its limit or lacks export zero");
+    fails([&] { parser_detail::write_said_pages({said_fixture},page_overhead); },"capacity");
+    parser_detail::ScriptBuilder dispatcher_builder;
+    dispatcher_builder.export_procedure(parser_detail::emit_said_page_dispatch(dispatcher_builder,{2047,2046}));
+    const auto dispatcher_script = script_detail::parse(dispatcher_builder.finish());
+    unsigned external_pages = 0;
+    for (const auto& instruction : dispatcher_script.instructions) if (instruction.opcode == sci_vm::opcode::call_external) {
+        require(instruction.width == 2 && instruction.operands[1] == 0 && instruction.operands[2] == 4,
+                "Said page dispatch narrowed script IDs or changed argument frames");
+        ++external_pages;
+    }
+    require(external_pages == 2,"Said dispatcher omitted a lookup page");
     bool has_pronoun_state = false;
     for (const auto& section : pipeline_script.sections) if (section.type == 10) {
         const auto reference = section.start+4+pipeline.pronouns.reference*2;

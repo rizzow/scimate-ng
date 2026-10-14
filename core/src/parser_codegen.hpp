@@ -41,6 +41,12 @@ inline Value kernel(unsigned id, std::vector<Value> values) {
 inline Value procedure(ScriptBuilder::Label label, std::vector<Value> values) {
     return [=](ScriptBuilder& builder) { arguments(builder,values); builder.call(label,static_cast<unsigned>(values.size())); };
 }
+inline Value external_procedure(unsigned script, unsigned slot, std::vector<Value> values) {
+    return [=](ScriptBuilder& builder) {
+        arguments(builder,values);
+        builder.emit(sci_vm::opcode::call_external,{script,slot,static_cast<unsigned>(values.size()*sci_vm::word_bytes)});
+    };
+}
 inline Value send(Value object, unsigned selector, std::vector<Value> values = {}) {
     return [=](ScriptBuilder& builder) {
         builder.emit(sci_vm::opcode::push_immediate,{selector}); arguments(builder,values);

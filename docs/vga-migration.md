@@ -135,6 +135,14 @@ emitted matcher. An explicit unknown result lets the dispatcher try another page
 The export layer still needs page partitioning and call wiring; dynamic Said
 specifications require additional handling rather than an assumed match.
 
+Lookup-page generation now partitions deduplicated specifications by exact
+serialized size, including runtime code and tree records. Each page exposes
+export zero and obeys the early SCI1 stored-resource size limit. A single
+oversized specification fails explicitly. The generated dispatcher calls page
+scripts with wide IDs and continues only on the unknown-specification result.
+Assigning collision-free script IDs and rewriting the game calls remain export
+integration work; page partitioning does not establish runtime proof.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

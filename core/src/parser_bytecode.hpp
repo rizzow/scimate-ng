@@ -55,8 +55,17 @@ public:
         emit(sci_vm::opcode::call_local,{0,parameter_count*sci_vm::word_bytes});
         fixups_.push_back({start+1,code_.size(),label});
     }
+    std::size_t serialized_size() const {
+        std::size_t size = sci_vm::section_header_bytes+sci_vm::word_bytes*(1+exports_.size());
+        size += sci_vm::section_header_bytes+code_.size()+sci_vm::word_bytes;
+        if (!strings_.empty()) size += sci_vm::section_header_bytes+strings_.size();
+        if (!locals_.empty()) size += sci_vm::section_header_bytes+locals_.size()*sci_vm::word_bytes;
+        if (!pointers_.empty()) size += sci_vm::section_header_bytes+sci_vm::word_bytes*(1+pointers_.size());
+        return size;
+    }
     Bytes finish() const {
         if (exports_.empty() || code_.empty()) fail("script has no exported code");
+        if (serialized_size() > sci_vm::max_script_address) fail("script exceeds address space");
         auto code = code_;
         for (const auto& fixup : fixups_) {
             const auto target = bound(fixup.label);
