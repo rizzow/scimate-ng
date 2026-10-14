@@ -93,8 +93,13 @@ sentence-part boundaries, comma alternatives, references, nested parentheses,
 optional terms and the partial-match marker. Word groups use the resource's
 big-endian byte order. Invalid specifications fail explicitly; conjunction/hash
 operators are tokenised but are not accepted by the native-compatible grammar.
-These trees still need serialization and an emitted SCI matcher before the
-existing Said calls can be redirected.
+Said trees now serialize into immutable six-word node records in script locals.
+The emitted matcher reads parsed nodes from a separate dynamic arena and keeps
+three internal outcomes: absent, mismatched and matched. Optional terms accept
+absence, not a present mismatching word. Alternatives, reference tags, wildcard
+groups and the partial marker remain distinct. A partial match sets state for
+the future call bridge to preserve event claiming. Tree-arena construction,
+specification lookup and call redirection still need integration.
 
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This

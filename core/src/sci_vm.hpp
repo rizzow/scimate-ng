@@ -7,6 +7,7 @@ namespace section { inline constexpr unsigned strings = 5; }
 namespace opcode {
 inline constexpr unsigned add = 1, subtract = 2, multiply = 3, divide = 4;
 inline constexpr unsigned bitwise_and = 9, equal = 13, less_signed = 17, less_unsigned = 21;
+inline constexpr unsigned bitwise_or = 10;
 inline constexpr unsigned load_local_to_accumulator = 65, load_local_to_stack = 69;
 inline constexpr unsigned load_indexed_local_to_accumulator = 73, load_indexed_local_to_stack = 77;
 inline constexpr unsigned store_accumulator_to_local = 81, store_accumulator_to_parameter = 83;

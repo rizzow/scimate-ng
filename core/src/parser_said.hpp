@@ -17,7 +17,9 @@ inline constexpr unsigned generic = 0x141, subject = 0x142, suffix = 0x143, refe
 inline constexpr unsigned partial = 0x14b, optional = 0x152, root = 0x13f;
 inline constexpr unsigned predicate_part = 0x149, other_part = 0x14a, entry = 0x14c;
 inline constexpr unsigned alternatives = 0x14f, nested_reference = 0x144, word = 0x153;
+inline constexpr unsigned other_alternatives = 0x150, ignored = 0x145;
 }
+namespace said_word { inline constexpr unsigned none = 0xffe, any = 0xfff; }
 inline constexpr unsigned said_max_tokens = 128, said_max_group = 0xfff;
 struct SaidToken { bool group; unsigned value; };
 struct SaidTokens { std::vector<SaidToken> tokens; std::size_t bytes_consumed; };

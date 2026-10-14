@@ -11,6 +11,7 @@
 #include "../core/src/parser_scanner.hpp"
 #include "../core/src/parser_sentence.hpp"
 #include "../core/src/parser_said.hpp"
+#include "../core/src/parser_matcher.hpp"
 #include <iostream>
 
 namespace {
@@ -71,6 +72,26 @@ void tests() {
             "Said alternatives or reference semantics were flattened");
     fails([&] { parser_detail::tokenize_said(Bytes{0},0,1); },"truncated");
     fails([&] { parser_detail::compile_said(Bytes{0,12,0xf1,0,21,0xff},0,6); },"invalid");
+    parser_detail::ScriptBuilder matcher_builder;
+    const auto matcher_tree = parser_detail::emit_said_tree(matcher_builder,said_tree);
+    const auto matcher = parser_detail::emit_said_matcher(matcher_builder);
+    matcher_builder.export_procedure(matcher.procedure);
+    const auto matcher_bytes = matcher_builder.finish();
+    const auto matcher_script = script_detail::parse(matcher_bytes);
+    require(matcher_tree != 0 && matcher_script.exports.size() == 1,"Said matcher tree root or procedure export is invalid");
+    bool has_tree_memory = false;
+    for (const auto& instruction : matcher_script.instructions) if (instruction.opcode == sci_vm::opcode::call_kernel) {
+        require(instruction.operands[0] == 0x72,"Said matcher depends on a native parser or game-specific kernel");
+        has_tree_memory = true;
+    }
+    require(has_tree_memory,"Said matcher cannot read the parsed tree arena");
+    for (const auto& section : matcher_script.sections) if (section.type == 10) {
+        const auto root = section.start+4+matcher_tree*2;
+        require(script_detail::word(matcher_bytes,root,section.end) == 0x141 &&
+                script_detail::word(matcher_bytes,root+2,section.end) == 0x13f &&
+                script_detail::word(matcher_bytes,root+8,section.end) != 0,
+                "Serialized Said tree lost its major/minor tags or child index");
+    }
     // The leading rule wraps both predicate and subject trees. Normalization
     // consumes the verb first without losing the subject's pending nonterminal.
     const parser_detail::GrammarTable nested_grammar{{
