@@ -411,3 +411,7 @@ Full-game import loads these edits and rejects conflicts with raw payload edits.
 
 `font-export/import`, `cursor-export/import`, and `text-export/import` are also
 available. See [supported formats, editing rules, and limits](docs/sci0-assets.md).
+Font resources have a glyph browser with pixel dimensions, enlarged selection,
+and a sample-text preview. Glyph indices remain byte values; no game code page
+is guessed. Font decoding happens only when the resource is selected.
+

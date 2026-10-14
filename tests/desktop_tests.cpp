@@ -2,11 +2,15 @@
 #include "main_window.hpp"
 #include "explanation_tree.hpp"
 #include "game_info.hpp"
+#include "font_preview.hpp"
+#include "scimate/assets.hpp"
 #include "project_fixture.hpp"
 #include <QtTest>
 #include <QComboBox>
 #include <QLineEdit>
 #include <QLabel>
+#include <QStackedWidget>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QImage>
@@ -25,6 +29,21 @@
 class DesktopTests : public QObject {
     Q_OBJECT
 private slots:
+    void fontPreview() {
+        scimate::Font font;
+        font.line_height = 3;
+        font.glyphs = {{2, 2, 0, 0, 15, {0, 15, 15, 0}}, {0, 0, 0, 0, 15, {}}};
+        QStackedWidget stack;
+        showFontPreview(&stack, scimate::write_sci0_font(font));
+        auto* glyphs = stack.findChild<QListWidget*>("fontGlyphs");
+        QVERIFY(glyphs); QCOMPARE(glyphs->count(), 2);
+        glyphs->setCurrentRow(1);
+        QVERIFY(!stack.findChild<QLabel*>("fontSelectedGlyph")->pixmap().isNull());
+        stack.findChild<QLineEdit*>("fontSample")->setText(QString(QChar(0x1234)));
+        QVERIFY(!stack.findChild<QLabel*>("fontSampleImage")->pixmap().isNull());
+        showFontPreview(&stack, scimate::write_sci0_font(font));
+        QCOMPARE(stack.count(), 1);
+    }
     void gameInfoMetadata() {
         scimate::Project project;
         project.name = "<User-defined title>";

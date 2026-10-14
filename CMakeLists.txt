@@ -41,6 +41,7 @@ if(SCIMATE_BUILD_DESKTOP)
   target_sources(scimate_desktop_ui PRIVATE apps/desktop/main_window_ui.cpp
     apps/desktop/main_window_operations.cpp apps/desktop/main_window_preview.cpp)
   target_include_directories(scimate_desktop_ui PUBLIC apps/desktop)
+  target_sources(scimate_desktop_ui PRIVATE apps/desktop/font_preview.cpp)
   target_link_libraries(scimate_desktop_ui PUBLIC scimate_application Qt6::Widgets Qt6::Concurrent)
   add_executable(scimate-desktop MACOSX_BUNDLE WIN32 apps/desktop/main.cpp)
   target_link_libraries(scimate-desktop PRIVATE scimate_desktop_ui)

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
+#include "font_preview.hpp"
+#include "resource_preview.hpp"
 #include "explanation_tree.hpp"
 #include "preferences.hpp"
 #include "game_info.hpp"
@@ -23,6 +25,7 @@ void MainWindow::preview() {
     play_->setChecked(false); play_->setEnabled(false); export_->setEnabled(false); references_->setEnabled(false);
     play_->hide(); previewStack_->hide(); previewTitle_->setText("Resource viewer");
     editText_->hide(); strings_->setRowCount(0); previewStack_->setCurrentIndex(0);
+    clearResourcePreview(previewStack_);
     previewImage_ = {}; previewView_ = {}; previewPicture_ = {};
     selectedView_.clear(); selectedPicture_.clear(); cels_->clear(); cels_->hide(); image_->clear(); details_->clear();
     const auto selected = proxy_->mapToSource(table_->currentIndex());
@@ -73,6 +76,9 @@ void MainWindow::preview() {
             strings_->resizeRowsToContents(); previewStack_->setCurrentWidget(strings_); previewStack_->show(); editText_->show();
             description += QString("\n%1 numbered strings. Edit text… saves directly to the project.\n").arg(strings_->rowCount());
             description += "Text is shown losslessly: \\n, \\r, \\t, \\\\ and \\xHH byte escapes.\nString indices are script references; keep their order. Export as TSV for external editing.";
+        } else if (resource.entry.id.type == scimate::ResourceType::font) {
+            previewTitle_->setText("Font glyphs");
+            description += showFontPreview(previewStack_, resource.payload);
         } else if (resource.entry.id.type == scimate::ResourceType::script) {
             previewTitle_->setText("Script disassembly");
             description += "\n" + QString::fromStdString(scimate::disassemble_sci0_script(resource.payload, resource.entry.id.number));
