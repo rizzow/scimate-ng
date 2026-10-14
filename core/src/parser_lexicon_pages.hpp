@@ -62,7 +62,7 @@ inline LexiconProcedures emit_lexicon_page_dispatch(ScriptBuilder& builder,
         unsigned offset = 0;
         for (std::size_t i = 0; i < pages.size(); ++i) {
             const auto next = builder.label();
-            branch_if(builder,binary(op::less_equal_unsigned,parameter(1),number(offset+pages[i].count)),next,false);
+            branch_if(builder,binary(op::less_unsigned,parameter(1),number(offset+pages[i].count+1)),next,false);
             return_value(builder,external_procedure(scripts[i],static_cast<unsigned>(property.second),
                 {binary(op::subtract,parameter(1),number(offset))}));
             builder.bind(next); offset += pages[i].count;
