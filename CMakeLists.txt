@@ -42,6 +42,12 @@ if(SCIMATE_BUILD_DESKTOP)
   add_library(scimate_desktop_ui apps/desktop/main_window.cpp apps/desktop/explanation_tree.cpp apps/desktop/preferences.cpp apps/desktop/game_info.cpp)
   target_sources(scimate_desktop_ui PRIVATE apps/desktop/main_window_ui.cpp
     apps/desktop/main_window_operations.cpp apps/desktop/main_window_preview.cpp)
+  # These methods share MainWindow's private layout. Compile them in one unit so
+  # an incremental build cannot mix old/new member offsets across split objects.
+  set_target_properties(scimate_desktop_ui PROPERTIES UNITY_BUILD ON UNITY_BUILD_MODE GROUP)
+  set_source_files_properties(apps/desktop/main_window.cpp apps/desktop/main_window_ui.cpp
+    apps/desktop/main_window_operations.cpp apps/desktop/main_window_preview.cpp
+    PROPERTIES UNITY_GROUP main_window)
   target_include_directories(scimate_desktop_ui PUBLIC apps/desktop)
   target_sources(scimate_desktop_ui PRIVATE apps/desktop/room_explorer.cpp)
   target_sources(scimate_desktop_ui PRIVATE apps/desktop/later_game.cpp)

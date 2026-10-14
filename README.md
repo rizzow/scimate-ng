@@ -54,6 +54,8 @@ reference-image, generation, palette preparation, and workspace workflow.
   volumes, with validation of the reconstructed output.
 
 The desktop application is `scimate-desktop`; the command-line tool is `scimate`.
+The main-window implementation compiles as one unit to keep its shared widget
+layout consistent across incremental desktop builds.
 The desktop edits SCI0 source workspaces and previews their VGA artwork overrides.
 Build Resources offers SCI0 EGA or experimental SCI1 EGA/VGA targets. Later games
 have a separate read-only inspector in **File → Inspect SCI1 / SCI1.1 Game…**.
