@@ -13,6 +13,7 @@
 #include "../core/src/parser_said.hpp"
 #include "../core/src/parser_matcher.hpp"
 #include "../core/src/parser_pipeline.hpp"
+#include "../core/src/parser_bridges.hpp"
 #include <iostream>
 
 namespace {
@@ -132,7 +133,11 @@ void tests() {
     parser_detail::ScriptBuilder pipeline_builder;
     const auto pipeline = parser_detail::emit_parser_pipeline(pipeline_builder,
         {{"look",0x800,12},{"coin",0x100,21}},nested_grammar,{});
+    const auto fixture_lookup = pipeline_builder.label(); pipeline_builder.bind(fixture_lookup);
+    pipeline_builder.emit(sci_vm::opcode::load_immediate,{1}); pipeline_builder.emit(sci_vm::opcode::return_);
+    const auto bridges = parser_detail::emit_parser_bridges(pipeline_builder,pipeline,{17,23,31},fixture_lookup);
     pipeline_builder.export_procedure(pipeline.procedure);
+    pipeline_builder.export_procedure(bridges.parse); pipeline_builder.export_procedure(bridges.said);
     const auto pipeline_bytes = pipeline_builder.finish();
     const auto pipeline_script = script_detail::parse(pipeline_bytes);
     bool has_tree_capacity = false;
@@ -141,8 +146,14 @@ void tests() {
         if (instruction.opcode == sci_vm::opcode::call_kernel)
             require(instruction.operands[0] != 0x24 && instruction.operands[0] != 0x25,"portable parser pipeline calls native parser kernels");
     }
-    require(pipeline_script.exports.size() == 1 && has_tree_capacity && pipeline.tree.arena != pipeline.sentence.result,
+    require(pipeline_script.exports.size() == 3 && has_tree_capacity && pipeline.tree.arena != pipeline.sentence.result,
             "portable parser pipeline did not separate candidate and tree arenas");
+    bool sends_callbacks = false, sends_claimed = false;
+    for (const auto& instruction : pipeline_script.instructions) if (instruction.opcode == sci_vm::opcode::send) {
+        if (instruction.operands[0] == 8) sends_callbacks = true;
+        if (instruction.operands[0] == 6) sends_claimed = true;
+    }
+    require(sends_callbacks && sends_claimed,"portable parser bridges lost callback/property send frames");
     bool has_pronoun_state = false;
     for (const auto& section : pipeline_script.sections) if (section.type == 10) {
         const auto reference = section.start+4+pipeline.pronouns.reference*2;

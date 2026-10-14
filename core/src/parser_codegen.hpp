@@ -41,6 +41,12 @@ inline Value kernel(unsigned id, std::vector<Value> values) {
 inline Value procedure(ScriptBuilder::Label label, std::vector<Value> values) {
     return [=](ScriptBuilder& builder) { arguments(builder,values); builder.call(label,static_cast<unsigned>(values.size())); };
 }
+inline Value send(Value object, unsigned selector, std::vector<Value> values = {}) {
+    return [=](ScriptBuilder& builder) {
+        builder.emit(sci_vm::opcode::push_immediate,{selector}); arguments(builder,values);
+        object(builder); builder.emit(sci_vm::opcode::send,{static_cast<unsigned>((values.size()+2)*sci_vm::word_bytes)});
+    };
+}
 inline void set_temporary(ScriptBuilder& builder, unsigned index, const Value& value) {
     value(builder); builder.emit(sci_vm::opcode::store_accumulator_to_temporary,{index});
 }

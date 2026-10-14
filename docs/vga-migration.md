@@ -119,6 +119,14 @@ subject and failed input retain the old reference. The initial undefined marker
 disables replacement until a reference has been established. Synonym collection
 and the event/callback bridge remain to be connected.
 
+Generated Parse/Said bridges now retain the current event and parser-valid state.
+Parse claims failed input and invokes the source game's wordFail/syntaxFail
+selectors; successful input remains unclaimed. Empty input has no syntax callback.
+Said skips claimed/invalid events, claims full matches and retains partial matches
+for subsequent handlers. Selector IDs are supplied by source-vocabulary lookup,
+not fixed numeric identities. Failure text uses a persistent local buffer. The
+bridges still need Said lookup pages, synonym collection and export call rewriting.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

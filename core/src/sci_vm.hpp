@@ -45,6 +45,7 @@ inline constexpr unsigned do_sound = 0x31, do_avoider = 0x55, last = 0x71;
 inline constexpr unsigned removed_file_functions = 4;
 }
 namespace sci1_kernel {
+inline constexpr unsigned script_id = 0x02;
 inline constexpr unsigned memory = 0x72, new_list = 0x2e, dispose_list = 0x2f;
 inline constexpr unsigned new_node = 0x30, first_node = 0x31, next_node = 0x34, node_value = 0x36, add_to_end = 0x39;
 inline constexpr unsigned delete_key = 0x3b;
