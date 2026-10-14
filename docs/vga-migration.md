@@ -88,6 +88,14 @@ derivations are freed, the first alternative keeps its position, and only distin
 streams count toward the capacity limit. Equality includes semantic tags and word
 groups, so candidates with different Said meanings are retained.
 
+The Said front end decodes bounded specifications into tagged trees. It retains
+sentence-part boundaries, comma alternatives, references, nested parentheses,
+optional terms and the partial-match marker. Word groups use the resource's
+big-endian byte order. Invalid specifications fail explicitly; conjunction/hash
+operators are tokenised but are not accepted by the native-compatible grammar.
+These trees still need serialization and an emitted SCI matcher before the
+existing Said calls can be redirected.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

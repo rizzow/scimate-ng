@@ -10,6 +10,7 @@
 #include "../core/src/parser_grammar.hpp"
 #include "../core/src/parser_scanner.hpp"
 #include "../core/src/parser_sentence.hpp"
+#include "../core/src/parser_said.hpp"
 #include <iostream>
 
 namespace {
@@ -54,6 +55,22 @@ Game sample() {
     return game;
 }
 void tests() {
+    const Bytes said_fixture{0,12,0xf2,0xf5,0,21,0xf6,0xf9,0xff};
+    const auto said_tokens = parser_detail::tokenize_said(said_fixture,0,said_fixture.size());
+    const auto said_tree = parser_detail::compile_said(said_fixture,0,said_fixture.size());
+    require(said_tokens.bytes_consumed == said_fixture.size() && said_tokens.tokens[0].group && said_tokens.tokens[0].value == 12,
+            "Said group byte order or terminator consumption changed");
+    require(said_tree.major == 0x141 && said_tree.minor == 0x13f && said_tree.children.size() == 3 &&
+            said_tree.children[0].minor == 0x149 && said_tree.children[1].major == 0x142 &&
+            said_tree.children[1].children[0].children[0].major == 0x152 && said_tree.children[2].major == 0x14b,
+            "Said sentence parts, optional term or partial match marker were lost");
+    const Bytes reference_said{0,12,0xf0,0,13,0xf8,0,21,0xff};
+    const auto reference_tree = parser_detail::compile_said(reference_said,0,reference_said.size());
+    require(reference_tree.children[0].children.size() == 2 &&
+            reference_tree.children[0].children[0].children.size() == 2 && reference_tree.children[0].children[1].major == 0x144,
+            "Said alternatives or reference semantics were flattened");
+    fails([&] { parser_detail::tokenize_said(Bytes{0},0,1); },"truncated");
+    fails([&] { parser_detail::compile_said(Bytes{0,12,0xf1,0,21,0xff},0,6); },"invalid");
     // The leading rule wraps both predicate and subject trees. Normalization
     // consumes the verb first without losing the subject's pending nonterminal.
     const parser_detail::GrammarTable nested_grammar{{
