@@ -96,6 +96,11 @@ is guessed. Font decoding happens only when the resource is selected.
 Vocabulary 0 has a searchable word/class/group table. Other vocabularies use a
 searchable tree of the core's structured fields, with opaque layouts labelled.
 
+Opening or refreshing a project imports up to four resources concurrently, with
+ordered progress and error reporting. Unchanged backgrounds skip a second vector
+render after their PNG planes have been validated. External edits and conflicting
+binary/asset edits are still checked on every load; no timestamp cache is used.
+
 Select a resource and click **References…** to find its outgoing **References**
 and incoming **Referenced by** entries in Explain. Select a link to preview its
 target or source script; source links include byte offsets and highlight the

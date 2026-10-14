@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <thread>
 
 namespace {
 using namespace fixture;
@@ -40,6 +41,19 @@ void tests(const fs::path& root) {
     require(fs::exists(exported / "scripts/0000001.error.txt"), "malformed script diagnostic missing");
     const auto assembly = read(exported / "scripts/0000003.asm");
     require(std::string(assembly.begin(), assembly.end()).find("ret") != std::string::npos, "script listing missing ret");
+    const auto caller = std::this_thread::get_id();
+    std::size_t completed = 0;
+    std::vector<Bytes> originals;
+    const auto reopened = open_sci0_export(exported, [&](const OperationProgress& progress) {
+        require(std::this_thread::get_id() == caller, "loading progress escaped the caller thread");
+        if (progress.phase == "Loading edited resources") {
+            require(progress.completed == completed++, "loading progress is out of map order");
+        }
+    }, &originals);
+    require(completed == reopened.resources.size() + 1, "loading progress is incomplete");
+    require(originals.size() == reopened.resources.size(), "original payload count changed");
+    for (std::size_t i = 0; i < originals.size(); ++i)
+        require(originals[i] == reopened.resources[i].payload, "parallel import changed resource order or payload");
     // Listings are inspection sidecars; changing one must not change imported bytes.
     write(exported / "scripts/0000003.asm", {'e','d','i','t'});
     const auto unchanged = root / "unchanged";

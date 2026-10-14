@@ -8,6 +8,10 @@
 #include "scimate/workspace.hpp"
 
 #include <iomanip>
+#include <algorithm>
+#include <deque>
+#include <future>
+#include <thread>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -172,9 +176,7 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
     const auto saved = read_file(export_directory / "manifest.tsv", text.size());
     if (saved != Bytes(text.begin(), text.end()))
         throw std::runtime_error("manifest does not match original game (unsupported version or metadata edits)");
-    std::size_t total = 0;
-    for (std::size_t i = 0; i < game.resources.size(); ++i) {
-        report(progress, "Loading edited resources", i, game.resources.size(), resource_label(game.resources[i]));
+    const auto load_resource = [&](std::size_t i) {
         auto bytes = read_file(export_directory / "payloads" / payload_filename(i), 65535);
         const auto& original = game.resources[i].payload;
         const auto view_directory = export_directory / "views" / std::filesystem::path(payload_filename(i)).stem();
@@ -207,6 +209,21 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
                 throw std::runtime_error("asset identity differs from original resource");
             bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
         }
+        return bytes;
+    };
+    // Keep only a small window of imports in flight. Consume results in map
+    // order so diagnostics and progress callbacks remain deterministic and the
+    // decoded-game limit is checked before retaining each result.
+    const auto workers = std::max(1u, std::min(4u, std::thread::hardware_concurrency()));
+    std::deque<std::future<Bytes>> pending;
+    std::size_t next = 0, total = 0;
+    for (std::size_t i = 0; i < game.resources.size(); ++i) {
+        while (next < game.resources.size() && pending.size() < workers) {
+            pending.push_back(std::async(std::launch::async, load_resource, next++));
+        }
+        report(progress, "Loading edited resources", i, game.resources.size(), resource_label(game.resources[i]));
+        auto bytes = pending.front().get();
+        pending.pop_front();
         if (bytes.size() > max_decoded_bytes - total) throw std::runtime_error("decoded game exceeds 256 MiB limit");
         total += bytes.size();
         game.resources[i].payload = std::move(bytes);
