@@ -232,7 +232,22 @@ void MainWindow::renameProject(const QString& value) {
 
 void MainWindow::openProject(const QString& directory) {
     const bool vga = vgaEdits_->isChecked();
-    run("Opening project", [directory, vga](const scimate::ProgressCallback& progress) { return std::make_shared<scimate::Project>(scimate::open_project(path(directory), progress, vga)); });
+    run("Opening project", [directory, vga](const scimate::ProgressCallback& progress) {
+        bool loadVga = vga;
+        const auto views = path(directory) / "views";
+        if (!loadVga && std::filesystem::is_directory(views))
+            for (const auto& entry : std::filesystem::directory_iterator(views))
+                if (std::filesystem::is_directory(entry.symlink_status()) &&
+                    std::filesystem::exists(entry.path() / "vga" / "view.tsv")) { loadVga = true; break; }
+        try {
+            return std::make_shared<scimate::Project>(scimate::open_project(path(directory), progress, loadVga));
+        } catch (const std::runtime_error& error) {
+            // Retry only the explicit EGA colour mismatch. The VGA loader still
+            // validates palettes, masks, snapshots and edit conflicts normally.
+            if (loadVga || std::string(error.what()).find("PNG: color is outside the EGA palette") == std::string::npos) throw;
+            return std::make_shared<scimate::Project>(scimate::open_project(path(directory), progress, true));
+        }
+    });
 }
 void MainWindow::createProject(const QString& source, const QString& directory, const QString& name) {
     rememberDirectory("games", source);
@@ -299,6 +314,11 @@ void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& mod
     const QSignalBlocker selectionSignals(table_->selectionModel());
     explanation_->resetAnalysis(); explanationReady_ = false; referenceFocus_.reset(); browserTabs_->setCurrentIndex(0);
     project_ = std::move(project);
+    {
+        const QSignalBlocker modeSignals(vgaEdits_);
+        vgaEdits_->setChecked(project_->vga_workspace);
+        QSettings().setValue("vgaWorkspacePreview", project_->vga_workspace);
+    }
     table_->setUpdatesEnabled(false);
     model_->removeRows(0, model_->rowCount()); filter_->clear(); types_->clear(); types_->addItem("All resource types", "");
     QMap<QString, int> counts;

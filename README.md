@@ -84,8 +84,9 @@ Start with your own SCI0 game files. In the desktop app, create a project from t
 game directory, browse its resources, and open a resource folder to edit assets
 in your preferred editor. Refresh from disk to see your changes, then use
 **Build Resources to New Folder** and select the target engine and graphics.
-Enable **Project → Preview VGA Workspace Edits** before opening or refreshing a
-workspace with RGB picture/view PNGs. Successful SCI1 builds display their
+RGB artwork and complete `vga/` view sibling sets automatically select VGA
+workspace previews when opened. **Project → Preview VGA Workspace Edits** also
+selects the mode explicitly. Successful SCI1 builds display their
 migration report; interpreter gameplay validation remains manual.
 
 The equivalent command-line workflow is:

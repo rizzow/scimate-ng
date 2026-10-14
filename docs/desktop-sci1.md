@@ -1,8 +1,11 @@
 # SCI1 and VGA in the desktop
 
-The editing project remains an SCI0 source workspace. Select
-**Project → Preview VGA Workspace Edits** before opening RGB artwork, or toggle it
-on an open project to reload. The setting is remembered for subsequent opens.
+The editing project remains an SCI0 source workspace. Opening a complete `vga/`
+view sibling set selects VGA previews automatically. If the EGA loader encounters
+RGB colours outside its palette, the GUI retries with the VGA loader; masks,
+palette limits and edit conflicts are still validated. The preview checkbox is
+synchronized to the successfully loaded mode and remembered for subsequent opens.
+**Project → Preview VGA Workspace Edits** also selects the mode explicitly.
 Validated RGB pictures and view edits are retained separately from SCI0 decoded
 payloads. The resource browser, animation preview and room explorer display their
 palettes; the effective edited resources are marked Modified. Game Info reports
