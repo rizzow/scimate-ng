@@ -12,6 +12,22 @@ disassembly and game explanations aid inspection; script compilation and
 integrated high-level decompilation are not available. Migration output remains
 unverified until tested in ScummVM.
 
+## Artwork comparison
+
+**Original EGA artwork from LSL3**
+
+![Original EGA artwork from LSL3](resources/lsl3-ega.png)
+
+**VGA-style rendering of the same scene**
+
+![VGA-style rendering of the LSL3 scene](resources/lsl3-vga.png)
+
+> **Artwork disclaimer:** The EGA image is original artwork from LSL3. The
+> comparison rendering is based on the same scene. Original game artwork belongs
+> to its respective copyright holders; no ownership is claimed by this project.
+> These images are shown for illustration and are not covered by the project's
+> code license.
+
 ## Room explorer
 
 Run `scimate rooms <game-directory> [room-number]` to inspect SCI0 room candidates,
