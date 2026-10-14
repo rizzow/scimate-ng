@@ -26,6 +26,10 @@ endfunction()
 check(0 "type\tnumber\tvolume\toffset\npic\t42\t1\t1193046\npatch\t2047\t63\t67108863\n" ""
   list --format sci0 "${FIXTURE_DIR}/valid.map")
 check(0 "type\tnumber\tvolume\toffset\n" "" list --format sci0 "${FIXTURE_DIR}/empty.map")
+check(0 "type\tnumber\tvolume\toffset\n" "Finished with exit status 0" list --verbose "${FIXTURE_DIR}/empty.map")
+check(0 "type\tnumber\tvolume\toffset\n" "Starting; format=sci0" list -v "${FIXTURE_DIR}/empty.map")
+check(0 "type\tnumber\tvolume\toffset\n" "Finished with exit status 0" --verbose list "${FIXTURE_DIR}/empty.map")
+check(1 "" "Finished with exit status 1" list --verbose "${FIXTURE_DIR}/bad.map")
 check(1 "" "byte 0: truncated record" list --format sci0 "${FIXTURE_DIR}/bad.map")
 check(1 "" "regular file" list --format sci0 "${FIXTURE_DIR}/absent.map")
 check(0 "type\tnumber\tvolume\toffset\npic\t42\t1\t1193046\npatch\t2047\t63\t67108863\n" ""

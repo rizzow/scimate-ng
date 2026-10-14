@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -56,6 +57,12 @@ scimate::Bytes read_file(const char* path, bool script = false) {
 } // namespace
 
 int main(int argc, char** argv) {
+    bool verbose = false;
+    while (argc > 1 && (std::string_view(argv[1]) == "--verbose" || std::string_view(argv[1]) == "-v")) {
+        verbose = true;
+        --argc;
+        ++argv;
+    }
     if (const auto result = scimate::cli::show_help(argc, argv, true, migrate_help)) return *result;
     const std::string_view command = argc > 1 ? argv[1] : "";
     const auto* spec = scimate::cli::command_spec(command);
@@ -85,7 +92,9 @@ int main(int argc, char** argv) {
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (options && arg == "--") { options = false; continue; }
-        if (options && arg == "--json" && (explain || rooms) && !json) {
+        if (options && (arg == "--verbose" || arg == "-v")) {
+            verbose = true;
+        } else if (options && arg == "--json" && (explain || rooms) && !json) {
             json = true;
         } else if (options && arg == "--force" && spec && spec->force) {
             force = true;
@@ -115,15 +124,35 @@ int main(int argc, char** argv) {
         scimate::cli::usage_error(command, true, migrate_help);
         return 2;
     }
+    const auto started = std::chrono::steady_clock::now();
+    const auto report = [&](const std::string& message) {
+        if (verbose) scimate::log_diagnostic(scimate::LogLevel::info, std::string(command), message);
+    };
+    const auto finish = [&](int code) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started).count();
+        report("Finished with exit status " + std::to_string(code) + " in " + std::to_string(elapsed) + " ms");
+        return code;
+    };
+    scimate::ProgressCallback progress;
+    if (verbose) progress = [&](const scimate::OperationProgress& value) {
+        std::string message = value.phase;
+        if (value.total) message += " (" + std::to_string(value.completed) + "/" + std::to_string(value.total) + ")";
+        if (!value.detail.empty()) message += ": " + value.detail;
+        report(message);
+    };
     try {
+        report("Starting; format=" + std::string(format) + "; source=" + paths[0]);
+        if (paths.size() >= 2 && (exporting || importing || migrating))
+            report("Destination=" + std::string(paths[1]) + "; force=" + (force ? "yes" : "no"));
         if (migrating) {
             scimate::write_output_directory(paths[0], paths[1], force, [&](const auto& destination) {
-                scimate::migrate_sci0_to_sci1_directory(paths[0], destination,graphics);
+                scimate::migrate_sci0_to_sci1_directory(paths[0], destination,graphics, progress);
             });
             std::cout << "Wrote experimental SCI1" << (graphics == scimate::Sci1Graphics::vga ? " VGA" : "") << " candidate: " << paths[1]
                       << "\nRuntime proof remains UNVERIFIED; see migration-report.txt.\n";
             if (!std::cout) throw std::runtime_error("failed to write migration result");
-            return 0;
+            return finish(0);
         }
         const auto sci1_format = format == "sci11" ? scimate::Sci1Format::sci11 :
                                 format == "sci1-ega" || format == "sci1-vga" ? scimate::Sci1Format::sci1_ega : scimate::Sci1Format::sci1_late;
@@ -135,16 +164,16 @@ int main(int argc, char** argv) {
                 const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
                 if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || value > 2047) {
                     std::cerr << "Room number must be decimal, 0..2047.\n";
-                    return 2;
+                    return finish(2);
                 }
                 number = value;
             }
-            const auto analysis = scimate::explore_sci0_rooms(scimate::open_sci0_game(paths[0]));
+            const auto analysis = scimate::explore_sci0_rooms(scimate::open_sci0_game(paths[0], progress));
             if (number && std::none_of(analysis.rooms.begin(), analysis.rooms.end(), [&](const auto& room) { return room.number == number; }))
                 throw std::runtime_error("requested room number has no resolved room candidate");
             std::cout << (json ? scimate::format_rooms_json(analysis, number) : scimate::format_rooms_text(analysis, number));
             if (!std::cout) throw std::runtime_error("failed to write room explorer output");
-            return 0;
+            return finish(0);
         }
         if (explain) {
             std::optional<scimate::ResourceId> focus;
@@ -159,14 +188,14 @@ int main(int argc, char** argv) {
                     parsed.ptr != text.data()+text.size() || number > scimate::format::max_sci0_resource_number) {
                     std::cerr << "Focus must be an SCI0 resource type and a decimal number from 0 to 2047.\n"
                               << scimate::cli::command_help("explain", true);
-                    return 2;
+                    return finish(2);
                 }
                 focus = scimate::ResourceId{*type, static_cast<std::uint16_t>(number)};
             }
-            const auto analysis = scimate::analyze_sci0_game(scimate::open_sci0_game(paths[0]), focus);
+            const auto analysis = scimate::analyze_sci0_game(scimate::open_sci0_game(paths[0], progress), focus);
             std::cout << (json ? scimate::format_explanation_json(analysis) : scimate::format_explanation_text(analysis));
             if (!std::cout) throw std::runtime_error("failed to write explanation");
-            return 0;
+            return finish(0);
         }
         if (resource_export || resource_import || asset_export || asset_import) {
             const auto alias_type = command.substr(0,command.find('-'));
@@ -181,8 +210,8 @@ int main(int argc, char** argv) {
                 if (resource_export) {
                     unsigned number=0;const std::string_view number_text=paths[1];
                     const auto parsed=std::from_chars(number_text.data(),number_text.data()+number_text.size(),number);
-                    if (parsed.ec!=std::errc{} || parsed.ptr!=number_text.data()+number_text.size() || number>2047) {std::cerr<<"Resource number must be 0..2047.\n";return 2;}
-                    try {id.type=parse_type(paths[0]);} catch(const std::invalid_argument& error) {std::cerr<<error.what()<<'\n';return 2;}
+                    if (parsed.ec!=std::errc{} || parsed.ptr!=number_text.data()+number_text.size() || number>2047) {std::cerr<<"Resource number must be 0..2047.\n";return finish(2);}
+                    try {id.type=parse_type(paths[0]);} catch(const std::invalid_argument& error) {std::cerr<<error.what()<<'\n';return finish(2);}
                     id.number=static_cast<std::uint16_t>(number);payload=paths[2];destination=paths[3];
                 } else id.type=parse_type(alias_type);
                 scimate::export_sci0_asset_file(id,payload,destination);
@@ -195,32 +224,32 @@ int main(int argc, char** argv) {
                 scimate::import_sci0_asset_file(paths[0],paths[1]);std::cout<<"Encoded and verified resource: "<<paths[1]<<'\n';
             }
             if (!std::cout) throw std::runtime_error("failed to write result");
-            return 0;
+            return finish(0);
         }
         if (picture_export || picture_import) {
             if (picture_export) scimate::export_sci0_picture_file(paths[0],paths[1]);
             else scimate::import_sci0_picture_file(paths[0],paths[1]);
             std::cout << (picture_export ? "Exported editable picture: " : "Encoded and verified picture: ") << paths[1] << '\n';
             if (!std::cout) throw std::runtime_error("failed to write result");
-            return 0;
+            return finish(0);
         }
         if (view_export || view_import) {
             if (view_export) scimate::export_sci0_view_file(paths[0],paths[1]);
             else scimate::import_sci0_view_file(paths[0],paths[1]);
             std::cout << (view_export ? "Exported editable view: " : "Encoded and verified view: ") << paths[1] << '\n';
             if (!std::cout) throw std::runtime_error("failed to write result");
-            return 0;
+            return finish(0);
         }
         if (disassemble) {
             std::cout << scimate::disassemble_sci0_script(read_file(paths[0], true));
             if (!std::cout) throw std::runtime_error("failed to write disassembly");
-            return 0;
+            return finish(0);
         }
         if (exporting || importing) {
             if (exporting) {
                 scimate::ExportSummary summary;
                 scimate::write_output_directory(paths[0], paths[1], force, [&](const auto& destination) {
-                    summary = scimate::export_sci0_game(paths[0], destination);
+                    summary = scimate::export_sci0_game(paths[0], destination, progress);
                 });
                 std::cout << "Scripts: " << summary.script_listings << " readable listings, "
                           << summary.script_errors << " errors (see scripts/*.error.txt).\n";
@@ -232,15 +261,15 @@ int main(int argc, char** argv) {
                           << summary.view_errors << " errors (see views/*.error.txt).\n";
             }
             else scimate::write_output_directory(paths[0],paths[1],force,[&](const auto& destination) {
-                if (target_engine == "sci1") scimate::import_sci1_game(paths[0],destination,graphics);
-                else scimate::import_sci0_game(paths[0],destination);
+                if (target_engine == "sci1") scimate::import_sci1_game(paths[0],destination,graphics, progress);
+                else scimate::import_sci0_game(paths[0],destination, progress);
             });
             std::cout << (exporting ? "Exported to " : "Rebuilt and verified: ") << paths[1] << '\n';
             if (!std::cout) throw std::runtime_error("failed to write result");
-            return 0;
+            return finish(0);
         }
         if (inspect) {
-            const auto game = format == "sci0" ? scimate::open_sci0_game(paths[0]) : scimate::open_sci1_game(paths[0], sci1_format);
+            const auto game = format == "sci0" ? scimate::open_sci0_game(paths[0], progress) : scimate::open_sci1_game(paths[0], sci1_format, progress);
             std::cout << "index\ttype\tnumber\tvolume\toffset\tcompression\tdecoded_size\n";
             for (std::size_t i = 0; i < game.resources.size(); ++i) {
                 const auto& r = game.resources[i];
@@ -249,7 +278,7 @@ int main(int argc, char** argv) {
                           << r.entry.offset << '\t' << r.compression << '\t' << r.payload.size() << '\n';
             }
             if (!std::cout) throw std::runtime_error("failed to write listing");
-            return 0;
+            return finish(0);
         }
         const auto bytes = read_file(paths[0]);
         const auto entries = format == "sci0" ? scimate::read_sci0_map(bytes) : scimate::read_sci1_map(bytes, sci1_format);
@@ -260,10 +289,10 @@ int main(int argc, char** argv) {
                       << '\t' << entry.offset << '\n';
         }
         if (!std::cout) throw std::runtime_error("failed to write listing");
-        return 0;
+        return finish(0);
     } catch (...) {
         scimate::log_diagnostic(scimate::LogLevel::error, std::string(command) + " " + paths[0],
                                 scimate::exception_message(std::current_exception()));
-        return 1;
+        return finish(1);
     }
 }

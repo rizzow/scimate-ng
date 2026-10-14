@@ -10,7 +10,7 @@
 namespace scimate::cli {
 inline constexpr std::string_view overview = R"(SCIMate — inspect, export, edit, and rebuild SCI resources
 
-Usage: scimate <command> [options] <arguments>
+Usage: scimate [--verbose] <command> [options] <arguments>
        scimate help <command>
 
 Inspect games
@@ -42,6 +42,7 @@ Export and import individual resources
 
 Options
   -h, --help       Show help for the selected command.
+  -v, --verbose    Log progress and timing to stderr; result output stays on stdout.
   --format FORMAT  Select a resource format; sci0 is the default.
   --force          Replace the entire destination directory (export/import/migrate).
   --target-engine sci0|sci1  Select the game import target; default sci0.
@@ -301,7 +302,7 @@ changes indices referenced by scripts; character encodings are not guessed.
             (exporting ? " " + std::string(type) + ".bin ./" + std::string(type) + "-bundle\n"
                        : " ./" + std::string(type) + "-bundle edited-" + std::string(type) + ".bin\n");
     }
-    body += "\nOptions: -h, --help; -- ends options for paths beginning with --.\n";
+    body += "\nOptions: -h, --help; -v, --verbose logs progress/timing to stderr; -- ends options.\n";
     if (format_option) {
         body += "Formats: ";
         body += sci1 && (command == "list" || command == "inspect")

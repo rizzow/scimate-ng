@@ -10,6 +10,10 @@ control characters to keep each record on one line, and supports a custom
 thread-safe sink through `set_log_sink`. A failing sink falls back to stderr;
 logging itself never throws. `exception_message` retains nested exception causes
 and reports non-standard exceptions. CLI result tables and JSON remain on stdout.
+Pass `--verbose` (or `-v`) before or after any CLI command to include informational progress
+and elapsed time on stderr. For example, `scimate export --verbose ./game ./workspace`.
+Without this option, normal operations remain quiet on stderr; warnings and errors
+are still reported.
 Desktop errors use the same logger and plain-text dialogs. Worker failures and
 exceptions reaching the Qt event boundary are reported through this path.
 

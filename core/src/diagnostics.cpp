@@ -21,7 +21,7 @@ std::string one_line(const std::string& text) {
 }
 void stderr_log(LogLevel level, const std::string& operation, const std::string& message) {
     std::lock_guard<std::mutex> lock(output_mutex);
-    std::cerr << "scimate: " << (level == LogLevel::warning ? "warning: " : "")
+    std::cerr << "scimate: " << (level == LogLevel::warning ? "warning: " : level == LogLevel::info ? "info: " : "")
               << one_line(operation) << ": " << one_line(message) << '\n';
 }
 std::string describe(const std::exception& error, unsigned depth) {

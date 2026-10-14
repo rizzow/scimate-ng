@@ -49,7 +49,8 @@ std::map<std::string,Bytes> collect_auxiliary_files(const std::filesystem::path&
     return copied;
 }
 }
-Game open_sci1_game(const std::filesystem::path& directory, Sci1Format format) {
+Game open_sci1_game(const std::filesystem::path& directory, Sci1Format format, const ProgressCallback& progress) {
+    if (progress) progress({"Reading resource map", 0, 0, directory.string()});
     GameFiles files;
     // Packed EGA maps have no 16-bit directory offsets; use the same bound as
     // the core reader instead of rejecting valid maps larger than 64 KiB.
@@ -58,16 +59,22 @@ Game open_sci1_game(const std::filesystem::path& directory, Sci1Format format) {
     std::size_t total = files.map.size();
     for (const auto& entry : read_sci1_map(files.map,format)) {
         if (files.volumes.count(entry.volume)) continue;
+        if (progress) progress({"Reading resource volumes", 0, 0, volume_filename(entry.volume)});
         auto bytes = detail::read_file(directory/volume_filename(entry.volume),max_game_bytes-total);
         total += bytes.size();
         files.volumes.emplace(entry.volume,std::move(bytes));
     }
+    if (progress) progress({"Decoding resources", 0, 0, "SCI1 container"});
     return read_sci1_game(std::move(files),format);
 }
 void migrate_sci0_to_sci1_directory(const std::filesystem::path& source,
-                                   const std::filesystem::path& destination, Sci1Graphics graphics) {
-    auto result = migrate_sci0_to_sci1(open_sci0_game(source),graphics);
+                                   const std::filesystem::path& destination, Sci1Graphics graphics, const ProgressCallback& progress) {
+    auto game = open_sci0_game(source, progress);
+    if (progress) progress({"Migrating and verifying resources", 0, 0, graphics == Sci1Graphics::vga ? "Converting to VGA graphics" : "Retaining EGA graphics"});
+    auto result = migrate_sci0_to_sci1(game,graphics);
+    if (progress) progress({"Collecting referenced auxiliary files", 0, 0, source.string()});
     const auto auxiliary = collect_auxiliary_files(source,result,result.report);
+    if (progress) progress({"Writing migrated resources", 0, 0, destination.string()});
     detail::create_destination(destination);
     for (const auto& volume : result.files.volumes)
         detail::write_file(destination/volume_filename(volume.first),volume.second);
@@ -75,12 +82,15 @@ void migrate_sci0_to_sci1_directory(const std::filesystem::path& source,
     for (const auto& file : auxiliary) detail::write_file(destination/file.first,file.second);
     detail::write_file(destination/"migration-report.txt",Bytes(result.report.begin(),result.report.end()));
 }
-void import_sci1_game(const std::filesystem::path& workspace, const std::filesystem::path& destination, Sci1Graphics graphics) {
+void import_sci1_game(const std::filesystem::path& workspace, const std::filesystem::path& destination, Sci1Graphics graphics, const ProgressCallback& progress) {
     VgaPictureEdits pictures;
-    auto game = open_sci0_export(workspace,{},nullptr,graphics == Sci1Graphics::vga ? &pictures : nullptr);
+    auto game = open_sci0_export(workspace,progress,nullptr,graphics == Sci1Graphics::vga ? &pictures : nullptr);
+    if (progress) progress({"Migrating and verifying workspace resources", 0, 0, graphics == Sci1Graphics::vga ? "Converting to VGA graphics" : "Retaining EGA graphics"});
     auto result = migrate_sci0_to_sci1(game,graphics,pictures);
+    if (progress) progress({"Collecting referenced auxiliary files", 0, 0, workspace.string()});
     const auto auxiliary = collect_auxiliary_files(workspace/"original",result,result.report);
     result.report += "Built from editable workspace: "+workspace.string()+"; VGA picture PNG overrides: "+std::to_string(pictures.size())+".\n";
+    if (progress) progress({"Writing imported SCI1 resources", 0, 0, destination.string()});
     detail::create_destination(destination);
     for (const auto& volume : result.files.volumes) detail::write_file(destination/volume_filename(volume.first),volume.second);
     detail::write_file(destination/workspace_detail::map_file,result.files.map);

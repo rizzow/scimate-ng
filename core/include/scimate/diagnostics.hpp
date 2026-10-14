@@ -6,7 +6,7 @@
 #include <string>
 
 namespace scimate {
-enum class LogLevel { warning, error };
+enum class LogLevel { warning, error, info };
 using LogSink = std::function<void(LogLevel, const std::string&, const std::string&)>;
 // Sinks may be called from worker threads. An empty sink restores stderr logging.
 void set_log_sink(LogSink sink);
