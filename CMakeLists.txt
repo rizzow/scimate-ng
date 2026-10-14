@@ -6,6 +6,7 @@ option(SCIMATE_BUILD_CLI "Build the resource inspection CLI" ON)
 option(SCIMATE_BUILD_APPLICATION "Build filesystem import/export workflows" ${SCIMATE_BUILD_CLI})
 add_library(scimate_core core/src/resource_map.cpp core/src/codecs.cpp core/src/resource_game.cpp core/src/script.cpp core/src/view.cpp core/src/picture.cpp core/src/assets.cpp core/src/json.cpp core/src/structured_resource.cpp core/src/sound.cpp core/src/explain.cpp core/src/sci1.cpp core/src/sci1_migration.cpp core/src/sci11_script.cpp)
 target_sources(scimate_core PRIVATE core/src/rooms.cpp)
+target_sources(scimate_core PRIVATE core/src/vga_picture_decoder.cpp)
 target_include_directories(scimate_core PUBLIC core/include)
 target_sources(scimate_core PRIVATE core/src/explanation_output.cpp core/src/diagnostics.cpp
   core/src/structured_fields.cpp core/src/structured_script.cpp

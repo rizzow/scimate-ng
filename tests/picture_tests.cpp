@@ -22,6 +22,14 @@ void tests(const fs::path& root) {
          zero_overlay.written[2][0] == 1 && zero_overlay.written[0][3] == 0,
          "Explicit white/zero writes were mistaken for untouched pixels");
  const auto vga_overlay = write_sci1_vga_picture(zero_overlay,ega_picture_palette(),VgaPictureMode::overlay);
+ const auto decoded_overlay = read_sci1_vga_picture(vga_overlay);
+ require(decoded_overlay.picture.planes == zero_overlay.planes && decoded_overlay.picture.written == zero_overlay.written &&
+         decoded_overlay.palette == ega_picture_palette(),"Independent VGA overlay decoding changed pixels, masks or palette");
+ const auto vga_background = write_sci1_vga_picture(picture,ega_picture_palette());
+ require(read_sci1_vga_picture(vga_background).picture.planes == picture.planes,
+         "Independent VGA bitmap decoding changed the three planes");
+ auto truncated_bitmap = vga_background; truncated_bitmap.resize(1300);
+ fails([&] { read_sci1_vga_picture(truncated_bitmap); },"bitmap");
  const Bytes overlay_commands{0xf1,0xf3,0xfc,0xf0,15,0xf6,0,0,0,0,2,0,
      0xf1,0xf3,0xfc,0xf2,0,0xf6,0,0,0,0,2,0,
      0xf1,0xf3,0xfc,0xfb,0,0xf6,0,0,0,0,2,0,0xff};
@@ -53,7 +61,7 @@ void tests(const fs::path& root) {
  for (unsigned plane = 1; plane < 3; ++plane) composed.planes[plane].assign(320*190,0);
  for (const auto& part : noisy_parts) {
   require(part.size() <= 65531,"Picture continuation exceeds early SCI1 capacity");
-  const auto decoded = read_sci0_picture(Bytes(part.begin()+vga_palette_bytes,part.end()));
+  const auto decoded = read_sci1_vga_picture(part).picture;
   for (unsigned plane = 0; plane < 3; ++plane) for (unsigned i = 0; i < 320*190; ++i)
    if (decoded.written[plane][i]) composed.planes[plane][i] = decoded.planes[plane][i];
  }

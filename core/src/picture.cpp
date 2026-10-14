@@ -232,12 +232,16 @@ void append_vector_plane(Bytes& bytes, const Bytes& plane, std::uint8_t set_colo
  const auto draws = [&](std::size_t offset, unsigned value) {
   return plane[offset] == value && (written ? (*written)[offset] != 0 : value != 0);
  };
+ std::array<bool,256> active{};
+ for (std::size_t i = 0; i < plane.size(); ++i)
+  if (draws(i,plane[i])) active[plane[i]] = true;
  Bytes best;
  // All four directions rasterize exact straight pixel runs. Diagonals compact
  // EGA checkerboard dithering without painting intervening background pixels.
  for (const auto direction : {std::pair{1,0},std::pair{0,1},std::pair{1,1},std::pair{1,-1}}) {
  Bytes candidate{disable_visual,disable_priority,disable_control};
  for (unsigned value = 0; value < colors; ++value) {
+  if (!active[value]) continue;
   bool selected = false;
   for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
    if (!draws(y*width+x,value)) continue;
@@ -311,12 +315,21 @@ Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palet
  if (result.size() > 65531)
   throw std::runtime_error("VGA picture: encoded payload is "+std::to_string(result.size())+
       " bytes; SCI1 resource limit is 65531 bytes");
+ const auto decoded = read_sci1_vga_picture(result);
+ if (decoded.palette != palette) throw std::runtime_error("VGA picture: palette verification failed");
+ for (unsigned plane = 0; plane < 3; ++plane) for (int i = 0; i < pixels; ++i) {
+  if (mode == VgaPictureMode::overlay && !picture.written[plane][i]) {
+   if (decoded.picture.written[plane][i]) throw std::runtime_error("VGA picture: overlay writes an untouched pixel");
+  } else if (decoded.picture.planes[plane][i] != picture.planes[plane][i] ||
+             (mode == VgaPictureMode::overlay && !decoded.picture.written[plane][i]))
+   throw std::runtime_error("VGA picture: decoded pixel verification failed");
+ }
  return result;
 }
 std::vector<Bytes> write_sci1_vga_picture_parts(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
  auto whole = encode_vga_picture(picture,palette,mode);
  constexpr std::size_t payload_limit = 65531;
- if (whole.size() <= payload_limit) return {std::move(whole)};
+ if (whole.size() <= payload_limit) return {write_sci1_vga_picture(picture,palette,mode)};
  std::vector<Bytes> parts;
  auto overlay = picture;
  overlay.contains_fill = false;
