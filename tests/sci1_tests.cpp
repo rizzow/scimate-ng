@@ -76,7 +76,13 @@ void tests() {
     require(synonym_pairs.size() == 2 && synonym_pairs[0].original == 1 && synonym_pairs[0].replacement == 2 &&
             synonym_pairs[1].original == 2 && synonym_pairs[1].replacement == 3,
             "Synonym word order, byte order or chained replacements changed");
-    fails([&] { parser_detail::read_synonym_pairs({1,0,2}); },"incomplete");
+    require(parser_detail::read_synonym_pairs({1,0,2}).empty(),"Partial synonym pair was treated as an alias");
+    for (unsigned tail = 1; tail < 4; ++tail) {
+        Bytes padded_synonyms{1,0,2,0}; padded_synonyms.insert(padded_synonyms.end(),tail,0xff);
+        const auto aliases = parser_detail::read_synonym_pairs(padded_synonyms);
+        require(aliases.size() == 1 && aliases.front().original == 1 && aliases.front().replacement == 2,
+                "Trailing synonym bytes changed complete aliases");
+    }
     const Bytes said_fixture{0,12,0xf2,0xf5,0,21,0xf6,0xf9,0xff};
     const auto said_tokens = parser_detail::tokenize_said(said_fixture,0,said_fixture.size());
     const auto said_tree = parser_detail::compile_said(said_fixture,0,said_fixture.size());

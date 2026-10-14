@@ -67,7 +67,7 @@ inline ParserInput collect_parser_input(const Game& game) {
             }
             constexpr unsigned synonyms_section = 3, said_section = 4;
             const auto begin = section.start+sci_vm::section_header_bytes;
-            if (section.type == synonyms_section) {
+            if (section.type == synonyms_section && !input.synonyms.count(entry.first.second)) {
                 const auto pairs = read_synonym_pairs(Bytes(bytes.begin()+begin,bytes.begin()+section.end));
                 // The interpreter uses the first synonym block, including an
                 // empty one; later blocks must not extend its aliases.

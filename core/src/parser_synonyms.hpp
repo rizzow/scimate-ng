@@ -8,9 +8,10 @@ namespace scimate::parser_detail {
 struct SynonymPair { unsigned original, replacement; };
 inline std::vector<SynonymPair> read_synonym_pairs(const Bytes& bytes) {
     constexpr unsigned pair_bytes = 2*sci_vm::word_bytes;
-    if (bytes.size()%pair_bytes) invalid_parser_table("incomplete synonym pair");
+    // Native script loading counts complete pairs and ignores trailing bytes.
+    const auto complete_bytes = bytes.size()-bytes.size()%pair_bytes;
     std::vector<SynonymPair> pairs;
-    for (std::size_t offset = 0; offset < bytes.size(); offset += pair_bytes)
+    for (std::size_t offset = 0; offset < complete_bytes; offset += pair_bytes)
         pairs.push_back({table_word(bytes,offset),table_word(bytes,offset+sci_vm::word_bytes)});
     return pairs;
 }
