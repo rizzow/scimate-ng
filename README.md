@@ -54,8 +54,10 @@ reference-image, generation, palette preparation, and workspace workflow.
   volumes, with validation of the reconstructed output.
 
 The desktop application is `scimate-desktop`; the command-line tool is `scimate`.
-The current desktop editing workflow focuses on SCI0/EGA projects. Later SCI
-formats also have inspection support through the CLI.
+The desktop edits SCI0 source workspaces and previews their VGA artwork overrides.
+Build Resources offers SCI0 EGA or experimental SCI1 EGA/VGA targets. Later games
+have a separate read-only inspector in **File → Inspect SCI1 / SCI1.1 Game…**.
+See [desktop SCI1/VGA workflows](docs/desktop-sci1.md) for controls and limits.
 
 ## Where VGA migration stands
 
@@ -81,7 +83,10 @@ compatibility work.
 Start with your own SCI0 game files. In the desktop app, create a project from the
 game directory, browse its resources, and open a resource folder to edit assets
 in your preferred editor. Refresh from disk to see your changes, then use
-**Build Resources to New Folder** to reconstruct SCI0 resources.
+**Build Resources to New Folder** and select the target engine and graphics.
+Enable **Project → Preview VGA Workspace Edits** before opening or refreshing a
+workspace with RGB picture/view PNGs. Successful SCI1 builds display their
+migration report; interpreter gameplay validation remains manual.
 
 The equivalent command-line workflow is:
 

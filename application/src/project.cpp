@@ -5,6 +5,7 @@
 #include "scimate/asset_io.hpp"
 #include <iomanip>
 #include <sstream>
+#include <set>
 
 namespace scimate {
 namespace {
@@ -57,7 +58,7 @@ Project create_project(const std::filesystem::path& source_game,
     return {std::filesystem::absolute(new_directory).lexically_normal(), name, std::move(game), std::move(originals)};
 }
 
-Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress) {
+Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress, bool vga_workspace) {
     const auto descriptor = directory / workspace_detail::project_file;
     const bool has_descriptor = std::filesystem::exists(std::filesystem::symlink_status(descriptor));
     auto name = has_descriptor ? read_name(directory) : directory.lexically_normal().filename().u8string();
@@ -65,7 +66,10 @@ Project open_project(const std::filesystem::path& directory, const ProgressCallb
     if (!has_descriptor && name.empty()) name = "SCI project";
     validate_name(name);
     std::vector<Bytes> originals;
-    auto game = open_sci0_export(directory, progress, &originals);
+    VgaPictureEdits pictures;
+    VgaViewEdits views;
+    auto game = open_sci0_export(directory, progress, &originals,
+        vga_workspace ? &pictures : nullptr, vga_workspace ? &views : nullptr);
     // Adopt only a fully validated export. Never replace an existing descriptor.
     if (!has_descriptor) {
         if (std::filesystem::exists(std::filesystem::symlink_status(descriptor))) name = read_name(directory);
@@ -76,7 +80,8 @@ Project open_project(const std::filesystem::path& directory, const ProgressCallb
             detail::write_file(descriptor, Bytes(contents.begin(), contents.end()));
         }
     }
-    return {std::filesystem::absolute(directory).lexically_normal(), name, std::move(game), std::move(originals)};
+    return {std::filesystem::absolute(directory).lexically_normal(), name, std::move(game), std::move(originals),
+        vga_workspace, std::move(pictures), std::move(views)};
 }
 
 ProjectTextEdit prepare_project_text_edit(const Project& project, std::size_t record,
@@ -137,8 +142,14 @@ std::vector<bool> project_modified_records(const Project& project) {
     }
     scimate::require(originals->size() == project.game.resources.size(), "project resource count differs from original");
     std::vector<bool> modified;
-    for (std::size_t i = 0; i < originals->size(); ++i)
-        modified.push_back(project.game.resources[i].payload != originals->at(i));
+    std::set<std::pair<ResourceType, unsigned>> seen;
+    for (std::size_t i = 0; i < originals->size(); ++i) {
+        const auto id = project.game.resources[i].entry.id;
+        const bool first = seen.emplace(id.type, id.number).second;
+        const bool graphics_edit = first && ((id.type == ResourceType::pic && project.vga_pictures.count(id.number)) ||
+            (id.type == ResourceType::view && project.vga_views.count(id.number)));
+        modified.push_back(project.game.resources[i].payload != originals->at(i) || graphics_edit);
+    }
     return modified;
 }
 

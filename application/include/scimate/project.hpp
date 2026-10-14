@@ -11,6 +11,9 @@ struct Project {
     std::string name;
     Game game; // Current validated edits; original retains the source snapshots.
     std::vector<Bytes> original_payloads; // Decoded once when creating/opening a project.
+    bool vga_workspace = false;
+    VgaPictureEdits vga_pictures;
+    VgaViewEdits vga_views;
 };
 std::vector<bool> project_modified_records(const Project& project);
 // Validates a text edit and chooses one authoritative file without creating
@@ -34,7 +37,8 @@ Project create_project(const std::filesystem::path& source_game,
                        const std::string& name, const ProgressCallback& progress = {});
 // Validated plain exports are adopted by adding project.scimate with the folder
 // name. Existing descriptors are validated and preserved.
-Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress = {});
+Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress = {},
+                     bool vga_workspace = false);
 void build_project(const std::filesystem::path& directory,
                    const std::filesystem::path& new_game_directory, const ProgressCallback& progress = {});
 } // namespace scimate

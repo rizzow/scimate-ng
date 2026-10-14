@@ -28,6 +28,7 @@ void MainWindow::preview() {
     editText_->hide(); strings_->setRowCount(0); previewStack_->setCurrentIndex(0);
     clearResourcePreview(previewStack_);
     previewImage_ = {}; previewView_ = {}; previewPicture_ = {};
+    previewPalette_ = scimate::ega_picture_palette();
     selectedView_.clear(); selectedPicture_.clear(); cels_->clear(); cels_->hide(); image_->clear(); details_->clear();
     const auto selected = proxy_->mapToSource(table_->currentIndex());
     if (!project_ || !selected.isValid() || static_cast<std::size_t>(selected.row()) >= project_->game.resources.size()) {
@@ -46,7 +47,11 @@ void MainWindow::preview() {
         description += "Bundle unavailable: " + QString::fromStdString(directoryError.message()) + "\n";
     try {
         if (resource.entry.id.type == scimate::ResourceType::view) {
-            previewView_ = scimate::read_sci0_view(resource.payload); const auto& view = previewView_; selectedView_ = resource.payload;
+            const auto override = project_->vga_views.find(resource.entry.id.number);
+            previewView_ = override == project_->vga_views.end() ? scimate::read_sci0_view(resource.payload) : override->second;
+            if (previewView_.palette) previewPalette_ = *previewView_.palette;
+            const auto& view = previewView_; selectedView_ = resource.payload;
+            if (override != project_->vga_views.end()) description += "VGA PNG override: preview uses RGB edits; binary export remains the SCI0 source payload.\n";
             description += "Editable folder: views/" + stem(index) + "\nPreview reflects the last successful refresh.\n";
             for (std::size_t loop = 0; loop < view.loops.size(); ++loop) {
                 const auto& entry = view.loops[loop]; const auto& source = entry.mirror_of < 0 ? entry : view.loops.at(static_cast<std::size_t>(entry.mirror_of));
@@ -58,7 +63,10 @@ void MainWindow::preview() {
             previewStack_->setVisible(!previewImage_.isNull());
             play_->setChecked(!busy_ && !previewImage_.isNull() && preferences::animateViews());
         } else if (resource.entry.id.type == scimate::ResourceType::pic) {
-            previewPicture_ = scimate::read_sci0_picture(resource.payload);
+            const auto override = project_->vga_pictures.find(resource.entry.id.number);
+            if (override == project_->vga_pictures.end()) previewPicture_ = scimate::read_sci0_picture(resource.payload);
+            else { previewPicture_ = override->second.picture; previewPalette_ = override->second.palette;
+                description += "VGA PNG override: preview uses RGB edits; binary export remains the SCI0 source payload.\n"; }
             selectedPicture_ = resource.payload;
             description += "Editable folder: pictures/" + stem(index) + "\nMask colors represent EGA indices 0–15.\nPreview reflects the last successful refresh.\n";
             cels_->addItems({"Visual background", "Priority mask", "Control mask"});
@@ -103,13 +111,16 @@ void MainWindow::preview() {
 }
 
 void MainWindow::previewCel() {
-    const auto& palette = scimate::format::ega_rgb;
+    auto color = [this](unsigned index) {
+        const auto& rgb = previewPalette_.at(index);
+        return qRgb(rgb[0], rgb[1], rgb[2]);
+    };
     if (!selectedPicture_.empty() && cels_->currentIndex() >= 0) {
         const auto& picture = previewPicture_;
         const auto& pixels = picture.planes.at(static_cast<std::size_t>(cels_->currentIndex()));
         QImage image(scimate::format::picture_width, scimate::format::picture_height, QImage::Format_RGB32);
         for (int y = 0; y < scimate::format::picture_height; ++y) for (int x = 0; x < scimate::format::picture_width; ++x)
-            image.setPixel(x, y, 0xff000000u | palette[pixels[static_cast<std::size_t>(y) * scimate::format::picture_width + x]]);
+            image.setPixel(x, y, color(pixels[static_cast<std::size_t>(y) * scimate::format::picture_width + x]));
         previewImage_ = image;
         image_->setPixmap(QPixmap::fromImage(image.scaled(640, 380, Qt::KeepAspectRatio, Qt::FastTransformation)));
         image_->setToolTip("320 × 190 • " + cels_->currentText());
@@ -122,8 +133,8 @@ void MainWindow::previewCel() {
     const auto& cel = source.cels.at(static_cast<std::size_t>(position.y()));
     QImage image(cel.width, cel.height, QImage::Format_ARGB32);
     for (int y = 0; y < cel.height; ++y) for (int x = 0; x < cel.width; ++x) {
-        const auto color = cel.pixels[static_cast<std::size_t>(y) * cel.width + x];
-        image.setPixel(loop.mirror_of < 0 ? x : cel.width - x - 1, y, color == cel.transparent ? 0 : 0xff000000u | palette[color]);
+        const auto index = cel.pixels[static_cast<std::size_t>(y) * cel.width + x];
+        image.setPixel(loop.mirror_of < 0 ? x : cel.width - x - 1, y, index == cel.transparent ? 0 : color(index));
     }
     previewImage_ = image;
     image_->setPixmap(QPixmap::fromImage(image.scaled(cel.width * 2, cel.height * 2, Qt::KeepAspectRatio, Qt::FastTransformation)));

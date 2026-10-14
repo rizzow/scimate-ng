@@ -13,6 +13,8 @@
 #include "scimate/picture.hpp"
 #include "scimate/format_constants.hpp"
 #include "scimate/output.hpp"
+#include "scimate/sci1_io.hpp"
+#include "later_game.hpp"
 #include <QtWidgets>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QFutureWatcher>
@@ -65,6 +67,21 @@ MainWindow::MainWindow() {
     preferencesAction->setShortcut(QKeySequence::Preferences);
     file->addAction("Quit", this, &QWidget::close)->setShortcut(QKeySequence::Quit);
     auto* projectMenu = menuBar()->addMenu("&Project");
+    auto* inspectLater = file->addAction("Inspect SCI1 / SCI1.1 Game…", this, [this] {
+        if (busy_) return;
+        auto* dialog = new LaterGameDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose); dialog->show();
+    });
+    connect(open_, &QAction::changed, inspectLater, [this, inspectLater] { inspectLater->setEnabled(open_->isEnabled()); });
+    vgaEdits_ = projectMenu->addAction("Preview VGA Workspace Edits");
+    vgaEdits_->setObjectName("vgaWorkspaceEdits"); vgaEdits_->setCheckable(true);
+    vgaEdits_->setChecked(QSettings().value("vgaWorkspacePreview", false).toBool());
+    vgaEdits_->setToolTip("Load RGB picture and view PNG edits for an SCI1 VGA target; the source snapshots remain SCI0.");
+    connect(open_, &QAction::changed, vgaEdits_, [this] { vgaEdits_->setEnabled(open_->isEnabled()); });
+    connect(vgaEdits_, &QAction::toggled, this, [this](bool enabled) {
+        QSettings().setValue("vgaWorkspacePreview", enabled);
+        if (project_ && !busy_) openProject(text(project_->directory));
+    });
     gameInfo_ = projectMenu->addAction("Game Info…", this, [this] {
         if (!project_ || busy_) return;
         GameInfoDialog dialog(*project_, this);
@@ -117,10 +134,7 @@ MainWindow::MainWindow() {
     refresh_ = projectMenu->addAction("Refresh from Disk", this, [this] { openProject(text(project_->directory)); });
     refresh_->setShortcut(QKeySequence::Refresh);
     folder_ = projectMenu->addAction("Open Resource Folder", this, &MainWindow::showFolder);
-    build_ = projectMenu->addAction("Build Resources to New Folder…", this, [this] {
-        const auto destination = QFileDialog::getSaveFileName(this, "New resource output folder", QDir(dialogDirectory("builds")).filePath("built-game"), {}, nullptr, QFileDialog::DontConfirmOverwrite);
-        if (!destination.isEmpty()) { rememberDirectory("builds", QFileInfo(destination).absolutePath()); buildProject(destination); }
-    });
+    build_ = projectMenu->addAction("Build Resources to New Folder…", this, &MainWindow::buildProjectDialog);
     build_->setShortcut(QKeySequence("Ctrl+B"));
     auto* help = menuBar()->addMenu("&Help");
     help->addAction("Project Workflow", this, [this] {
@@ -217,19 +231,68 @@ void MainWindow::renameProject(const QString& value) {
 }
 
 void MainWindow::openProject(const QString& directory) {
-    run("Opening project", [directory](const scimate::ProgressCallback& progress) { return std::make_shared<scimate::Project>(scimate::open_project(path(directory), progress)); });
+    const bool vga = vgaEdits_->isChecked();
+    run("Opening project", [directory, vga](const scimate::ProgressCallback& progress) { return std::make_shared<scimate::Project>(scimate::open_project(path(directory), progress, vga)); });
 }
 void MainWindow::createProject(const QString& source, const QString& directory, const QString& name) {
     rememberDirectory("games", source);
-    run("Creating project", [source, directory, name](const scimate::ProgressCallback& progress) {
+    const bool vga = vgaEdits_->isChecked();
+    run("Creating project", [source, directory, name, vga](const scimate::ProgressCallback& progress) {
         std::filesystem::create_directories(path(directory).parent_path());
-        return std::make_shared<scimate::Project>(scimate::create_project(path(source), path(directory), name.toUtf8().toStdString(), progress));
+        auto project = std::make_shared<scimate::Project>(scimate::create_project(path(source), path(directory), name.toUtf8().toStdString(), progress));
+        project->vga_workspace = vga;
+        return project;
     });
 }
 void MainWindow::buildProject(const QString& destination) {
+    buildProject(destination, 0);
+}
+void MainWindow::buildProject(const QString& destination, int target) {
     if (!project_) return;
     const auto directory = project_->directory;
-    run("Building resources to " + destination, [directory, destination](const scimate::ProgressCallback& progress) { scimate::build_project(directory, path(destination), progress); return ProjectPtr{}; });
+    if (target < 0 || target > 2) throw std::runtime_error("Unknown build target.");
+    if (busy_) return;
+    migrationReport_ = target > 0 ? QDir(destination).filePath("migration-report.txt") : QString{};
+    run("Building resources to " + destination, [directory, destination, target](const scimate::ProgressCallback& progress) {
+        if (target == 0) scimate::build_project(directory, path(destination), progress);
+        else scimate::import_sci1_game(directory, path(destination), target == 2 ? scimate::Sci1Graphics::vga : scimate::Sci1Graphics::ega, progress);
+        return ProjectPtr{};
+    });
+}
+
+void MainWindow::buildProjectDialog() {
+    if (!project_ || busy_) return;
+    QDialog dialog(this); dialog.setWindowTitle("Build resources"); dialog.resize(680, 300);
+    QVBoxLayout layout(&dialog); layout.setContentsMargins(24, 20, 24, 20);
+    layout.addWidget(new QLabel("Target engine and graphics"));
+    QComboBox target; target.setObjectName("buildTarget");
+    target.addItems({"SCI0 EGA", "SCI1 EGA — experimental", "SCI1 VGA — experimental"});
+    target.setCurrentIndex(project_->vga_workspace ? 2 : 0); layout.addWidget(&target);
+    auto* hint = new QLabel; hint->setWordWrap(true); layout.addWidget(hint);
+    auto update = [&] { hint->setText(target.currentIndex() == 0
+        ? "Rebuild SCI0 resources. PNGs must use exact EGA colours."
+        : "Migrate current workspace edits to SCI1. VGA accepts RGB picture/view edits; masks retain EGA indices. Review migration-report.txt and verify gameplay in ScummVM. Output contains resources, not a complete game installation."); };
+    connect(&target, &QComboBox::currentIndexChanged, &dialog, update); update();
+    layout.addWidget(new QLabel("New output folder"));
+    QLineEdit destination; destination.setText(QDir(dialogDirectory("builds")).filePath("built-game"));
+    auto* row = new QHBoxLayout; row->addWidget(&destination, 1); auto* browse = new QPushButton("Browse…"); row->addWidget(browse); layout.addLayout(row);
+    connect(browse, &QPushButton::clicked, &dialog, [&] {
+        const auto selected = QFileDialog::getSaveFileName(&dialog, "New resource output folder", destination.text(), {}, nullptr, QFileDialog::DontConfirmOverwrite);
+        if (!selected.isEmpty()) destination.setText(selected);
+    });
+    layout.addStretch(); QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    buttons.button(QDialogButtonBox::Ok)->setText("Build resources"); layout.addWidget(&buttons);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, [&] {
+        if (destination.text().trimmed().isEmpty() || QFileInfo::exists(destination.text())) {
+            desktop_detail::show_error(&dialog, "Choose a new folder", "The output folder must be new and must not already exist.", scimate::LogLevel::warning); return;
+        }
+        dialog.accept();
+    });
+    if (dialog.exec() == QDialog::Accepted) {
+        rememberDirectory("builds", QFileInfo(destination.text()).absolutePath());
+        buildProject(destination.text(), target.currentIndex());
+    }
 }
 
 void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& modified) {
@@ -252,7 +315,7 @@ void MainWindow::installProject(ProjectPtr project, const std::vector<bool>& mod
     for (auto i = counts.cbegin(); i != counts.cend(); ++i) types_->addItem(i.key() + "  (" + QString::number(i.value()) + ")", i.key());
     table_->setUpdatesEnabled(true);
     heading_->setText(QString::fromUtf8(project_->name.c_str()));
-    location_->setText(QString::number(model_->rowCount()) + " resources  ·  SCI0  ·  " + project_->directory.filename().u8string().c_str());
+    location_->setText(QString::number(model_->rowCount()) + (project_->vga_workspace ? " resources  ·  SCI0 source / VGA edits  ·  " : " resources  ·  SCI0 EGA  ·  ") + project_->directory.filename().u8string().c_str());
     location_->setToolTip(text(project_->directory));
     heading_->setToolTip(heading_->text() + "\n" + location_->text() + "\n" + text(project_->directory));
     setWindowTitle(heading_->text() + " — SCIMate NG");

@@ -27,7 +27,9 @@ GameInfoDialog::GameInfoDialog(const scimate::Project& project, QWidget* parent)
     auto number = [&](std::size_t value) { return locale.toString(static_cast<qulonglong>(value)); };
     field("Project name", QString::fromStdString(project.name), "gameInfoProjectName");
     field("Project directory", QString::fromStdString(project.directory.u8string()));
-    field("Resource format", "SCI0 — validated by the SCI0 project loader", "gameInfoFormat");
+    field("Resource format", project.vga_workspace ? "SCI0 source workspace with VGA PNG overrides" : "SCI0 — validated by the SCI0 project loader", "gameInfoFormat");
+    field("VGA overrides", QString("%1 pictures, %2 views").arg(project.vga_pictures.size()).arg(project.vga_views.size()));
+    field("Build targets", "SCI0 EGA; experimental SCI1 EGA or SCI1 VGA. Select the target in Build Resources.");
     field("Interpreter version", "Unknown — resource format does not identify an exact interpreter release.");
     field("Game identity", "Not identified. The project name is user-defined, not a detected game title.");
     field("Original game directory", "Not retained. This project contains independent resource snapshots.");

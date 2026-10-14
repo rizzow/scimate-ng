@@ -66,6 +66,16 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
                 if (explain) installExplanation(result.explanation);
                 else if (result.project) installProject(result.project, result.modified);
                 statusBar()->showMessage(message + QString(" — done in %1 s").arg(elapsed_.elapsed() / 1000.0, 0, 'f', 1), 10000);
+                if (!migrationReport_.isEmpty()) {
+                    QFile report(migrationReport_);
+                    if (report.open(QIODevice::ReadOnly)) {
+                        auto* dialog = new QDialog(this); dialog->setAttribute(Qt::WA_DeleteOnClose);
+                        dialog->setWindowTitle("SCI1 migration report — runtime unverified"); dialog->resize(820, 640);
+                        auto* layout = new QVBoxLayout(dialog); auto* contents = new QPlainTextEdit;
+                        contents->setReadOnly(true); contents->setPlainText(QString::fromUtf8(report.read(16 * 1024 * 1024)));
+                        layout->addWidget(contents); dialog->show();
+                    }
+                }
             } else {
                 referenceFocus_.reset();
                 statusBar()->showMessage("Operation failed; previous project remains open.");
@@ -77,6 +87,7 @@ void MainWindow::run(const QString& message, std::function<ProjectPtr(const scim
             desktop_detail::show_exception(this, message);
         }
         finishOperation();
+        migrationReport_.clear();
         if (browserTabs_->currentIndex() == 1) previewExplanation();
         else preview();
     });

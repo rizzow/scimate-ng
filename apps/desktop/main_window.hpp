@@ -34,6 +34,7 @@ public:
     void openProject(const QString& directory);
     void createProject(const QString& source, const QString& directory, const QString& name);
     void buildProject(const QString& destination);
+    void buildProject(const QString& destination, int target);
     void exportSelected(const QString& destination, const QString& format);
     void renameProject(const QString& name);
     void saveSelectedText(const QString& table);
@@ -51,6 +52,7 @@ private:
     void previewExplanation();
     void installProject(ProjectPtr project, const std::vector<bool>& modified);
     void newProjectDialog();
+    void buildProjectDialog();
     void updateRecents();
     void preview();
     void previewCel();
@@ -63,6 +65,8 @@ private:
     bool explanationReady_ = false;
     std::optional<scimate::ResourceId> referenceFocus_;
     QAction *new_, *open_, *refresh_, *build_, *folder_, *close_, *rename_, *explain_, *gameInfo_;
+    QAction* vgaEdits_;
+    QString migrationReport_;
     ExplanationTree* explanation_;
     QTabWidget* browserTabs_;
     QMenu* recent_;
@@ -83,5 +87,6 @@ private:
     QImage previewImage_;
     scimate::View previewView_;
     scimate::Picture previewPicture_;
+    scimate::PicturePalette previewPalette_ = scimate::ega_picture_palette();
     scimate::Bytes selectedView_, selectedPicture_;
 };

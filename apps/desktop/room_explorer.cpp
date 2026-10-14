@@ -9,9 +9,9 @@
 #include <cmath>
 namespace {
 QString text(const std::string& value) { return QString::fromUtf8(value.data(), static_cast<int>(value.size())); }
-QImage pixels(const scimate::Bytes& data, int width, int height, int transparent = -1) {
+QImage pixels(const scimate::Bytes& data, int width, int height, int transparent = -1,
+              const scimate::PicturePalette& palette = scimate::ega_picture_palette()) {
     QImage image(width, height, QImage::Format_ARGB32);
-    const auto palette = scimate::ega_picture_palette();
     for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
         const auto index = data.at(static_cast<std::size_t>(y * width + x));
         const auto& color = palette[index];
@@ -128,18 +128,22 @@ void RoomExplorerWidget::drawRoom() {
     try {
         const auto* picture = room.picture ? resource(*project_, scimate::ResourceType::pic, *room.picture) : nullptr;
         if (!picture) { scene_->addText("Initial picture unresolved or absent."); return; }
-        const auto decoded = scimate::read_sci0_picture(picture->payload);
-        scene_->addPixmap(QPixmap::fromImage(pixels(decoded.planes.at(plane_->currentIndex()), 320, 190)));
+        const auto override = project_->vga_pictures.find(*room.picture);
+        const auto decoded = override == project_->vga_pictures.end() ? scimate::read_sci0_picture(picture->payload) : override->second.picture;
+        const auto palette = override == project_->vga_pictures.end() ? scimate::ega_picture_palette() : override->second.palette;
+        scene_->addPixmap(QPixmap::fromImage(pixels(decoded.planes.at(plane_->currentIndex()), 320, 190, -1, palette)));
         if (sprites_->isChecked() && plane_->currentIndex() == 0) for (const auto& object : room.objects) {
             const auto& props = object.properties;
             if (!props.count("x") || !props.count("y") || !props.count("loop") || !props.count("cel")) continue;
             const auto* view = resource(*project_, scimate::ResourceType::view, props.at("view")); if (!view) continue;
             try {
-                const auto decodedView = scimate::read_sci0_view(view->payload);
+                const auto overrideView = project_->vga_views.find(props.at("view"));
+                const auto decodedView = overrideView == project_->vga_views.end() ? scimate::read_sci0_view(view->payload) : overrideView->second;
                 const auto& loop = decodedView.loops.at(props.at("loop"));
                 const auto source = loop.mirror_of >= 0 ? static_cast<unsigned>(loop.mirror_of) : props.at("loop");
                 auto cel = decodedView.loops.at(source).cels.at(props.at("cel"));
-                auto image = pixels(cel.pixels, cel.width, cel.height, cel.transparent);
+                auto image = pixels(cel.pixels, cel.width, cel.height, cel.transparent,
+                    decodedView.palette ? *decodedView.palette : scimate::ega_picture_palette());
                 if (loop.mirror_of >= 0) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
                     image = image.flipped(Qt::Horizontal);
