@@ -37,8 +37,9 @@ does not use SCI1.1 split script/heap resources or VGA artwork.
 - Preserves opaque, uncalled export slots. SCI export tables can contain data
   addresses or unused legacy values; they do not all identify decoded procedures
   or objects. Direct CALLB/CALLE targets must identify decoded instructions.
-  Main export expansion relocates in-range data addresses and leaves out-of-range
-  opaque values unchanged. Dynamic export accesses remain unverified and are
+  Appending a replacement main export table retains all original export values
+  and script addresses. The last export table is active, matching the interpreter.
+  Dynamic export accesses remain unverified and are
   listed as a manual-validation limitation in the migration report. Errors
   identify the script number and, for direct calls, the instruction offset.
 - Specializes an optional missing-script call only when a verified alternate
@@ -57,13 +58,13 @@ does not use SCI1.1 split script/heap resources or VGA artwork.
   reachability is not assumed. Kernel rewrites must preserve all instruction
   boundaries/extents and branch operands; migration verifies that invariant.
   Every invalid target is listed in the report as UNVERIFIED. Main-script branch
-  targets remain strict because export expansion moves its addresses. Normal
+  targets remain strict for the main-script compatibility profile. Normal
   inspection and the SCI1.1 split transform retain strict branch validation.
 - Resolves SCI0 duplicate IDs using first-entry semantics documented by the
   ScummVM SCI0 resource loader.
 - Applies the documented standard SCI0-to-SCI1 kernel numbering transformation.
 - Bridges FOpen/FPuts/FGets/FClose through SCI1 FileIO suboperations, validating
-  frame alignment and relocating the expanded main export table. Bridges add
+  frame alignment and appending code with a replacement main export table. Bridges add
   the FileIO suboperation and forward the actual parameter list with `rest 1`.
   No omitted parameters are read and no default open mode is guessed. Unusual
   encoded counts are preserved and reported for runtime signature validation;
@@ -85,8 +86,8 @@ does not use SCI1.1 split script/heap resources or VGA artwork.
   null-terminated SCI1 vocabulary 900, grammar 900 moves to 901, and optional
   suffix vocabulary 901 moves to 902. Word classes/group IDs and grammar/suffix
   bytes are preserved; repeated spellings retain SCI0's final definition.
-  Said and synonym sections remain in sectioned scripts and their pointers
-  undergo the existing main-script relocation. The obsolete SCI0 kernel-name
+  Said and synonym sections remain in sectioned scripts with unchanged pointers.
+  The obsolete SCI0 kernel-name
   debug vocabulary 999 is omitted because it describes the replaced kernel ABI.
 - Refuses DoAvoider, unsupported
   kernel IDs, address widening and unsupported layouts. These require semantic

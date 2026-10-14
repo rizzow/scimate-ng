@@ -53,6 +53,10 @@ void tests() {
     contains(object_text, "method selector_42 = proc_0024");
     contains(object_text, "proc_0024:");
     contains(disassemble_sci0_script({0,0}), ".end");
+    // Only the final export table is active; a stale earlier target may point
+    // inside an instruction without invalidating the active table.
+    contains(disassemble_sci0_script({7,0,8,0,1,0,13,0,
+        2,0,7,0,0x35,0,0x48,7,0,8,0,1,0,14,0,0,0}), ".export 0, proc_000e");
 
     for (std::size_t cut = 0; cut < script.size(); ++cut)
         fails([&] { disassemble_sci0_script(Bytes(script.begin(), script.begin() + static_cast<std::ptrdiff_t>(cut))); }, "SCI0 script at byte");

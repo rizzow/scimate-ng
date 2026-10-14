@@ -155,6 +155,9 @@ ParsedScript parse(const Bytes& bytes, bool validate_targets, bool validate_expo
             if (pos != end) fail(pos, "unexpected object data");
             objects.push_back(std::move(object));
         } else if (section.type == 7 || section.type == 8) {
+            // Sectioned SCI uses the final export table. Earlier tables may be
+            // stale or broken and do not define the script's public ABI.
+            if (section.type == 7) exports.clear();
             const auto count = word(bytes, pos, end); pos += 2;
             for (unsigned i = 0; i < count; ++i, pos += 2) {
                 const auto value = word(bytes, pos, end);

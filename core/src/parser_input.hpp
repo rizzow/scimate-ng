@@ -63,7 +63,9 @@ inline ParserInput collect_parser_input(const Game& game) {
             const auto begin = section.start+sci_vm::section_header_bytes;
             if (section.type == synonyms_section) {
                 const auto pairs = read_synonym_pairs(Bytes(bytes.begin()+begin,bytes.begin()+section.end));
-                auto& destination = input.synonyms[entry.first.second]; destination.insert(destination.end(),pairs.begin(),pairs.end());
+                // The interpreter uses the first synonym block, including an
+                // empty one; later blocks must not extend its aliases.
+                input.synonyms.emplace(entry.first.second,pairs);
             }
             if (section.type != said_section) continue;
             auto cursor = begin;

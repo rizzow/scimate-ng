@@ -10,9 +10,9 @@
 #include "migration_internal.hpp"
 #include "sci_vm.hpp"
 #include "migration_analysis.hpp"
+#include "migration_bridges.hpp"
 #include <array>
 #include <initializer_list>
-#include <sstream>
 
 namespace scimate {
 namespace migration_detail {
@@ -255,62 +255,16 @@ void adapt_parser(Resources& resources) {
     }
     if (!view_present) throw std::runtime_error("SCI1 EGA parser migration requires a valid EGA view for interpreter detection");
 }
-// Expand the original main export table and relocate absolute addresses. Code
-// references are relative, so an equal shift of instruction and target cancels.
-// Unsupported source targets are rejected by strict parsing before relocation.
+// Forward file calls through appended procedures without moving source data.
 Bytes add_file_bridges(const Bytes& original, const ParsedScript& parsed, unsigned first_export) {
-    const Section* table = nullptr;
-    for (const auto& section : parsed.sections) if (section.type == sci_vm::section::exports) {
-        if (table) throw std::runtime_error("migration requires a single main export table");
-        table = &section;
-    }
-    if (!table) throw std::runtime_error("main script has no export table");
-    constexpr unsigned added = kernel0::removed_file_functions * sci_vm::word_bytes;
-    const auto threshold = table->end;
-    auto moved = [&](unsigned offset) {
-        return offset >= threshold && offset < original.size() ? offset+added : offset;
-    };
-    Bytes bytes(original.begin(), original.begin()+static_cast<std::ptrdiff_t>(threshold));
-    bytes.insert(bytes.end(), added, 0);
-    const auto last = parsed.sections.back().end;
-    bytes.insert(bytes.end(), original.begin()+static_cast<std::ptrdiff_t>(threshold), original.begin()+static_cast<std::ptrdiff_t>(last));
-    if (bytes.size()+64 > 65535) throw std::runtime_error("main script has insufficient space for file-I/O bridges");
-    patch(bytes, table->start+2, static_cast<unsigned>(table->end-table->start)+added);
-    patch(bytes, table->start+4, first_export+4);
-    for (const auto& entry : parsed.exports) patch(bytes, moved(static_cast<unsigned>(entry.first)), moved(entry.second));
-    for (const auto& object : parsed.objects) {
-        auto address_table = object.pointer + 2*object.values.size() + 2*object.selectors.size() + 4 + 2*object.methods.size();
-        for (std::size_t i = 0; i < object.addresses.size(); ++i)
-            patch(bytes, moved(static_cast<unsigned>(address_table+2*i)), moved(object.addresses[i]));
-        // Name pointers are metadata even if the compiler omitted relocation.
-        if (object.values.size() > 3) patch(bytes, moved(static_cast<unsigned>(object.pointer+6)), moved(object.values[3]));
-    }
-    for (const auto& section : parsed.sections) if (section.type == sci_vm::section::relocations) {
-        auto count = word(original, section.start+4, section.end);
-        for (unsigned i = 0; i < count; ++i) {
-            auto entry = section.start+6+i*2;
-            auto slot = word(original, entry, section.end);
-            patch(bytes, moved(static_cast<unsigned>(entry)), moved(slot));
-            patch(bytes, moved(slot), moved(word(original, slot, original.size())));
-        }
-    }
-    for (const auto& inst : parsed.instructions) if (inst.opcode == op::load_offset_to_accumulator || inst.opcode == op::load_offset_to_stack || inst.opcode == op::call_local || op::is_branch(inst.opcode)) {
-        auto target_offset = target(inst);
-        auto delta = static_cast<std::uint16_t>(moved(target_offset)-moved(static_cast<unsigned>(inst.end)));
-        auto slot = moved(static_cast<unsigned>(inst.start+1));
-        if (inst.width == 1) {
-            auto signed_delta = static_cast<std::int16_t>(delta);
-            if (signed_delta < -128 || signed_delta > 127) throw std::runtime_error("main relocation requires widening an instruction; unsupported");
-            bytes.at(slot) = static_cast<std::uint8_t>(delta);
-        } else patch(bytes, slot, delta);
-    }
+    if (first_export != parsed.exports.size()) throw std::runtime_error("file bridge export base disagrees with main script");
     // FileIO suboperations use exactly the same ScummVM implementations as
     // SCI0 FOpen/FPuts/FGets/FClose. Bridges preserve argument order and result.
     constexpr std::array<unsigned,4> subops{sci_vm::file_io::open,sci_vm::file_io::write_string,
                                           sci_vm::file_io::read_string,sci_vm::file_io::close};
-    Bytes code;
+    std::vector<Bytes> procedures;
     for (unsigned i = 0; i < 4; ++i) {
-        patch(bytes, threshold+i*2, static_cast<unsigned>(bytes.size()+4+code.size()));
+        Bytes code;
         // Add the FileIO suboperation, then forward the caller's entire actual
         // parameter list. This also preserves SCI0 &rest forwarding and malformed
         // legacy calls without reading nonexistent parameters or guessing defaults.
@@ -325,10 +279,9 @@ Bytes add_file_bridges(const Bytes& original, const ParsedScript& parsed, unsign
         append_byte_instruction(code,op::call_kernel,{sci_vm::sci1_kernel::file_io,sci_vm::word_bytes});
         if (preserve_accumulator) append_byte_instruction(code,op::load_temporary_to_accumulator,{0});
         append_byte_instruction(code,op::return_,{});
+        procedures.push_back(std::move(code));
     }
-    put(bytes, sci_vm::section::code); put(bytes, static_cast<unsigned>(code.size()+sci_vm::section_header_bytes));
-    bytes.insert(bytes.end(), code.begin(), code.end()); put(bytes, 0);
-    return bytes;
+    return append_script_exports(original,parsed,procedures);
 }
 std::vector<std::string> repair_volume_queries(Resources& resources) {
     std::vector<std::string> repaired;
@@ -458,8 +411,7 @@ MigrationStats rewrite_script_kernels(Resources& unique, const ScriptMetadata& s
 
 void append_main_file_bridges(Resources& resources, unsigned first_export) {
     auto& main = resources.at({ResourceType::script,0});
-    // Reparse after remapping so main-relative operands and references are based
-    // on the actual modified bytes before expanding the export table.
+    // Reparse the remapped bytes before appending the replacement export table.
     main.payload = add_file_bridges(main.payload,parse_migration_script(main),first_export);
 }
 

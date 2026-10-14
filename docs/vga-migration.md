@@ -167,6 +167,12 @@ before returning scripts. This assembly is not yet installed by migration:
 the source rewrite must supply loaded-script synonym eligibility and redirect
 the original parser kernel calls to these exports.
 
+Main-script bridge insertion now appends code and a replacement export table,
+retaining all original addresses. Sectioned SCI0/SCI1 uses the last export table;
+source inspection follows that rule as well. Synonym collection retains only the
+first synonym block, matching the interpreter's block lookup. These format rules
+come from [ScummVM's script loader](https://github.com/scummvm/scummvm/blob/master/engines/sci/engine/script.cpp).
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

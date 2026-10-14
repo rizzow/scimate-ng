@@ -18,6 +18,7 @@
 #include "../core/src/parser_pages.hpp"
 #include "../core/src/parser_input.hpp"
 #include "../core/src/parser_runtime.hpp"
+#include "../core/src/migration_bridges.hpp"
 #include <iostream>
 
 namespace {
@@ -218,6 +219,8 @@ void tests() {
     parser_source_script.insert(parser_source_script.end(),said_fixture.begin(),said_fixture.end()); parser_source_script.push_back(0);
     put(parser_source_script,3,2); put(parser_source_script,12,2);
     parser_source_script.insert(parser_source_script.end(),{1,0,2,0,2,0,3,0});
+    put(parser_source_script,3,2); put(parser_source_script,8,2);
+    parser_source_script.insert(parser_source_script.end(),{3,0,4,0}); // Later block is inactive.
     put(parser_source_script,7,2); put(parser_source_script,8,2); put(parser_source_script,1,2); put(parser_source_script,4,2); put(parser_source_script,0,2);
     parser_source.resources.push_back(resource(ResourceType::script,70,parser_source_script));
     parser_source.resources.push_back(resource(ResourceType::script,70,{0})); // First map entry remains authoritative.
@@ -445,7 +448,7 @@ void tests() {
         patch(bytes,48,25); patch(bytes,60,48);
         const auto converted = read_sci1_game(migrate_sci0_to_sci1(main_exports).files,Sci1Format::sci1_late);
         const auto decoded = scimate::script_detail::parse(converted.resources[0].payload,true,false);
-        require(decoded.exports.size() == 6 && decoded.exports[1].second == (opaque == 65535 ? 65535u : 33u),
+        require(decoded.exports.size() == 6 && decoded.exports[1].second == opaque,
                 "main export expansion corrupted an opaque export");
     }
     fails([&] { scimate::script_detail::parse(legacy_exports.resources.back().payload); },"export target");
@@ -598,8 +601,19 @@ void tests() {
     const auto& main = output.resources[0].payload;
     const auto parsed = scimate::script_detail::parse(main);
     require(parsed.exports.size() == 5,"file-I/O bridges not exported");
-    require(parsed.objects[0].pointer == 48 && parsed.objects[0].values[3] == 31,"main absolute addresses not relocated");
-    require(main[24] == 0x29,"main kernel not remapped");
+    require(parsed.objects[0].pointer == 40 && parsed.objects[0].values[3] == 23,"main absolute addresses changed");
+    require(main[16] == 0x29,"main kernel not remapped");
+    const auto source_main = sample().resources.front().payload;
+    const auto source_metadata = script_detail::parse(source_main);
+    auto preserved_main = source_main;
+    preserved_main[16] = 0x29; // Existing kernel remap is the only source-byte change.
+    require(std::equal(preserved_main.begin(),preserved_main.begin()+source_metadata.sections.back().end,main.begin()),
+            "Appending file bridges moved or modified source data");
+    const auto with_extra_export = migration_detail::append_script_exports(main,parsed,{Bytes{0x48}});
+    const auto extra_metadata = script_detail::parse(with_extra_export);
+    require(extra_metadata.exports.size() == 6 && extra_metadata.exports[0].second == parsed.exports[0].second &&
+            std::equal(main.begin(),main.begin()+parsed.sections.back().end,with_extra_export.begin()),
+            "Appending another bridge changed the existing script or export ABI");
     const auto& other = output.resources[1].payload;
     require(other[4] == 0x45 && other[5] == 1 && other[8] == 2 && other[11] == 3 && other[14] == 4,"file-I/O calls not bridged");
     require(other[17] == 0x3c,"kernel numbering shift failed");

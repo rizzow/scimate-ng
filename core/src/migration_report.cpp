@@ -15,7 +15,7 @@ std::string migration_report(std::size_t resource_count, const MigrationStats& s
            << "Original EGA graphics, game-object name and relative LOFS semantics retained.\n"
            << "Parser calls retained: " << parser_calls << "; "
            << (parser_calls ? "word vocabulary 0 converted to 900; grammar 900 -> 901, suffixes 901 -> 902; obsolete SCI0 kernel names omitted.\n" : "no parser resource conversion required.\n")
-           << "Main export expansion relocates absolute addresses; four FileIO bridges appended.\n"
+           << "Main bridge code and replacement export table appended; original addresses retained.\n"
            << "FileIO bridges forward actual parameters including &rest; unusual encoded frames retained: " << unusual_file_frames << " (runtime signature validation remains required).\n"
            << "Validated SCI0 late DoSound calls: " << sound_calls << "; kernel remapped to 0x2d.\n"
            << (sound_calls ? "Sound resources retained after SCI0 late decoding; ScummVM late-sound dispatch verified by vocabulary 997.\n" : "No DoSound compatibility profile required.\n")
