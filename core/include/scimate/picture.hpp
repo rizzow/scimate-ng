@@ -20,4 +20,8 @@ enum class VgaPictureMode { background, overlay };
 // refused. Requires a VGA decoder, not an EGA-mode patch.
 Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palette,
                            VgaPictureMode mode = VgaPictureMode::background);
+// Draw the first part with the caller's replacement flag, then remaining parts
+// as overlays. Each payload fits an early SCI1 volume resource.
+std::vector<Bytes> write_sci1_vga_picture_parts(const Picture& picture, const PicturePalette& palette,
+                                              VgaPictureMode mode = VgaPictureMode::background);
 }

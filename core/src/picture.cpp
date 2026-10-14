@@ -272,7 +272,7 @@ PicturePalette ega_picture_palette() {
  return palette;
 }
 
-Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
+static Bytes encode_vga_picture(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
  using namespace vga_picture;
  for (const auto& plane : picture.planes) check(plane.size() == pixels,"VGA picture: planes must be 320x190");
  for (const auto pixel : picture.planes[0]) check(pixel != clear_color,"VGA picture: visual index 255 is reserved for transparency");
@@ -304,9 +304,44 @@ Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palet
   append_vector_plane(result,picture.planes[2],set_control,16,&picture.written[2]);
  }
  result.push_back(terminate);
+ return result;
+}
+Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
+ auto result = encode_vga_picture(picture,palette,mode);
  if (result.size() > 65531)
   throw std::runtime_error("VGA picture: encoded payload is "+std::to_string(result.size())+
       " bytes; SCI1 resource limit is 65531 bytes");
  return result;
+}
+std::vector<Bytes> write_sci1_vga_picture_parts(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
+ auto whole = encode_vga_picture(picture,palette,mode);
+ constexpr std::size_t payload_limit = 65531;
+ if (whole.size() <= payload_limit) return {std::move(whole)};
+ std::vector<Bytes> parts;
+ auto overlay = picture;
+ overlay.contains_fill = false;
+ if (mode == VgaPictureMode::background) {
+  auto background = picture;
+  background.planes[1].assign(pixels,0); background.planes[2].assign(pixels,0);
+  parts.push_back(write_sci1_vga_picture(background,palette,VgaPictureMode::background));
+  overlay.written[0].assign(pixels,0);
+  for (unsigned plane = 1; plane < 3; ++plane) {
+   overlay.written[plane].resize(pixels);
+   for (int i = 0; i < pixels; ++i) overlay.written[plane][i] = picture.planes[plane][i] != 0;
+  }
+ }
+ // Eight rows bound even the worst case of three independently scattered
+ // planes: 8*320*3 seven-byte lines plus palette and opcode overhead.
+ constexpr int rows_per_part = 8;
+ for (int first = 0; first < height; first += rows_per_part) {
+  auto band = overlay;
+  bool draws = false;
+  for (auto& mask : band.written) for (int i = 0; i < pixels; ++i) {
+   if (i/width < first || i/width >= first+rows_per_part) mask[i] = 0;
+   draws |= mask[i] != 0;
+  }
+  if (draws) parts.push_back(write_sci1_vga_picture(band,palette,VgaPictureMode::overlay));
+ }
+ return parts;
 }
 }

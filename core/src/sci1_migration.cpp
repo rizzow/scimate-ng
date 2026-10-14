@@ -532,23 +532,52 @@ std::size_t install_vga_parser(Resources& resources, const Game& source, const S
     return count;
 }
 
-std::set<unsigned> convert_vga_graphics(Resources& resources) {
-    bool detectable_view = false;
+struct VgaGraphicsPlan {
     std::set<unsigned> filled_pictures;
+    std::map<unsigned,std::vector<unsigned>> continuations;
+};
+VgaGraphicsPlan convert_vga_graphics(Resources& resources, const ScriptMetadata& scripts) {
+    bool detectable_view = false;
+    VgaGraphicsPlan plan;
+    std::set<unsigned> reserved;
+    for (const auto& entry : resources) reserved.insert(entry.first.second);
+    for (const auto& entry : scripts) for (const auto& instruction : entry.second.instructions)
+        if (instruction.opcode == op::load_immediate || instruction.opcode == op::push_immediate)
+            reserved.insert(instruction.operands.at(0));
+    std::vector<Resource> generated;
+    for (const auto& entry : scripts) for (const auto& object : entry.second.objects)
+        reserved.insert(object.values.begin(),object.values.end());
     for (auto& entry : resources) {
         auto& resource = entry.second;
+        if (entry.first.first != ResourceType::view && entry.first.first != ResourceType::pic) continue;
+        const auto context = std::string(resource_type_name(entry.first.first))+" "+std::to_string(entry.first.second)+
+            " (source resource."+(resource.entry.volume < 10 ? std::string("00") : std::string("0"))+
+            std::to_string(resource.entry.volume)+", resource header at byte "+std::to_string(resource.entry.offset)+")";
+        try {
         if (entry.first.first == ResourceType::view) {
             resource.payload = write_sci1_vga_view(read_sci0_view(resource.payload));
             detectable_view |= entry.first.second < 1000;
         } else if (entry.first.first == ResourceType::pic) {
             const auto picture = read_sci0_picture(resource.payload);
-            if (picture.contains_fill) filled_pictures.insert(entry.first.second);
-            resource.payload = write_sci1_vga_picture(picture,ega_picture_palette(),
+            if (picture.contains_fill) plan.filled_pictures.insert(entry.first.second);
+            auto parts = write_sci1_vga_picture_parts(picture,ega_picture_palette(),
                 picture.contains_fill ? VgaPictureMode::background : VgaPictureMode::overlay);
+            resource.payload = std::move(parts.front());
+            for (std::size_t i = 1; i < parts.size(); ++i) {
+                auto id = sci_vm::maximum_packed_resource_id;
+                while (id && reserved.count(id)) --id;
+                if (!id) throw std::runtime_error("no unreserved picture continuation resource ID");
+                reserved.insert(id); plan.continuations[entry.first.second].push_back(id);
+                generated.push_back({{{ResourceType::pic,static_cast<std::uint16_t>(id)},0,0},0,std::move(parts[i])});
+            }
+        }
+        } catch (const std::exception& error) {
+            throw std::runtime_error("VGA conversion: "+context+": "+error.what());
         }
     }
+    for (auto& resource : generated) resources.emplace(std::make_pair(ResourceType::pic,resource.entry.id.number),std::move(resource));
     if (!detectable_view) throw std::runtime_error("VGA migration requires a source view in the interpreter detection range");
-    return filled_pictures;
+    return plan;
 }
 
 bool source_uses_early_picture_flags(const Resources& resources, const ScriptMetadata& scripts) {
@@ -580,7 +609,7 @@ bool source_uses_early_picture_flags(const Resources& resources, const ScriptMet
 }
 
 unsigned install_vga_picture_bridge(Resources& resources, const ScriptMetadata& scripts, bool early_flags,
-                                    const std::set<unsigned>& filled_pictures) {
+                                    const VgaGraphicsPlan& graphics) {
     using namespace parser_detail; using namespace parser_detail::codegen;
     auto number = sci_vm::maximum_packed_resource_id;
     std::set<unsigned> reserved;
@@ -619,10 +648,22 @@ unsigned install_vga_picture_bridge(Resources& resources, const ScriptMetadata& 
         parameter(3)(builder); builder.emit(op::logical_not); builder.emit(op::store_accumulator_to_parameter,{3});
     }
     branch_if(builder,parameter(3),forward); // SCI1's nonzero flag replaces the background.
-    for (const auto picture : filled_pictures)
+    for (const auto picture : graphics.filled_pictures)
         branch_if(builder,binary(op::equal,parameter(1),codegen::number(picture)),unsupported);
     builder.bind(forward); builder.emit(op::push_zero); builder.emit(op::rest,{1});
     temporary(saved_accumulator)(builder); builder.emit(op::call_kernel,{sci_vm::sci1_kernel::draw_picture,0});
+    for (const auto& picture : graphics.continuations) {
+        const auto next = builder.label();
+        branch_if(builder,binary(op::equal,parameter(1),codegen::number(picture.first)),next,false);
+        for (const auto part : picture.second) {
+            // The first draw applies the caller's flags. Continuations overlay
+            // its initialized planes and defer animation to the source caller.
+            arguments(builder,{codegen::number(part),codegen::number(0),codegen::number(0),codegen::number(0)});
+            temporary(saved_accumulator)(builder);
+            builder.emit(op::call_kernel,{sci_vm::sci1_kernel::draw_picture,4*sci_vm::word_bytes});
+        }
+        builder.bind(next);
+    }
     return_value(builder,temporary(saved_accumulator));
     builder.bind(unsupported); kernel(sci_vm::sci1_kernel::display,{local(message)})(builder);
     return_value(builder,temporary(saved_accumulator));
@@ -667,7 +708,7 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics) {
         const auto early_picture_flags = source_uses_early_picture_flags(resources,scripts);
         if (stats.parser_calls) runtime_scripts = install_vga_parser(resources,game,scripts);
         resources.erase({ResourceType::vocab,999});
-        const auto filled_pictures = convert_vga_graphics(resources);
+        const auto filled_pictures = convert_vga_graphics(resources,scripts);
         graphics_script = install_vga_picture_bridge(resources,scripts,early_picture_flags,filled_pictures);
         auto& main = resources.at({ResourceType::script,0});
         main.payload = rename_main_game_object(main.payload,"scimate-vga");

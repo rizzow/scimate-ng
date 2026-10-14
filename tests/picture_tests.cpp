@@ -40,6 +40,24 @@ void tests(const fs::path& root) {
  const auto decoded_checkerboard = read_sci0_picture(Bytes(compact_checkerboard.begin()+vga_palette_bytes,compact_checkerboard.end()));
  require(decoded_checkerboard.planes == checkerboard.planes && decoded_checkerboard.written == checkerboard.written,
          "Compact diagonal runs changed mask pixels or explicit zero writes");
+ auto noisy = checkerboard;
+ std::uint32_t noise = 1;
+ for (unsigned plane = 1; plane < 3; ++plane) for (unsigned i = 0; i < 320*190; ++i) {
+  noise = noise*1664525u+1013904223u;
+  noisy.planes[plane][i] = static_cast<std::uint8_t>(noise >> 28);
+  noisy.written[plane][i] = 1;
+ }
+ const auto noisy_parts = write_sci1_vga_picture_parts(noisy,ega_picture_palette(),VgaPictureMode::overlay);
+ require(noisy_parts.size() > 1,"Oversized masks were not split into bounded resources");
+ auto composed = noisy;
+ for (unsigned plane = 1; plane < 3; ++plane) composed.planes[plane].assign(320*190,0);
+ for (const auto& part : noisy_parts) {
+  require(part.size() <= 65531,"Picture continuation exceeds early SCI1 capacity");
+  const auto decoded = read_sci0_picture(Bytes(part.begin()+vga_palette_bytes,part.end()));
+  for (unsigned plane = 0; plane < 3; ++plane) for (unsigned i = 0; i < 320*190; ++i)
+   if (decoded.written[plane][i]) composed.planes[plane][i] = decoded.planes[plane][i];
+ }
+ require(composed.planes == noisy.planes,"Picture continuations changed priority or control pixels");
  require(Bytes(vga_overlay.begin()+vga_palette_bytes,vga_overlay.end()) == overlay_commands,
          "VGA overlay did not preserve untouched pixels and explicit zero mask writes");
  fails([&] { write_sci1_vga_picture(picture,ega_picture_palette(),VgaPictureMode::overlay); },"background-dependent");
