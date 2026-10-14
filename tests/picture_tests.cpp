@@ -26,6 +26,20 @@ void tests(const fs::path& root) {
      0xf1,0xf3,0xfc,0xf2,0,0xf6,0,0,0,0,2,0,
      0xf1,0xf3,0xfc,0xfb,0,0xf6,0,0,0,0,2,0,0xff};
  constexpr std::size_t vga_palette_bytes = 2+256+4+256*4;
+ auto checkerboard = zero_overlay;
+ for (unsigned plane = 0; plane < 3; ++plane) {
+  checkerboard.planes[plane].assign(320*190,plane == 0 ? 15 : 0);
+  checkerboard.written[plane].assign(320*190,0);
+ }
+ for (unsigned y = 0; y < 190; ++y) for (unsigned x = 0; x < 320; ++x) {
+  checkerboard.planes[1][y*320+x] = (x+y)%2;
+  checkerboard.written[1][y*320+x] = 1;
+ }
+ const auto compact_checkerboard = write_sci1_vga_picture(checkerboard,ega_picture_palette(),VgaPictureMode::overlay);
+ require(compact_checkerboard.size() < 10000,"Checkerboard mask expanded into individual pixel lines");
+ const auto decoded_checkerboard = read_sci0_picture(Bytes(compact_checkerboard.begin()+vga_palette_bytes,compact_checkerboard.end()));
+ require(decoded_checkerboard.planes == checkerboard.planes && decoded_checkerboard.written == checkerboard.written,
+         "Compact diagonal runs changed mask pixels or explicit zero writes");
  require(Bytes(vga_overlay.begin()+vga_palette_bytes,vga_overlay.end()) == overlay_commands,
          "VGA overlay did not preserve untouched pixels and explicit zero mask writes");
  fails([&] { write_sci1_vga_picture(picture,ega_picture_palette(),VgaPictureMode::overlay); },"background-dependent");

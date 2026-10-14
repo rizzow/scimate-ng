@@ -229,21 +229,33 @@ Bytes encode_bitmap(const Bytes& visual) {
 }
 void append_vector_plane(Bytes& bytes, const Bytes& plane, std::uint8_t set_color,
                          unsigned colors, const Bytes* written = nullptr) {
- bytes.insert(bytes.end(),{disable_visual,disable_priority,disable_control});
  const auto draws = [&](std::size_t offset, unsigned value) {
   return plane[offset] == value && (written ? (*written)[offset] != 0 : value != 0);
  };
+ Bytes best;
+ // All four directions rasterize exact straight pixel runs. Diagonals compact
+ // EGA checkerboard dithering without painting intervening background pixels.
+ for (const auto direction : {std::pair{1,0},std::pair{0,1},std::pair{1,1},std::pair{1,-1}}) {
+ Bytes candidate{disable_visual,disable_priority,disable_control};
  for (unsigned value = 0; value < colors; ++value) {
   bool selected = false;
   for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
    if (!draws(y*width+x,value)) continue;
-   int end = x;
-   while (end+1 < width && draws(y*width+end+1,value)) ++end;
-   if (!selected) { bytes.push_back(set_color); bytes.push_back(static_cast<std::uint8_t>(value)); selected = true; }
-   bytes.push_back(absolute_line); coordinate(bytes,x,y); coordinate(bytes,end,y); x = end;
-   check(bytes.size() < 65531,"VGA picture: masks exceed SCI1 resource size");
+   const auto inside = [](int px, int py) { return px >= 0 && px < width && py >= 0 && py < height; };
+   const int previous_x = x-direction.first, previous_y = y-direction.second;
+   if (inside(previous_x,previous_y) && draws(previous_y*width+previous_x,value)) continue;
+   int end_x = x, end_y = y;
+   while (inside(end_x+direction.first,end_y+direction.second) &&
+          draws((end_y+direction.second)*width+end_x+direction.first,value)) {
+    end_x += direction.first; end_y += direction.second;
+   }
+   if (!selected) { candidate.push_back(set_color); candidate.push_back(static_cast<std::uint8_t>(value)); selected = true; }
+   candidate.push_back(absolute_line); coordinate(candidate,x,y); coordinate(candidate,end_x,end_y);
   }
  }
+ if (best.empty() || candidate.size() < best.size()) best = std::move(candidate);
+ }
+ bytes.insert(bytes.end(),best.begin(),best.end());
 }
 }
 
@@ -292,7 +304,9 @@ Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palet
   append_vector_plane(result,picture.planes[2],set_control,16,&picture.written[2]);
  }
  result.push_back(terminate);
- check(result.size() <= 65531,"VGA picture: payload exceeds SCI1 resource size");
+ if (result.size() > 65531)
+  throw std::runtime_error("VGA picture: encoded payload is "+std::to_string(result.size())+
+      " bytes; SCI1 resource limit is 65531 bytes");
  return result;
 }
 }
