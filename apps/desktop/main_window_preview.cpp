@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
 #include "font_preview.hpp"
+#include "vocabulary_preview.hpp"
 #include "resource_preview.hpp"
 #include "explanation_tree.hpp"
 #include "preferences.hpp"
@@ -79,6 +80,9 @@ void MainWindow::preview() {
         } else if (resource.entry.id.type == scimate::ResourceType::font) {
             previewTitle_->setText("Font glyphs");
             description += showFontPreview(previewStack_, resource.payload);
+        } else if (resource.entry.id.type == scimate::ResourceType::vocab) {
+            previewTitle_->setText("Vocabulary");
+            description += showVocabularyPreview(previewStack_, resource.entry.id, resource.payload);
         } else if (resource.entry.id.type == scimate::ResourceType::script) {
             previewTitle_->setText("Script disassembly");
             description += "\n" + QString::fromStdString(scimate::disassemble_sci0_script(resource.payload, resource.entry.id.number));

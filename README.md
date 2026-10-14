@@ -93,6 +93,8 @@ supporting generator and update `.clangd`'s `CompilationDatabase` path.
 Font resources have a glyph browser with pixel dimensions, enlarged selection,
 and a sample-text preview. Glyph indices remain byte values; no game code page
 is guessed. Font decoding happens only when the resource is selected.
+Vocabulary 0 has a searchable word/class/group table. Other vocabularies use a
+searchable tree of the core's structured fields, with opaque layouts labelled.
 
 Select a resource and click **References…** to find its outgoing **References**
 and incoming **Referenced by** entries in Explain. Select a link to preview its

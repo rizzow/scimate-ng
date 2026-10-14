@@ -3,6 +3,7 @@
 #include "explanation_tree.hpp"
 #include "game_info.hpp"
 #include "font_preview.hpp"
+#include "vocabulary_preview.hpp"
 #include "scimate/assets.hpp"
 #include "project_fixture.hpp"
 #include <QtTest>
@@ -11,6 +12,7 @@
 #include <QLabel>
 #include <QStackedWidget>
 #include <QListWidget>
+#include <QTreeView>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QImage>
@@ -29,6 +31,18 @@
 class DesktopTests : public QObject {
     Q_OBJECT
 private slots:
+    void vocabularyPreview() {
+        QStackedWidget stack;
+        const std::vector<scimate::Word> words{{"look", 0x800, 7}, {"see", 0x800, 7}};
+        showVocabularyPreview(&stack, {scimate::ResourceType::vocab, 0}, scimate::write_sci0_vocabulary(words));
+        auto* entries = stack.findChild<QTreeView*>("vocabularyEntries");
+        QVERIFY(entries); QCOMPARE(entries->model()->rowCount(), 2);
+        stack.findChild<QLineEdit*>("vocabularySearch")->setText("see");
+        QCOMPARE(entries->model()->rowCount(), 1);
+        QCOMPARE(entries->model()->index(0, 2).data().toInt(), 7);
+        const auto summary = showVocabularyPreview(&stack, {scimate::ResourceType::vocab, 42}, {1, 2, 3});
+        QVERIFY(summary.contains("opaque")); QCOMPARE(stack.count(), 1);
+    }
     void fontPreview() {
         scimate::Font font;
         font.line_height = 3;
