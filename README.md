@@ -18,6 +18,8 @@ Run `scimate rooms <game-directory> [room-number]` to inspect SCI0 room candidat
 initial pictures, exits and same-script objects. `--json` emits structured records.
 Room identities distinguish decoded initial properties from export-0 conventions;
 dynamic behavior remains unresolved. See [room explorer](docs/room-explorer.md).
+In the desktop, use **Project → Room Explorer…** for searchable rooms, picture
+planes, a connection overview, exit navigation and approximate initial sprites.
 
 ## Command-line help
 

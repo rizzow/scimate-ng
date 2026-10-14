@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "main_window.hpp"
+#include "room_explorer.hpp"
 #include "explanation_tree.hpp"
 #include "preferences.hpp"
 #include "game_info.hpp"
@@ -63,6 +64,33 @@ MainWindow::MainWindow() {
         dialog.exec();
     });
     gameInfo_->setObjectName("gameInfo");
+    auto* roomsAction = projectMenu->addAction("Room Explorer…", this, [this] {
+        if (!project_ || busy_) return;
+        const auto snapshot = project_;
+        auto* dialog = new QDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setWindowTitle("Room Explorer — " + QString::fromStdString(snapshot->name));
+        dialog->resize(1100, 760);
+        auto* layout = new QVBoxLayout(dialog);
+        layout->addWidget(new RoomExplorerWidget(snapshot, [this, snapshot](scimate::ResourceId target) {
+            if (project_ != snapshot || busy_) return;
+            filter_->clear(); types_->setCurrentIndex(0);
+            for (std::size_t i = 0; i < project_->game.resources.size(); ++i) {
+                const auto id = project_->game.resources[i].entry.id;
+                if (id.type == target.type && id.number == target.number) {
+                    browserTabs_->setCurrentIndex(0);
+                    const auto row = proxy_->mapFromSource(model_->index(static_cast<int>(i), 0));
+                    table_->selectRow(row.row()); table_->scrollTo(row); preview();
+                    raise(); activateWindow(); return;
+                }
+            }
+            statusBar()->showMessage("Referenced resource is absent from this project.", 8000);
+        }, dialog));
+        dialog->show();
+    });
+    roomsAction->setObjectName("roomExplorerAction");
+    roomsAction->setEnabled(false);
+    connect(gameInfo_, &QAction::changed, roomsAction, [this, roomsAction] { roomsAction->setEnabled(gameInfo_->isEnabled()); });
     explain_ = projectMenu->addAction("Explain Project", this, [this] {
         if (!project_ || busy_) return;
         const auto project = project_;

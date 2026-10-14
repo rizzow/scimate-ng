@@ -1,5 +1,18 @@
 # Room explorer
 
+In the desktop, open a project and choose **Project → Room Explorer…**. Analysis
+runs in the background against the loaded project snapshot. Search by room/name
+or script; select a room to see its visual, priority or control plane at 1×–4×.
+Enable **Initial same-script sprites** for approximate placement. Double-click a
+resolved exit to follow it, select a node in Connections, use **Open script**, or
+double-click an object to inspect its view in the main resource browser.
+
+Connections uses a deterministic grid, not geographical placement. Dashed arrows
+are static clues; absent or ambiguous targets stay in the exits table. Sprite
+preview does not simulate cast membership or background-priority occlusion.
+After external edits, Refresh from Disk and reopen the explorer for a fresh
+snapshot. Resource navigation only applies while that project snapshot is current.
+
 ```sh
 scimate rooms ./game
 scimate rooms ./game 42
