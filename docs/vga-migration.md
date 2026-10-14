@@ -127,6 +127,14 @@ for subsequent handlers. Selector IDs are supplied by source-vocabulary lookup,
 not fixed numeric identities. Failure text uses a persistent local buffer. The
 bridges still need Said lookup pages, synonym collection and export call rewriting.
 
+Said lookup pages now emit deduplicated specification bytes and tagged trees.
+A sorted two-byte prefix index narrows candidate specifications before exact
+byte comparison through StrAt; an original Said pointer may belong to any source
+script. Known specifications produce full/partial/no-match results through the
+emitted matcher. An explicit unknown result lets the dispatcher try another page.
+The export layer still needs page partitioning and call wiring; dynamic Said
+specifications require additional handling rather than an assumed match.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

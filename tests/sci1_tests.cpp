@@ -14,6 +14,7 @@
 #include "../core/src/parser_matcher.hpp"
 #include "../core/src/parser_pipeline.hpp"
 #include "../core/src/parser_bridges.hpp"
+#include "../core/src/parser_said_lookup.hpp"
 #include <iostream>
 
 namespace {
@@ -133,9 +134,9 @@ void tests() {
     parser_detail::ScriptBuilder pipeline_builder;
     const auto pipeline = parser_detail::emit_parser_pipeline(pipeline_builder,
         {{"look",0x800,12},{"coin",0x100,21}},nested_grammar,{});
-    const auto fixture_lookup = pipeline_builder.label(); pipeline_builder.bind(fixture_lookup);
-    pipeline_builder.emit(sci_vm::opcode::load_immediate,{1}); pipeline_builder.emit(sci_vm::opcode::return_);
-    const auto bridges = parser_detail::emit_parser_bridges(pipeline_builder,pipeline,{17,23,31},fixture_lookup);
+    const auto bridge_lookup = parser_detail::emit_said_lookup(pipeline_builder,{said_fixture,reference_said,said_fixture});
+    require(bridge_lookup.count == 2,"Said lookup did not deduplicate identical specifications");
+    const auto bridges = parser_detail::emit_parser_bridges(pipeline_builder,pipeline,{17,23,31},bridge_lookup.procedure);
     pipeline_builder.export_procedure(pipeline.procedure);
     pipeline_builder.export_procedure(bridges.parse); pipeline_builder.export_procedure(bridges.said);
     const auto pipeline_bytes = pipeline_builder.finish();
@@ -154,6 +155,15 @@ void tests() {
         if (instruction.operands[0] == 6) sends_claimed = true;
     }
     require(sends_callbacks && sends_claimed,"portable parser bridges lost callback/property send frames");
+    bool has_lookup_index = false;
+    for (const auto& section : pipeline_script.sections) if (section.type == 10) {
+        const auto table = section.start+4+bridge_lookup.table*2;
+        require(script_detail::word(pipeline_bytes,table,section.end) == 12 &&
+                script_detail::word(pipeline_bytes,table+8,section.end) == 12,
+                "Said lookup prefix index changed source byte order");
+        has_lookup_index = true;
+    }
+    require(has_lookup_index,"Said lookup records were not emitted as script locals");
     bool has_pronoun_state = false;
     for (const auto& section : pipeline_script.sections) if (section.type == 10) {
         const auto reference = section.start+4+pipeline.pronouns.reference*2;
