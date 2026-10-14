@@ -53,6 +53,13 @@ Prefer source-faithful geometry and game consistency over extra detail. Use
 the guide's colour families with room-appropriate lighting. No invented objects,
 characters, text, borders, stippling, grain or photographic rendering.
 
+Small EGA images can be ambiguous: do not invent clouds, cliffs, water, or other
+scenery to explain uncertain pixels. Use the game's room description or relevant
+look/examine text, when supplied, to clarify confirmed scene features. Call out
+uncertain interpretations during review. Existing priority/control masks usually
+remain applicable but are not automatically correct for regenerated art; report
+edge shifts or potential occlusion/movement glitches for in-game checking.
+
 Inspect the final files and verify dimensions, palette size and transparency.
 Show the result inline, report exact saved paths, and provide the applicable
 manual import command. Preserve originals and keep commercial game assets out

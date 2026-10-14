@@ -31,8 +31,9 @@ alongside the original EGA image, with their roles explicitly labelled:
 - The EGA target supplies the scene, subject, geometry, and framing.
 - The approved VGA reference supplies colour treatment and rendering style only.
 
-Do not transfer scenery from the reference into the target. Keep commercial
-game files, generated replacements, and resource output outside Git.
+Do not transfer scenery from the reference into the target. Keep private game
+workspaces and resource output outside Git. The explicitly included comparison
+images below document the workflow; they are not a distributable game build.
 
 ## Generate the recreation
 
@@ -58,12 +59,60 @@ Review the generated image against the original. Correct geometry or identity
 drift before reducing it. A visually attractive result can still be unsuitable
 for existing interaction and priority maps.
 
+### Ambiguous details and hallucinations
+
+At 320×190, EGA colour clusters can be ambiguous. AI may invent clouds, cliffs,
+water, or other scenery while trying to make the small source image readable.
+Even a convincing recreation can change what the room actually contains.
+
+Improve the prompt by describing known materials and landmarks explicitly.
+Where available, include the game's room description or relevant look/examine
+text as supporting context. Distinguish confirmed scene details from uncertain
+interpretations, and use that text to clarify the image rather than add objects
+outside its framing. For ambiguous areas, specify what must remain and which
+interpretations to avoid. Do not describe an uncertain blue patch as water
+unless the game or other evidence supports that reading.
+
+Compare every generated candidate with both the source and the room context.
+If it invents a feature, revise the prompt with a targeted correction and
+regenerate or edit that area. Better prompting and room descriptions can help,
+but do not replace visual review.
+
+### Example comparisons
+
+These LSL3 examples use workspace folder indices, not game picture numbers.
+They illustrate both the style change and details that need review.
+
+| Workspace example | Original EGA | AI VGA recreation |
+| --- | --- | --- |
+| `0000352`: blue sculptural head | ![EGA blue head scene](../resources/lsl3-0000352-ega.png) | ![VGA blue head scene](../resources/lsl3-0000352-vga.png) |
+| `0000328`: coastal scene | ![EGA coastal scene](../resources/lsl3-0000328-ega.png) | ![VGA coastal scene](../resources/lsl3-0000328-vga.png) |
+| `0000280`: hallucinated water | ![EGA jungle scene](../resources/lsl3-0000280-ega.png) | ![VGA jungle scene with invented water](../resources/lsl3-0000280-vga.png) |
+
+In `0000280`, the VGA recreation interprets the blue area along the lower right
+as water. This is an observed hallucination, not an approved scene feature.
+The coastal example also shows how a recreation can elaborate distant scenery
+and clouds; those additions need checking against the intended room.
+
+Original game artwork belongs to its respective copyright holders. These
+comparison images, including AI recreations based on the originals, are included
+for illustration and are not covered by the project's code license.
+
 ## Prepare and inspect the PNG
 
 Pictures must be **320×190 and fully opaque**. The game displays aspect-corrected
 pixels that appear taller; judge both the native artwork and its in-game display.
 Keep `priority.png`, `control.png`, picture metadata, and original snapshots
 unchanged.
+
+The original background masks are not automatically correct for regenerated
+art. Priority and control maps generally remain quite applicable when the
+composition is preserved, but small shifts in edges or foreground silhouettes
+can still cause glitches in occlusion, movement, or interaction. Keeping the
+maps unchanged is the starting point, not a guarantee. Check them against the
+replacement in the interpreter; correct the art to fit the maps or deliberately
+adjust the affected map areas using the existing editing workflow. Recheck the
+result after either kind of correction.
 
 The SCI1 VGA importer preserves EGA palette entries 0–15, allocates additional
 colours at indices 16–254, and reserves index 255 for transparency. Reduce the
