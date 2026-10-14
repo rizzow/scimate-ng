@@ -28,18 +28,25 @@ MainWindow::MainWindow() {
     new_ = file->addAction("&New Project from Game…", this, &MainWindow::newProjectDialog);
     new_->setShortcut(QKeySequence::New);
     open_ = file->addAction("&Open Project…", this, [this] {
-        const auto filename = QFileDialog::getOpenFileName(this, "Open SCIMate project",
-            dialogDirectory("projects"), "SCIMate projects (*.scimate)");
+        const auto filename = QFileDialog::getOpenFileName(this, "Open project or exported workspace",
+            dialogDirectory("projects"), "SCIMate projects and exports (project.scimate manifest.tsv)");
         if (!filename.isEmpty()) {
             rememberDirectory("projects", QFileInfo(filename).absolutePath());
-            if (QFileInfo(filename).fileName() != "project.scimate") {
-                desktop_detail::show_error(this, "Open project", "Select the project's project.scimate file.", scimate::LogLevel::warning);
+            if (QFileInfo(filename).fileName() != "project.scimate" && QFileInfo(filename).fileName() != "manifest.tsv") {
+                desktop_detail::show_error(this, "Open project", "Select project.scimate or an exported workspace's manifest.tsv.", scimate::LogLevel::warning);
                 return;
             }
             openProject(QFileInfo(filename).absolutePath());
         }
     });
     open_->setShortcut(QKeySequence::Open);
+    auto* openExport = file->addAction("Open Export Workspace…", this, [this] {
+        if (busy_) return;
+        const auto directory = QFileDialog::getExistingDirectory(this, "Open exported workspace", dialogDirectory("projects"));
+        if (!directory.isEmpty()) openProject(directory);
+    });
+    openExport->setObjectName("openExportWorkspace");
+    connect(open_, &QAction::changed, openExport, [this, openExport] { openExport->setEnabled(open_->isEnabled()); });
     recent_ = file->addMenu("Recent Projects");
     close_ = file->addAction("Close Project", this, [this] {
         project_.reset(); model_->removeRows(0, model_->rowCount()); preview();

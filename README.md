@@ -172,6 +172,9 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
   The dialog uses full-width fields and suggests the selected game folder's name
   (for example `LSL3-workspace`); manually entered project names are preserved.
 - **Open Project** opens `project.scimate`. Recent projects are remembered.
+  It also accepts an export's `manifest.tsv`. **File → Open Export Workspace…**
+  selects an exported folder directly; after validation, SCIMate adds
+  `project.scimate` using the folder name and keeps existing resource edits.
   The workspace is movable and does not need the original game folder. Open Project
   uses the native platform file picker; select `project.scimate`.
 - File pickers start in your home folder on first use, then remember separate

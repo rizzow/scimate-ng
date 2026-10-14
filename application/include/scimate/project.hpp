@@ -32,6 +32,8 @@ Bytes prepare_project_rename(const Project& project, const std::string& name);
 Project create_project(const std::filesystem::path& source_game,
                        const std::filesystem::path& new_directory,
                        const std::string& name, const ProgressCallback& progress = {});
+// Validated plain exports are adopted by adding project.scimate with the folder
+// name. Existing descriptors are validated and preserved.
 Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress = {});
 void build_project(const std::filesystem::path& directory,
                    const std::filesystem::path& new_game_directory, const ProgressCallback& progress = {});

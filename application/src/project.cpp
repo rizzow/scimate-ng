@@ -58,9 +58,24 @@ Project create_project(const std::filesystem::path& source_game,
 }
 
 Project open_project(const std::filesystem::path& directory, const ProgressCallback& progress) {
-    const auto name = read_name(directory);
+    const auto descriptor = directory / workspace_detail::project_file;
+    const bool has_descriptor = std::filesystem::exists(std::filesystem::symlink_status(descriptor));
+    auto name = has_descriptor ? read_name(directory) : directory.lexically_normal().filename().u8string();
+    if (!has_descriptor && name.empty()) name = std::filesystem::absolute(directory).lexically_normal().filename().u8string();
+    if (!has_descriptor && name.empty()) name = "SCI project";
+    validate_name(name);
     std::vector<Bytes> originals;
     auto game = open_sci0_export(directory, progress, &originals);
+    // Adopt only a fully validated export. Never replace an existing descriptor.
+    if (!has_descriptor) {
+        if (std::filesystem::exists(std::filesystem::symlink_status(descriptor))) name = read_name(directory);
+        else {
+            std::ostringstream output;
+            output << "SCIMATE-PROJECT 1\n" << std::quoted(name) << '\n';
+            const auto contents = output.str();
+            detail::write_file(descriptor, Bytes(contents.begin(), contents.end()));
+        }
+    }
     return {std::filesystem::absolute(directory).lexically_normal(), name, std::move(game), std::move(originals)};
 }
 
