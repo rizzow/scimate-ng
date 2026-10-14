@@ -3,6 +3,8 @@
 
 #include <iostream>
 #include "commands.hpp"
+#include "scimate/diagnostics.hpp"
+#include <chrono>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -302,6 +304,8 @@ changes indices referenced by scripts; character encodings are not guessed.
             (exporting ? " " + std::string(type) + ".bin ./" + std::string(type) + "-bundle\n"
                        : " ./" + std::string(type) + "-bundle edited-" + std::string(type) + ".bin\n");
     }
+    const std::string usage = "Usage: scimate " + std::string(command);
+    if (body.compare(0, usage.size(), usage) == 0) body.insert(usage.size(), " [--verbose]");
     body += "\nOptions: -h, --help; -v, --verbose logs progress/timing to stderr; -- ends options.\n";
     if (format_option) {
         body += "Formats: ";
@@ -314,22 +318,49 @@ changes indices referenced by scripts; character encodings are not guessed.
 }
 
 inline std::optional<int> show_help(int argc, char** argv, bool sci1 = false,
-                                  std::string_view migration_help = {}) {
-    if (argc == 1 || (argc == 2 && (std::string_view(argv[1]) == "--help" ||
-        std::string_view(argv[1]) == "-h" || std::string_view(argv[1]) == "help"))) {
+                                  std::string_view migration_help = {}, bool verbose = false) {
+    const auto started = std::chrono::steady_clock::now();
+    auto verbose_option = [](std::string_view arg) { return arg == "--verbose" || arg == "-v"; };
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--") break;
+        if (verbose_option(argv[i])) verbose = true;
+    }
+    auto finish = [&](int code) {
+        if (verbose) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - started).count();
+            log_diagnostic(LogLevel::info, "help", "Finished with exit status " + std::to_string(code) +
+                           " in " + std::to_string(elapsed) + " ms");
+        }
+        return code;
+    };
+    bool overview_requested = argc == 1;
+    if (argc > 1 && (std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "-h" ||
+                    std::string_view(argv[1]) == "help")) {
+        overview_requested = true;
+        for (int i = 2; i < argc; ++i) if (!verbose_option(argv[i])) overview_requested = false;
+    }
+    if (overview_requested) {
+        if (verbose) log_diagnostic(LogLevel::info, "help", "Displaying command overview");
         std::cout << overview;
         if (sci1) std::cout << "\nExperimental SCI1 support\n"
             "  list/inspect --format sci1|sci11   Read SCI1 late/SCI1.1 containers.\n"
             "  migrate                         Create an unverified compatibility candidate.\n"
             "  Run scimate help migrate for scope and limitations.\n";
-        return std::cout ? 0 : 1;
+        return finish(std::cout ? 0 : 1);
     }
     if (argc < 2) return {};
     std::string_view command = argv[1];
     bool requested = false;
     if (command == "help") {
-        if (argc != 3) {std::cerr << "Usage: scimate help <command>\n";return 2;}
-        command = argv[2];requested = true;
+        command = {};
+        for (int i = 2; i < argc; ++i) {
+            if (verbose_option(argv[i])) continue;
+            if (!command.empty()) { std::cerr << "Usage: scimate help [--verbose] <command>\n"; return finish(2); }
+            command = argv[i];
+        }
+        if (command.empty()) { std::cerr << "Usage: scimate help [--verbose] <command>\n"; return finish(2); }
+        requested = true;
     } else {
         for (int i = 2; i < argc; ++i) {
             const std::string_view arg = argv[i];
@@ -341,10 +372,11 @@ inline std::optional<int> show_help(int argc, char** argv, bool sci1 = false,
     const auto help = command_help(command, sci1, migration_help);
     if (help.empty()) {
         std::cerr << "Unknown command: " << command << "\nRun scimate --help for available commands.\n";
-        return 2;
+        return finish(2);
     }
+    if (verbose) log_diagnostic(LogLevel::info, "help", "Displaying help for " + std::string(command));
     std::cout << help;
-    return std::cout ? 0 : 1;
+    return finish(std::cout ? 0 : 1);
 }
 
 inline void usage_error(std::string_view command, bool sci1 = false,

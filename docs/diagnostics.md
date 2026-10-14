@@ -14,6 +14,10 @@ Pass `--verbose` (or `-v`) before or after any CLI command to include informatio
 and elapsed time on stderr. For example, `scimate export --verbose ./game ./workspace`.
 Without this option, normal operations remain quiet on stderr; warnings and errors
 are still reported.
+Verbose output covers every command: map reads and record counts, script
+disassembly sizes, game validation and analysis counts, resource-bundle conversion,
+and payload writes/verification. Help supports it too, including
+`scimate help --verbose sound-export` and `scimate list --verbose --help`.
 Desktop errors use the same logger and plain-text dialogs. Worker failures and
 exceptions reaching the Qt event boundary are reported through this path.
 

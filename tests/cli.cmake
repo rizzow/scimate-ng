@@ -47,3 +47,45 @@ execute_process(COMMAND "${CLI}" --help RESULT_VARIABLE code OUTPUT_VARIABLE hel
 if(NOT code EQUAL 0 OR NOT help MATCHES "Script listings are inspection-only")
   message(FATAL_ERROR "Help does not describe supported scope")
 endif()
+
+# Every command and alias accepts verbosity, advertises it, and leaves help stdout unchanged.
+foreach(command list inspect explain rooms disassemble export import migrate
+    resource-export resource-import view-export view-import picture-export picture-import
+    sound-export sound-import font-export font-import cursor-export cursor-import text-export text-import)
+  execute_process(COMMAND "${CLI}" ${command} --help
+    RESULT_VARIABLE quiet_code OUTPUT_VARIABLE quiet_help ERROR_VARIABLE quiet_error)
+  foreach(flag --verbose -v)
+    execute_process(COMMAND "${CLI}" ${command} ${flag} --help
+      RESULT_VARIABLE verbose_code OUTPUT_VARIABLE verbose_help ERROR_VARIABLE verbose_error)
+    if(NOT quiet_code EQUAL 0 OR NOT verbose_code EQUAL 0 OR NOT quiet_error STREQUAL ""
+        OR NOT verbose_help STREQUAL quiet_help OR NOT verbose_help MATCHES "--verbose"
+        OR NOT verbose_error MATCHES "Displaying help for ${command}")
+      message(FATAL_ERROR "Verbose help contract failed for ${command} ${flag}")
+    endif()
+  endforeach()
+endforeach()
+execute_process(COMMAND "${CLI}" help --verbose list
+  RESULT_VARIABLE code OUTPUT_VARIABLE help ERROR_VARIABLE error)
+if(NOT code EQUAL 0 OR NOT help MATCHES "Usage: scimate list" OR NOT error MATCHES "Displaying help for list")
+  message(FATAL_ERROR "Verbose help command failed")
+endif()
+string(RANDOM LENGTH 12 suffix)
+set(bundle "${FIXTURE_DIR}/verbose-bundle-${suffix}")
+set(payload "${FIXTURE_DIR}/verbose-payload-${suffix}.bin")
+execute_process(COMMAND "${CLI}" resource-export --verbose memory 0 "${FIXTURE_DIR}/valid.map" "${bundle}"
+  RESULT_VARIABLE code OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT code EQUAL 0 OR NOT error MATCHES "Preparing editable bundle from")
+  message(FATAL_ERROR "Verbose resource export did not report conversion progress: ${error}")
+endif()
+execute_process(COMMAND "${CLI}" resource-import -v "${bundle}" "${payload}"
+  RESULT_VARIABLE code OUTPUT_VARIABLE output ERROR_VARIABLE error)
+if(NOT code EQUAL 0 OR NOT error MATCHES "Writing and verifying decoded payload")
+  message(FATAL_ERROR "Verbose resource import did not report verification progress: ${error}")
+endif()
+file(SHA256 "${FIXTURE_DIR}/valid.map" original_hash)
+file(SHA256 "${payload}" imported_hash)
+if(NOT original_hash STREQUAL imported_hash)
+  message(FATAL_ERROR "Verbose resource round-trip changed payload bytes")
+endif()
+file(REMOVE_RECURSE "${bundle}")
+file(REMOVE "${payload}")

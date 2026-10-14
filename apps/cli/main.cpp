@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         --argc;
         ++argv;
     }
-    if (const auto result = scimate::cli::show_help(argc, argv, true, migrate_help)) return *result;
+    if (const auto result = scimate::cli::show_help(argc, argv, true, migrate_help, verbose)) return *result;
     const std::string_view command = argc > 1 ? argv[1] : "";
     const auto* spec = scimate::cli::command_spec(command);
     const auto kind = spec ? spec->command : scimate::cli::Command::unknown;
@@ -142,9 +142,12 @@ int main(int argc, char** argv) {
         report(message);
     };
     try {
-        report("Starting; format=" + std::string(format) + "; source=" + paths[0]);
-        if (paths.size() >= 2 && (exporting || importing || migrating))
-            report("Destination=" + std::string(paths[1]) + "; force=" + (force ? "yes" : "no"));
+        report("Starting; format=" + std::string(format) + "; source=" + paths[resource_export ? 2 : 0]);
+        if (spec->min_arguments >= 2 && !explain && !rooms)
+            report("Destination=" + std::string(paths[resource_export ? 3 : 1]) + "; force=" + (force ? "yes" : "no"));
+        if (importing) report("Target engine=" + std::string(target_engine));
+        if (migrating || (importing && target_engine == "sci1"))
+            report(graphics == scimate::Sci1Graphics::vga ? "Graphics=VGA" : "Graphics=EGA");
         if (migrating) {
             scimate::write_output_directory(paths[0], paths[1], force, [&](const auto& destination) {
                 scimate::migrate_sci0_to_sci1_directory(paths[0], destination,graphics, progress);
@@ -168,7 +171,10 @@ int main(int argc, char** argv) {
                 }
                 number = value;
             }
-            const auto analysis = scimate::explore_sci0_rooms(scimate::open_sci0_game(paths[0], progress));
+            const auto game = scimate::open_sci0_game(paths[0], progress);
+            report("Analyzing room candidates, exits and scene objects");
+            const auto analysis = scimate::explore_sci0_rooms(game);
+            report("Resolved " + std::to_string(analysis.rooms.size()) + " room candidates");
             if (number && std::none_of(analysis.rooms.begin(), analysis.rooms.end(), [&](const auto& room) { return room.number == number; }))
                 throw std::runtime_error("requested room number has no resolved room candidate");
             std::cout << (json ? scimate::format_rooms_json(analysis, number) : scimate::format_rooms_text(analysis, number));
@@ -192,7 +198,12 @@ int main(int argc, char** argv) {
                 }
                 focus = scimate::ResourceId{*type, static_cast<std::uint16_t>(number)};
             }
-            const auto analysis = scimate::analyze_sci0_game(scimate::open_sci0_game(paths[0], progress), focus);
+            const auto game = scimate::open_sci0_game(paths[0], progress);
+            report("Analyzing resource references and script evidence");
+            const auto analysis = scimate::analyze_sci0_game(game, focus);
+            report("Indexed " + std::to_string(analysis.resources.size()) + " resources and " +
+                   std::to_string(analysis.references.size()) + " references");
+            for (const auto& diagnostic : analysis.diagnostics) report("Analysis diagnostic: " + diagnostic);
             std::cout << (json ? scimate::format_explanation_json(analysis) : scimate::format_explanation_text(analysis));
             if (!std::cout) throw std::runtime_error("failed to write explanation");
             return finish(0);
@@ -214,34 +225,68 @@ int main(int argc, char** argv) {
                     try {id.type=parse_type(paths[0]);} catch(const std::invalid_argument& error) {std::cerr<<error.what()<<'\n';return finish(2);}
                     id.number=static_cast<std::uint16_t>(number);payload=paths[2];destination=paths[3];
                 } else id.type=parse_type(alias_type);
-                scimate::export_sci0_asset_file(id,payload,destination);
+                report("Reading decoded " + std::string(scimate::resource_type_name(id.type)) + " " +
+                       std::to_string(id.number) + " from " + payload);
+                const auto bytes = read_file(payload, true);
+                report("Preparing editable bundle from " + std::to_string(bytes.size()) + " bytes");
+                const auto summary = scimate::export_sci0_asset(id,bytes,destination);
+                report(std::string("Saved ") + (summary.editable ? "editable" : "byte-level") + " bundle: " + destination);
+                if (summary.conversion_error) report("Conversion diagnostic saved in conversion.error.txt");
                 std::cout<<"Exported resource bundle: "<<destination<<'\n';
             } else {
+                report("Reading and validating bundle metadata and editable files");
+                const auto bytes = scimate::import_sci0_asset(paths[0],&id);
                 if (asset_import) {
-                    scimate::import_sci0_asset(paths[0],&id);
                     if (id.type!=parse_type(alias_type)) throw std::runtime_error("bundle resource type does not match import command");
                 }
-                scimate::import_sci0_asset_file(paths[0],paths[1]);std::cout<<"Encoded and verified resource: "<<paths[1]<<'\n';
+                report("Encoded " + std::string(scimate::resource_type_name(id.type)) + " " +
+                       std::to_string(id.number) + ": " + std::to_string(bytes.size()) + " bytes");
+                report("Writing and verifying decoded payload");
+                scimate::write_new_file(paths[1],bytes);
+                std::cout<<"Encoded and verified resource: "<<paths[1]<<'\n';
             }
             if (!std::cout) throw std::runtime_error("failed to write result");
             return finish(0);
         }
         if (picture_export || picture_import) {
-            if (picture_export) scimate::export_sci0_picture_file(paths[0],paths[1]);
-            else scimate::import_sci0_picture_file(paths[0],paths[1]);
+            if (picture_export) {
+                report("Reading decoded picture payload");
+                const auto bytes = read_file(paths[0], true);
+                report("Rendering and exporting picture planes from " + std::to_string(bytes.size()) + " bytes");
+                scimate::export_sci0_picture(bytes,paths[1]);
+                report("Saved visual, priority and control PNGs with picture metadata");
+            } else {
+                report("Reading picture metadata and validating PNG planes");
+                const auto bytes = scimate::import_sci0_picture(paths[0]);
+                report("Writing and verifying picture payload: " + std::to_string(bytes.size()) + " bytes");
+                scimate::write_new_file(paths[1],bytes);
+            }
             std::cout << (picture_export ? "Exported editable picture: " : "Encoded and verified picture: ") << paths[1] << '\n';
             if (!std::cout) throw std::runtime_error("failed to write result");
             return finish(0);
         }
         if (view_export || view_import) {
-            if (view_export) scimate::export_sci0_view_file(paths[0],paths[1]);
-            else scimate::import_sci0_view_file(paths[0],paths[1]);
+            if (view_export) {
+                report("Reading decoded view payload");
+                const auto bytes = read_file(paths[0], true);
+                report("Exporting sprite PNGs and placement metadata from " + std::to_string(bytes.size()) + " bytes");
+                scimate::export_sci0_view(bytes,paths[1]);
+                report("Saved sprite PNGs and view metadata");
+            } else {
+                report("Reading view metadata and validating sprite PNGs");
+                const auto bytes = scimate::import_sci0_view(paths[0]);
+                report("Writing and verifying view payload: " + std::to_string(bytes.size()) + " bytes");
+                scimate::write_new_file(paths[1],bytes);
+            }
             std::cout << (view_export ? "Exported editable view: " : "Encoded and verified view: ") << paths[1] << '\n';
             if (!std::cout) throw std::runtime_error("failed to write result");
             return finish(0);
         }
         if (disassemble) {
-            std::cout << scimate::disassemble_sci0_script(read_file(paths[0], true));
+            report("Reading decoded script payload");
+            const auto bytes = read_file(paths[0], true);
+            report("Disassembling " + std::to_string(bytes.size()) + " bytes of script instructions");
+            std::cout << scimate::disassemble_sci0_script(bytes);
             if (!std::cout) throw std::runtime_error("failed to write disassembly");
             return finish(0);
         }
@@ -270,6 +315,9 @@ int main(int argc, char** argv) {
         }
         if (inspect) {
             const auto game = format == "sci0" ? scimate::open_sci0_game(paths[0], progress) : scimate::open_sci1_game(paths[0], sci1_format, progress);
+            std::size_t decoded = 0;
+            for (const auto& resource : game.resources) decoded += resource.payload.size();
+            report("Validated " + std::to_string(game.resources.size()) + " resource records; decoded " + std::to_string(decoded) + " bytes");
             std::cout << "index\ttype\tnumber\tvolume\toffset\tcompression\tdecoded_size\n";
             for (std::size_t i = 0; i < game.resources.size(); ++i) {
                 const auto& r = game.resources[i];
@@ -280,8 +328,11 @@ int main(int argc, char** argv) {
             if (!std::cout) throw std::runtime_error("failed to write listing");
             return finish(0);
         }
+        report("Reading resource map");
         const auto bytes = read_file(paths[0]);
+        report("Parsing and validating " + std::to_string(bytes.size()) + " map bytes");
         const auto entries = format == "sci0" ? scimate::read_sci0_map(bytes) : scimate::read_sci1_map(bytes, sci1_format);
+        report("Listed " + std::to_string(entries.size()) + " resource records");
         std::cout << "type\tnumber\tvolume\toffset\n";
         for (const auto& entry : entries) {
             std::cout << scimate::resource_type_name(entry.id.type) << '\t'
