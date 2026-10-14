@@ -29,10 +29,12 @@ inline SynonymState emit_synonym_state(ScriptBuilder& builder, const TokenScanne
         constexpr unsigned pointer = 0;
         const auto loop = builder.label(), done = builder.label();
         builder.bind(clear); builder.emit(op::allocate_temporaries,{1}); branch_if(builder,local(blocks),done,false);
-        builder.bind(loop); branch_if(builder,kernel(kernels::first_node,{local(blocks)}),done,false);
+        const auto dispose = builder.label();
+        builder.bind(loop); branch_if(builder,kernel(kernels::first_node,{local(blocks)}),dispose,false);
         set_temporary(builder,pointer,kernel(kernels::node_value,{kernel(kernels::first_node,{local(blocks)})}));
         kernel(kernels::delete_key,{local(blocks),temporary(pointer)})(builder);
         kernel(kernels::memory,{number(sci_vm::memory_operation::free),temporary(pointer)})(builder); builder.branch(op::jump,loop);
+        builder.bind(dispose); kernel(kernels::dispose_list,{local(blocks)})(builder);
         builder.bind(done); set_local(builder,blocks,number(0)); return_value(builder,number(1));
     }
     {
