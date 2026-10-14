@@ -1,8 +1,9 @@
 # SCIMate NG
 
-SCIMate NG is a work-in-progress tool for exploring, editing, and rebuilding
-Sierra SCI games. Its main goal is to upgrade **SCI0 games with EGA graphics to
-SCI1 with VGA graphics**, while preserving their gameplay, animations, and
+SCIMate NG is a work-in-progress **cross-platform rebuild and migration of
+[SCI Companion](https://github.com/icefallgames/SCICompanion)** for exploring,
+editing, and rebuilding Sierra SCI games. Its main goal is to upgrade **SCI0 games
+with EGA graphics to SCI1 with VGA graphics**, while preserving their gameplay, animations, and
 parser-driven interaction.
 
 Today, it provides a desktop resource browser and an editable workspace workflow
