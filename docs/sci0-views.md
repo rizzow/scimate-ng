@@ -95,7 +95,9 @@ owns the filesystem workflows. PNG codec errors do not enter the SCI format
 core. libpng and its zlib dependency are discovered by CMake; no libraries are
 downloaded by the build. See README for installation commands.
 
-This milestone supports **SCI0 EGA views**. VGA views, cursor masks/hotspots,
+This workflow supports **SCI0 EGA views**. SCI1 VGA migration supports complete
+sibling `vga/` PNG overrides with embedded palettes; see `vga-migration.md`.
+Cursor masks/hotspots,
 picture visual/priority/control-plane editing, sprite sheets, and an in-app
 editor are not implemented. Reopening a reconstructed resource verifies its
 storage/pixels/metadata, not gameplay or interpreter behavior. As with the

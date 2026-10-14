@@ -66,8 +66,27 @@ hashes establish compatibility.
 
 ## Graphics conversion and runtime guards
 
-Views retain loop/cel IDs, mirrors, placement and transparent indices in the
-SCI1 VGA encoding. Pictures provide a shared palette retaining the original
+Views retain loop/cel IDs, mirrors and placement in the SCI1 VGA encoding.
+Without PNG overrides, their transparent indices also remain unchanged.
+For `import --target-engine sci1 --graphics vga`, a view bundle may contain a
+complete `vga/` directory with matching `loop-L-cel-C.png` names and a byte-identical
+copy of its parent `view.tsv`. Mirrored loops keep their source references and
+have no separate PNGs. The parent EGA PNGs, metadata and binary payload must
+remain unchanged when a VGA override is present; conflicting edits fail.
+
+Indexed, RGB and RGBA PNGs with binary alpha are accepted. One embedded palette
+is allocated across every source cel, retaining EGA colours 0–15, adding up to
+239 RGB colours and mapping transparent pixels to index 255. No automatic
+quantization or dithering occurs. Reduce all frames together before import;
+PNG dimensions control cel dimensions, so preserve them for registered art.
+Missing cels, partial alpha, excess colours and changed mirror metadata fail.
+Duplicate resource IDs retain the existing first-record selection policy;
+place the override in the selected bundle. SCI0/EGA import ignores `vga/`.
+Embedded view palettes are merged and remapped by the SCI1 VGA renderer; colour
+fidelity still depends on runtime palette pressure and needs playback review.
+Existing CLI binaries need rebuilding to use this source change.
+
+Pictures provide a shared palette retaining the original
 sixteen colours. Flood-filled backgrounds use an embedded bitmap plus vector
 priority/control planes. Pictures without fills use explicit vector drawing
 masks, preserving untouched pixels and white/zero writes.

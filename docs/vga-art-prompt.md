@@ -38,10 +38,14 @@ of generating unrelated mirror frames. Save transparent sibling PNGs with
 matching loop/cel filenames in a separate `vga/` directory, plus unchanged
 placement/mirror metadata. Do not add scenery, shadows outside the silhouette,
 cropping or padding that changes registration. Check alpha and edge pixels after
-palette reduction. SCI1 picture import currently supports RGB edits; the SCI0
-view importer still requires EGA colours. Report that limitation explicitly:
-do not claim VGA view artwork is encoded or game-ready without a supported
-VGA view import path.
+palette reduction. Keep a complete source-cel set and copy the unchanged parent
+`view.tsv` into `vga/`. SCI1 VGA workspace import reads these siblings with one
+embedded palette per view: reserve EGA colours 0–15 and transparency index 255,
+and use at most 239 additional RGB colours across all cels. Alpha must be binary;
+reduce the whole animation without dithering before import. Do not edit the
+parent EGA PNGs or raw payload at the same time as a VGA override. SCI0 import
+still requires EGA colours and ignores `vga/`. Source support does not establish
+game readiness: report whether encoding and interpreter playback were verified.
 
 Prefer source-faithful geometry and game consistency over extra detail. Use
 the guide's colour families with room-appropriate lighting. No invented objects,
