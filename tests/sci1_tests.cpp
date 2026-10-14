@@ -16,6 +16,7 @@
 #include "../core/src/parser_bridges.hpp"
 #include "../core/src/parser_said_lookup.hpp"
 #include "../core/src/parser_pages.hpp"
+#include "../core/src/parser_input.hpp"
 #include <iostream>
 
 namespace {
@@ -195,6 +196,37 @@ void tests() {
         ++external_pages;
     }
     require(external_pages == 2,"Said dispatcher omitted a lookup page");
+    Game parser_source;
+    parser_source.resources.push_back(resource(ResourceType::vocab,0,
+        write_sci0_vocabulary({{"look",0x800,12},{"coin",0x100,21}})));
+    Bytes parser_source_grammar;
+    for (const auto& record : nested_grammar.records)
+        for (const auto value : record) put(parser_source_grammar,value,2);
+    parser_source.resources.push_back(resource(ResourceType::vocab,900,parser_source_grammar));
+    Bytes source_selectors; put(source_selectors,2,2); source_selectors.resize(8);
+    unsigned selector_slot = 0;
+    for (const std::string name : {"claimed","wordFail","syntaxFail"}) {
+        const auto offset = source_selectors.size();
+        source_selectors[2+2*selector_slot] = static_cast<std::uint8_t>(offset);
+        source_selectors[3+2*selector_slot++] = static_cast<std::uint8_t>(offset >> 8);
+        put(source_selectors,name.size(),2); source_selectors.insert(source_selectors.end(),name.begin(),name.end());
+    }
+    parser_source.resources.push_back(resource(ResourceType::vocab,997,source_selectors));
+    Bytes parser_source_script{2,0,14,0,0x38,0xfe,7,0x46,0xff,7,0,0,0,0x48};
+    put(parser_source_script,4,2); put(parser_source_script,4+said_fixture.size()+1,2);
+    parser_source_script.insert(parser_source_script.end(),said_fixture.begin(),said_fixture.end()); parser_source_script.push_back(0);
+    put(parser_source_script,3,2); put(parser_source_script,12,2);
+    parser_source_script.insert(parser_source_script.end(),{1,0,2,0,2,0,3,0});
+    put(parser_source_script,7,2); put(parser_source_script,8,2); put(parser_source_script,1,2); put(parser_source_script,4,2); put(parser_source_script,0,2);
+    parser_source.resources.push_back(resource(ResourceType::script,70,parser_source_script));
+    parser_source.resources.push_back(resource(ResourceType::script,70,{0})); // First map entry remains authoritative.
+    const auto parser_input = parser_detail::collect_parser_input(parser_source);
+    require(parser_input.specifications == std::vector<Bytes>{said_fixture} && parser_input.synonyms.at(70).size() == 2 &&
+            parser_input.selectors.claimed == 0 && parser_input.selectors.word_fail == 1 && parser_input.selectors.syntax_fail == 2,
+            "Parser input collection lost source data or selector ordering");
+    const auto parser_ids = parser_detail::allocate_parser_scripts(parser_input,2);
+    require(parser_ids == std::vector<std::uint16_t>({2045,2044}),
+            "Parser script allocation shadowed a source literal or guarded external script reference");
     bool has_pronoun_state = false;
     for (const auto& section : pipeline_script.sections) if (section.type == 10) {
         const auto reference = section.start+4+pipeline.pronouns.reference*2;

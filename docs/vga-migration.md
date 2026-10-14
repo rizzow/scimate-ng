@@ -151,6 +151,15 @@ the bridge must preserve native loaded-script eligibility. ScriptID loads script
 and therefore cannot serve as an availability probe. A title-specific list or an
 assumption that every mapped script is loaded would change parser semantics.
 
+Export-side parser input collection now reads the first resource-map entry for
+each ID and gathers source vocabulary, grammar, suffixes, Said blocks and synonym
+pairs. Callback selectors come from vocabulary 997. Helper-script allocation
+reserves source resource IDs, direct external calls, literal values, object
+properties and class-to-script mappings. Computed IDs still need validation in
+the export integration; these reservations are not a proof for arbitrary dynamic
+script-number expressions. Secondary/translated vocabularies fail explicitly
+until a language profile is implemented.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.
