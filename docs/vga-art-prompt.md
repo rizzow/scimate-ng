@@ -8,11 +8,10 @@ Recreate this EGA resource as consistent SCI1 VGA artwork:
 
 **Resource:** `RESOURCE_PATH`
 
-Read and follow the complete art-direction guide:
-`/Users/breght/Development/brightspark/scimate-ng/docs/vga-art-style.md`.
-Use the approved terrace artwork at
-`/Users/breght/Games/LSL3-workspace/pictures/0000250/visual.png`
-as the rendering/colour reference if it is available. It supplies style only;
+Read and follow the complete art-direction guide at `docs/vga-art-style.md`
+and the workflow at `docs/ai-vga-artwork.md` in this repository.
+Use an attached approved VGA image as the rendering/colour reference
+(for the tropical examples, the approved terrace). It supplies style only;
 the supplied resource supplies the scene, subject and geometry.
 
 Inspect the resource before generating. Accept a picture/view PNG, an exported
@@ -28,7 +27,10 @@ object footprints and foreground occlusion silhouettes. Output an opaque
 Leave priority/control PNGs and original snapshots untouched. Keep the first
 16 EGA colours available to existing sprites/UI: reduce the generated artwork
 without dithering to at most 239 colours, compatible with the current SCI1
-workspace importer. Save beside the supplied picture without replacing it.
+workspace importer. After reviewing the prepared image, rename the original
+`visual.png` to `visual-ega.png` and install the VGA version as `visual.png`.
+Preserve any existing `visual-ega.png`; use it as the EGA target for later
+iterations. The importer reads `visual.png`, not the temporary review sibling.
 
 For a **view**, inspect all loops/cels and mirror relationships first. Preserve
 each cel's dimensions, silhouette, placement, transparent background and

@@ -60,4 +60,6 @@ text, borders, checkerboards or grain."
 Check geometry against the source, colour/texture treatment against an approved
 room, and the final indexed image after reduction. Verify that any path changes
 remain consistent with existing priority/control maps. Keep the original PNG
-and save a sibling `visual-vga.png` until the new artwork is approved.
+as `visual-ega.png` when installing the selected VGA artwork as `visual.png`.
+Use a temporary sibling `visual-vga.png` during review; never overwrite an
+existing EGA backup. See [the AI artwork workflow](ai-vga-artwork.md).

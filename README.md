@@ -28,6 +28,9 @@ Converting resource formats does not automatically redraw a game. The VGA-style
 image shows the kind of replacement artwork an artist can supply; it is not an
 automatic enhancement produced by SCIMate.
 
+See [recreating EGA artwork as VGA with AI](docs/ai-vga-artwork.md) for the
+reference-image, generation, palette preparation, and workspace workflow.
+
 > **Artwork disclaimer:** The EGA picture is original artwork from LSL3. The
 > VGA-style comparison is based on the same scene. Original game artwork belongs
 > to its respective copyright holders; this project claims no ownership. These
@@ -113,6 +116,7 @@ compiler.
 - [Desktop projects](docs/projects.md) and [room explorer](docs/room-explorer.md)
 - [Exporting and rebuilding SCI0 resources](docs/sci0-roundtrip.md)
 - [Editing sprites](docs/sci0-views.md) and [backgrounds](docs/sci0-pictures.md)
+- [Recreating EGA artwork as VGA with AI](docs/ai-vga-artwork.md)
 - [Sounds, fonts, cursors, text, and vocabulary](docs/sci0-assets.md)
 - [Structured resources](docs/structured-resources.md) and [script inspection](docs/sci0-scripts.md)
 - [Resource explanations](docs/sci0-explain.md)
