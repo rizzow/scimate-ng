@@ -26,6 +26,7 @@ void put(Bytes& b, unsigned n) { binary_detail::append(b, n, 2, "SCI0 view: 16-b
 void patch(Bytes& b, std::size_t p, std::size_t n) { binary_detail::patch_word(b, p, n, "SCI0 view: 16-bit offset/size limit exceeded"); }
 int signed_byte(std::uint8_t n) { return n < 128 ? n : static_cast<int>(n) - 256; }
 void validate(const View& view, bool vga = false) {
+    if (!vga && view.palette) invalid("embedded palette requires a VGA view");
     if (view.loops.empty() || view.loops.size() > 50) invalid("expected 1..50 loops");
     std::size_t total = 0;
     for (std::size_t i = 0; i < view.loops.size(); ++i) {
@@ -56,7 +57,7 @@ bool operator==(const ViewCel& a, const ViewCel& b) {
 bool operator==(const ViewLoop& a, const ViewLoop& b) {
     return a.mirror_of == b.mirror_of && a.unknown == b.unknown && a.cels == b.cels;
 }
-bool same_view(const View& a, const View& b) { return a.version == b.version && a.reserved == b.reserved && a.loops == b.loops; }
+bool same_view(const View& a, const View& b) { return a.version == b.version && a.reserved == b.reserved && a.loops == b.loops && a.palette == b.palette; }
 
 namespace {
 constexpr unsigned vga_flag = 0x80, vga_repeat = 0x80, vga_skip = 0xc0;
@@ -73,6 +74,19 @@ View read_view(const Bytes& b, bool vga) {
     View view;
     view.version = static_cast<std::uint16_t>(word(b, 4));
     view.reserved = static_cast<std::uint16_t>(word(b, 6));
+    if (vga && view.reserved) {
+        const auto offset = static_cast<std::size_t>(view.reserved);
+        constexpr std::size_t palette_bytes = 256 + 4 + 256*4;
+        if (offset < view_header_bytes + count*2 || offset > b.size() || b.size()-offset < palette_bytes)
+            invalid("embedded VGA palette outside data");
+        view.palette.emplace();
+        for (std::size_t i = 0; i < 256; ++i) {
+            if (b[offset+i] != i) invalid("unsupported embedded VGA palette mapping");
+            const auto color = offset+260+i*4;
+            if (b[color] > 1) invalid("unsupported embedded VGA palette flags");
+            (*view.palette)[i] = {b[color+1],b[color+2],b[color+3]};
+        }
+    }
     view.loops.resize(count);
     std::vector<unsigned> offsets;
     for (unsigned i = 0; i < count; ++i) {
@@ -184,7 +198,7 @@ Bytes write_sci1_vga_view(const View& view) {
         if (view.loops[i].mirror_of >= 0) mirror_mask |= 1u << i;
     put(bytes,mirror_mask);
     put(bytes,1); // SCI1 VGA format version.
-    put(bytes,0); // Shared game palette; no embedded palette.
+    put(bytes,0); // Patched below when an embedded palette is present.
     bytes.resize(view_header_bytes+view.loops.size()*2);
     std::vector<std::size_t> offsets(view.loops.size());
     for (std::size_t i = 0; i < view.loops.size(); ++i) {
@@ -228,8 +242,25 @@ Bytes write_sci1_vga_view(const View& view) {
     }
     for (std::size_t i = 0; i < view.loops.size(); ++i)
         patch(bytes,view_header_bytes+i*2,view.loops[i].mirror_of >= 0 ? offsets[static_cast<std::size_t>(view.loops[i].mirror_of)] : offsets[i]);
+    if (view.palette) {
+        // Early SCI1 palette: identity mapping, timestamp, used/R/G/B entries.
+        // Mark only opaque colours as used so the interpreter can merge and
+        // remap this view alongside the current room palette.
+        if (bytes.size() == 0x100) bytes.push_back(0); // Interpreter treats 0x100 as no palette.
+        patch(bytes,6,bytes.size());
+        std::array<bool,256> used{};
+        for (const auto& loop : view.loops) for (const auto& cel : loop.cels)
+            for (const auto pixel : cel.pixels) if (pixel != cel.transparent) used[pixel] = true;
+        for (unsigned i = 0; i < 256; ++i) bytes.push_back(static_cast<std::uint8_t>(i));
+        bytes.insert(bytes.end(),4,0);
+        for (std::size_t i = 0; i < 256; ++i) {
+            bytes.push_back(used[i] ? 1 : 0);
+            bytes.insert(bytes.end(),(*view.palette)[i].begin(),(*view.palette)[i].end());
+        }
+    }
     if (bytes.size() > 65535) invalid("encoded VGA view exceeds 65535 bytes");
-    if (read_sci1_vga_view(bytes).loops != view.loops) invalid("encoded VGA view verification failed");
+    const auto decoded = read_sci1_vga_view(bytes);
+    if (decoded.loops != view.loops || decoded.palette != view.palette) invalid("encoded VGA view verification failed");
     return bytes;
 }
 } // namespace scimate

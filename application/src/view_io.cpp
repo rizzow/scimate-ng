@@ -138,9 +138,42 @@ void export_sci0_view(const Bytes& payload, const std::filesystem::path& destina
     detail::write_file(destination / "view.tsv",Bytes(manifest.begin(),manifest.end()));
 }
 
-Bytes import_sci0_view(const std::filesystem::path& directory) {
+static ViewCel decode_vga_cel_png(const Bytes& bytes, ViewPalette& palette, unsigned& colors) {
+    if (bytes.size() > format::max_interchange_bytes || bytes.size() < 25 || bytes[24] > 8)
+        throw std::runtime_error("VGA view PNG: input/channel limit exceeded");
+    Png p;
+    if (!png_image_begin_read_from_memory(&p.image,bytes.data(),bytes.size())) png_error(p);
+    if (!p.image.width || !p.image.height || p.image.width > format::picture_width || p.image.height > format::max_cel_height)
+        throw std::runtime_error("VGA view PNG: dimensions must be 1..320 by 1..200");
+    p.image.format = PNG_FORMAT_RGBA;
+    Bytes rgba(PNG_IMAGE_SIZE(p.image));
+    if (!png_image_finish_read(&p.image,nullptr,rgba.data(),0,nullptr)) png_error(p);
+    ViewCel cel;
+    cel.width = static_cast<std::uint16_t>(p.image.width); cel.height = static_cast<std::uint16_t>(p.image.height);
+    cel.transparent = 255;
+    for (std::size_t i = 0; i < rgba.size(); i += 4) {
+        if (!rgba[i+3]) { cel.pixels.push_back(255); continue; }
+        if (rgba[i+3] != 255) throw std::runtime_error("VGA view PNG: partial alpha is not representable");
+        const std::array<std::uint8_t,3> rgb{rgba[i],rgba[i+1],rgba[i+2]};
+        unsigned index = 0;
+        while (index < colors && palette[index] != rgb) ++index;
+        if (index == colors) {
+            if (colors == 255) throw std::runtime_error("VGA view PNG: more than 239 additional colours across cels; no automatic quantization");
+            palette[colors++] = rgb;
+        }
+        cel.pixels.push_back(static_cast<std::uint8_t>(index));
+    }
+    return cel;
+}
+
+static View import_view(const std::filesystem::path& directory, bool vga) {
     auto view = read_sci0_view(detail::read_file(directory / workspace_detail::original_file,65535));
-    const auto manifest = detail::read_file(directory / "view.tsv",1024*1024);
+    const auto images = vga ? directory / "vga" : directory;
+    const auto manifest = detail::read_file(images / "view.tsv",1024*1024);
+    if (vga && manifest != detail::read_file(directory / "view.tsv",1024*1024))
+        throw std::runtime_error("VGA view manifest must match the parent view metadata");
+    if (vga) view.palette = ega_picture_palette();
+    unsigned colors = 16;
     std::istringstream input(std::string(manifest.begin(),manifest.end()));
     expect(fields(input) == std::vector<std::string>({"SCIMATE-SCI0-VIEW","1"}));
     expect(fields(input) == std::vector<std::string>({"kind","loop","cel_or_source","x","y","transparent","file"}));
@@ -157,14 +190,18 @@ Bytes import_sci0_view(const std::filesystem::path& directory) {
             expect(row[0] == "cel" && row[1] == std::to_string(l) && row[2] == std::to_string(c) && row[6] == filename(l,c));
             const auto x = integer(row[3],-128,127), y = integer(row[4],-128,127);
             const auto transparent = static_cast<std::uint8_t>(integer(row[5],0,15));
-            auto cel = decode_cel_png(detail::read_file(directory / filename(l,c),format::max_interchange_bytes),transparent);
+            const auto png = detail::read_file(images / filename(l,c),format::max_interchange_bytes);
+            auto cel = vga ? decode_vga_cel_png(png,*view.palette,colors) : decode_cel_png(png,transparent);
             cel.x = x; cel.y = y;
             loop.cels[c] = std::move(cel);
         }
     }
     table_detail::end(input, "view manifest");
-    return write_sci0_view(view);
+    return view;
 }
+
+Bytes import_sci0_view(const std::filesystem::path& directory) { return write_sci0_view(import_view(directory,false)); }
+View import_vga_view_edit(const std::filesystem::path& directory) { return import_view(directory,true); }
 
 void export_sci0_view_file(const std::filesystem::path& payload, const std::filesystem::path& destination) {
     export_sci0_view(detail::read_file(payload,65535),destination);

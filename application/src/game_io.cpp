@@ -181,10 +181,12 @@ ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& de
 }
 
 Game open_sci0_export(const std::filesystem::path& export_directory, const ProgressCallback& progress,
-                      std::vector<Bytes>* original_payloads, VgaPictureEdits* pictures) {
+                      std::vector<Bytes>* original_payloads, VgaPictureEdits* pictures, VgaViewEdits* views) {
     auto game = open_sci0_game(export_directory / "original", progress);
     std::vector<std::optional<VgaPicture>> picture_edits(game.resources.size());
+    std::vector<std::optional<View>> view_edits(game.resources.size());
     if (pictures) pictures->clear();
+    if (views) views->clear();
     if (original_payloads) {
         original_payloads->clear();
         for (const auto& resource : game.resources) original_payloads->push_back(resource.payload);
@@ -204,6 +206,13 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
                 throw std::runtime_error("view snapshot differs from original resource");
             auto edited = import_sci0_view(view_directory);
             bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
+            if (views && std::filesystem::exists(view_directory / "vga")) {
+                if (!std::filesystem::is_directory(std::filesystem::symlink_status(view_directory / "vga")))
+                    throw std::runtime_error("expected VGA view directory: " + view_directory.string());
+                if (bytes != original) throw std::runtime_error("view " + std::to_string(game.resources[i].entry.id.number) +
+                    ": conflicting binary/EGA edits and VGA PNG override in " + view_directory.string());
+                view_edits[i] = import_vga_view_edit(view_directory);
+            }
         }
         const auto picture_directory = export_directory / "pictures" / std::filesystem::path(payload_filename(i)).stem();
         if (game.resources[i].entry.id.type == ResourceType::pic && std::filesystem::exists(picture_directory)) {
@@ -260,6 +269,12 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
         for (std::size_t i = 0; i < game.resources.size(); ++i)
             if (game.resources[i].entry.id.type == ResourceType::pic && seen.insert(game.resources[i].entry.id.number).second && picture_edits[i])
                 pictures->emplace(game.resources[i].entry.id.number,std::move(*picture_edits[i]));
+    }
+    if (views) {
+        std::set<unsigned> seen;
+        for (std::size_t i = 0; i < game.resources.size(); ++i)
+            if (game.resources[i].entry.id.type == ResourceType::view && seen.insert(game.resources[i].entry.id.number).second && view_edits[i])
+                views->emplace(game.resources[i].entry.id.number,std::move(*view_edits[i]));
     }
     return game;
 }
