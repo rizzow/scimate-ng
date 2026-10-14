@@ -63,6 +63,18 @@ public:
         if (!pointers_.empty()) size += sci_vm::section_header_bytes+sci_vm::word_bytes*(1+pointers_.size());
         return size;
     }
+    void account_component(const std::string& name) {
+        const auto size = serialized_size();
+        components_.push_back({name,size-accounted_size_}); accounted_size_ = size;
+    }
+    std::string size_report() const {
+        std::string report;
+        for (const auto& component : components_) {
+            if (!report.empty()) report += ", ";
+            report += component.first+"="+std::to_string(component.second)+" bytes";
+        }
+        return report;
+    }
     Bytes finish() const {
         if (exports_.empty() || code_.empty()) fail("script has no exported code");
         if (serialized_size() > sci_vm::max_script_address) fail("script exceeds address space");
@@ -118,6 +130,8 @@ private:
     std::vector<unsigned> locals_;
     std::vector<Fixup> fixups_;
     std::vector<Pointer> pointers_;
+    std::vector<std::pair<std::string,std::size_t>> components_;
+    std::size_t accounted_size_ = 0;
     [[noreturn]] static void fail(const char* message) { throw std::runtime_error(std::string("portable parser bytecode: ")+message); }
     static void checked_word(std::size_t value) { if (value > sci_vm::max_script_address) fail("word overflow"); }
     static void put(Bytes& bytes, std::size_t value) {

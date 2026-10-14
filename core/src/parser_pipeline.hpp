@@ -23,16 +23,21 @@ inline ParserPipeline emit_parser_pipeline(ScriptBuilder& builder, const std::ve
     using namespace codegen;
     const auto normalized = compile_grammar(grammar);
     const auto grammar_layout = emit_compiled_grammar(builder,normalized);
+    builder.account_component("normalized grammar");
     const auto tables = emit_parser_tables(builder,grammar,suffixes);
+    builder.account_component("source grammar and suffix tables");
     const auto lexicon = external_lexicon ? *external_lexicon : emit_lexicon(builder,words);
     const auto resolver = emit_word_resolver(builder,lexicon,tables);
     const auto tokens = emit_token_scanner(builder,resolver);
+    builder.account_component("word resolution and scanner");
     const auto rules = emit_rule_selector(builder,grammar_layout);
     const auto candidates = emit_candidate_procedures(builder,grammar_layout);
     const auto sentence = emit_sentence_parser(builder,tokens,grammar_layout,rules,candidates);
+    builder.account_component("candidate and sentence parser");
     const auto tree = emit_tree_builder(builder,grammar.root_id());
     const auto pronouns = emit_pronoun_state(builder,tokens);
     const auto synonyms = emit_synonym_state(builder,tokens);
+    builder.account_component("tree, pronoun and synonym state");
     const auto entry = builder.label(), failed = builder.label();
     builder.bind(entry);
     for (const auto pointer : {sentence.result,tree.arena}) {
@@ -53,6 +58,7 @@ inline ParserPipeline emit_parser_pipeline(ScriptBuilder& builder, const std::ve
     branch_if(builder,local(tree.arena),failed,false); procedure(pronouns.remember,{local(tree.arena)})(builder);
     return_value(builder,local(tree.arena));
     builder.bind(failed); return_value(builder,number(0));
+    builder.account_component("pipeline entry");
     return {entry,tokens,sentence,tree,pronouns,synonyms};
 }
 } // namespace scimate::parser_detail
