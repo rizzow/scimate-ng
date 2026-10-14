@@ -15,6 +15,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <optional>
+#include <set>
 
 namespace scimate {
 namespace {
@@ -78,7 +80,20 @@ Game open_sci0_game(const std::filesystem::path& directory, const ProgressCallba
 
 ExportSummary export_sci0_game(const std::filesystem::path& game_directory,
                       const std::filesystem::path& destination, const ProgressCallback& progress) {
-    return export_sci0_game(open_sci0_game(game_directory, progress), destination, progress);
+    const auto game = open_sci0_game(game_directory, progress);
+    auto summary = export_sci0_game(game,destination,progress);
+    // Keep ordinary auxiliary data with the original snapshot so target-engine
+    // builds resolve source file references without depending on its old path.
+    std::size_t total = game.original.map.size();
+    for (const auto& volume : game.original.volumes) total += volume.second.size();
+    for (const auto& entry : std::filesystem::directory_iterator(game_directory)) {
+        if (!std::filesystem::is_regular_file(entry.symlink_status())) continue;
+        const auto target = destination/"original"/entry.path().filename();
+        if (std::filesystem::exists(target)) continue;
+        const auto bytes = read_file(entry.path(),max_game_bytes-total);
+        total += bytes.size(); write_file(target,bytes);
+    }
+    return summary;
 }
 
 ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& destination,
@@ -166,8 +181,10 @@ ExportSummary export_sci0_game(const Game& game, const std::filesystem::path& de
 }
 
 Game open_sci0_export(const std::filesystem::path& export_directory, const ProgressCallback& progress,
-                      std::vector<Bytes>* original_payloads) {
+                      std::vector<Bytes>* original_payloads, VgaPictureEdits* pictures) {
     auto game = open_sci0_game(export_directory / "original", progress);
+    std::vector<std::optional<VgaPicture>> picture_edits(game.resources.size());
+    if (pictures) pictures->clear();
     if (original_payloads) {
         original_payloads->clear();
         for (const auto& resource : game.resources) original_payloads->push_back(resource.payload);
@@ -194,8 +211,17 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
                 throw std::runtime_error("expected picture directory: " + picture_directory.string());
             if (read_file(picture_directory / workspace_detail::original_file,65535) != original)
                 throw std::runtime_error("picture snapshot differs from original resource");
-            auto edited = import_sci0_picture(picture_directory);
-            bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
+            if (pictures) {
+                auto edited = import_vga_picture_edit(picture_directory);
+                if (edited.picture.planes != read_sci0_picture(original).planes) {
+                    if (bytes != original) throw std::runtime_error("pic "+std::to_string(game.resources[i].entry.id.number)+
+                        ": conflicting binary payload and picture PNG edits in "+picture_directory.string());
+                    picture_edits[i] = std::move(edited);
+                }
+            } else {
+                auto edited = import_sci0_picture(picture_directory);
+                bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
+            }
         }
         const auto asset_directory = export_directory / "assets" / std::filesystem::path(payload_filename(i)).stem();
         if (std::filesystem::exists(asset_directory)) {
@@ -229,6 +255,12 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
         game.resources[i].payload = std::move(bytes);
     }
     report(progress, "Loading edited resources", game.resources.size(), game.resources.size(), "Validated workspace");
+    if (pictures) {
+        std::set<unsigned> seen;
+        for (std::size_t i = 0; i < game.resources.size(); ++i)
+            if (game.resources[i].entry.id.type == ResourceType::pic && seen.insert(game.resources[i].entry.id.number).second && picture_edits[i])
+                pictures->emplace(game.resources[i].entry.id.number,std::move(*picture_edits[i]));
+    }
     return game;
 }
 

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "scimate/resource_game.hpp"
+#include "scimate/sci1.hpp"
 #include <filesystem>
 #include <string>
 #include <functional>
@@ -21,7 +22,7 @@ Game open_sci0_game(const std::filesystem::path& directory, const ProgressCallba
 
 // Validate the manifest/snapshots and load current payload and PNG edits.
 Game open_sci0_export(const std::filesystem::path& directory, const ProgressCallback& progress = {},
-                      std::vector<Bytes>* original_payloads = nullptr);
+                      std::vector<Bytes>* original_payloads = nullptr, VgaPictureEdits* pictures = nullptr);
 
 struct ExportSummary {
     std::size_t script_listings = 0;

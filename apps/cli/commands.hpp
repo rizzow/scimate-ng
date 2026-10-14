@@ -15,7 +15,7 @@ inline constexpr CommandSpec command_specs[]{
     {"list", Command::list, 1, 1, true}, {"inspect", Command::inspect, 1, 1, true},
     {"explain", Command::explain, 1, 3}, {"rooms", Command::rooms, 1, 2},
     {"disassemble", Command::disassemble, 1, 1},
-    {"export", Command::export_game, 2, 2, false, true}, {"import", Command::import_game, 2, 2},
+    {"export", Command::export_game, 2, 2, false, true}, {"import", Command::import_game, 2, 2, false, true},
     {"view-export", Command::view_export, 2, 2}, {"view-import", Command::view_import, 2, 2},
     {"picture-export", Command::picture_export, 2, 2}, {"picture-import", Command::picture_import, 2, 2},
     {"resource-export", Command::resource_export, 4, 4}, {"resource-import", Command::resource_import, 2, 2},

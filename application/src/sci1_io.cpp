@@ -75,4 +75,16 @@ void migrate_sci0_to_sci1_directory(const std::filesystem::path& source,
     for (const auto& file : auxiliary) detail::write_file(destination/file.first,file.second);
     detail::write_file(destination/"migration-report.txt",Bytes(result.report.begin(),result.report.end()));
 }
+void import_sci1_game(const std::filesystem::path& workspace, const std::filesystem::path& destination, Sci1Graphics graphics) {
+    VgaPictureEdits pictures;
+    auto game = open_sci0_export(workspace,{},nullptr,graphics == Sci1Graphics::vga ? &pictures : nullptr);
+    auto result = migrate_sci0_to_sci1(game,graphics,pictures);
+    const auto auxiliary = collect_auxiliary_files(workspace/"original",result,result.report);
+    result.report += "Built from editable workspace: "+workspace.string()+"; VGA picture PNG overrides: "+std::to_string(pictures.size())+".\n";
+    detail::create_destination(destination);
+    for (const auto& volume : result.files.volumes) detail::write_file(destination/volume_filename(volume.first),volume.second);
+    detail::write_file(destination/workspace_detail::map_file,result.files.map);
+    for (const auto& file : auxiliary) detail::write_file(destination/file.first,file.second);
+    detail::write_file(destination/"migration-report.txt",Bytes(result.report.begin(),result.report.end()));
+}
 } // namespace scimate

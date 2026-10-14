@@ -80,6 +80,7 @@ int main(int argc, char** argv) {
     bool valid = true, format_seen = false, options = true, target_seen = false, force = false, json = false;
     bool graphics_seen = false;
     auto graphics = scimate::Sci1Graphics::ega;
+    std::string_view target_engine = "sci0";
     std::string_view format = "sci0";
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg = argv[i];
@@ -92,11 +93,15 @@ int main(int argc, char** argv) {
             if (format_seen || i+1 == argc) { valid = false; break; }
             format = argv[++i]; format_seen = true;
             if (!scimate::cli::resource_format(format)) { valid = false; break; }
-        } else if (options && arg == "--graphics" && migrating) {
+        } else if (options && arg == "--graphics" && (migrating || importing)) {
             if (graphics_seen || i+1 == argc) { valid = false; break; }
             const std::string_view value = argv[++i]; graphics_seen = true;
             if (value == "vga") graphics = scimate::Sci1Graphics::vga;
             else if (value != "ega") { valid = false; break; }
+        } else if (options && arg == "--target-engine" && importing) {
+            if (target_seen || i+1 == argc) { valid = false; break; }
+            target_engine = argv[++i]; target_seen = true;
+            if (target_engine != "sci0" && target_engine != "sci1") { valid = false; break; }
         } else if (options && arg == "--to" && migrating) {
             if (target_seen || i+1 == argc || std::string_view(argv[i+1]) != "sci1") { valid = false; break; }
             target_seen = true; ++i;
@@ -104,6 +109,7 @@ int main(int argc, char** argv) {
         else paths.push_back(argv[i]);
     }
     if (format != "sci0" && (!spec || !spec->later_formats)) valid = false;
+    if (importing && graphics_seen && target_engine != "sci1") valid = false;
     if (!valid || !spec || paths.size() < spec->min_arguments || paths.size() > spec->max_arguments ||
         (explain && paths.size() == 2)) {
         scimate::cli::usage_error(command, true, migrate_help);
@@ -225,7 +231,10 @@ int main(int argc, char** argv) {
                 std::cout << "Views: " << summary.editable_views << " editable PNG bundles, "
                           << summary.view_errors << " errors (see views/*.error.txt).\n";
             }
-            else scimate::import_sci0_game(paths[0], paths[1]);
+            else scimate::write_output_directory(paths[0],paths[1],force,[&](const auto& destination) {
+                if (target_engine == "sci1") scimate::import_sci1_game(paths[0],destination,graphics);
+                else scimate::import_sci0_game(paths[0],destination);
+            });
             std::cout << (exporting ? "Exported to " : "Rebuilt and verified: ") << paths[1] << '\n';
             if (!std::cout) throw std::runtime_error("failed to write result");
             return 0;

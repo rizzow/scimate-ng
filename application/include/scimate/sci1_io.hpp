@@ -10,4 +10,6 @@ Game open_sci1_game(const std::filesystem::path& directory, Sci1Format format);
 void migrate_sci0_to_sci1_directory(const std::filesystem::path& source,
                                    const std::filesystem::path& destination,
                                    Sci1Graphics graphics = Sci1Graphics::ega);
+void import_sci1_game(const std::filesystem::path& workspace, const std::filesystem::path& destination,
+                      Sci1Graphics graphics = Sci1Graphics::ega);
 } // namespace scimate

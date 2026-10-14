@@ -116,6 +116,11 @@ void tests(const fs::path& root) {
  import_sci0_game(root/"export",root/"unchanged");
  require(open_sci0_game(root/"unchanged").original.volumes==files.volumes,"unchanged game bytes");
  write(root/"export/pictures/0000000/priority.png",encode_picture_plane_png(picture.planes[1]));
+ VgaPictureEdits workspace_pictures;
+ const auto workspace_game = open_sci0_export(root/"export",{},nullptr,&workspace_pictures);
+ require(workspace_pictures.count(1) && workspace_pictures.at(1).picture.planes[1] == picture.planes[1] &&
+         workspace_game.resources.front().payload == source,
+         "VGA workspace import re-encoded picture edits as SCI0 instead of retaining decoded planes");
  import_sci0_game(root/"export",root/"rebuilt");
  require(read_sci0_picture(open_sci0_game(root/"rebuilt").resources[0].payload).planes[1]==picture.planes[1],"game mask edits");
  write(root/"export/payloads/0000000.bin",{0xff});

@@ -43,7 +43,8 @@ Export and import individual resources
 Options
   -h, --help       Show help for the selected command.
   --format FORMAT  Select a resource format; sci0 is the default.
-  --force          Replace the entire destination directory (export/migrate).
+  --force          Replace the entire destination directory (export/import/migrate).
+  --target-engine sci0|sci1  Select the game import target; default sci0.
   --               End options, allowing paths that begin with --.
 
 Examples
@@ -54,9 +55,9 @@ Examples
   scimate sound-export sound.bin ./sound-bundle
   scimate help resource-export
 
-Output destinations must be new unless export/migrate uses --force.
-Import does not overwrite a game.
-Editing is SCI0 only. Rebuilding resource files does not copy the interpreter,
+Output destinations must be new unless --force is supplied.
+SCI1 VGA imports accept RGB picture edits; SCI0 imports require EGA colours.
+Rebuilding resource files does not copy the interpreter,
 disk scripts, configuration, or other files needed for a complete runnable game.
 Script listings are inspection-only, not compilable source.
 Exit status: 0 success; 1 input/output or resource error; 2 invalid usage.
@@ -105,13 +106,13 @@ Example: scimate export ./game ./workspace
 Next: edit workspace files, then scimate import ./workspace ./rebuilt-game
 )";
     } else if (command == "import") {
-        body = R"(Usage: scimate import [--format sci0] <workspace> <new-game-directory>
+        body = R"(Usage: scimate import [--target-engine sci0|sci1] [--graphics ega|vga] [--force] <workspace> <game-directory>
 
 Load binary payload and editable bundle changes, rebuild the resource map and
 volumes, and verify the saved result. Unchanged imports preserve original files
 byte-for-byte. Conflicting binary/bundle edits are rejected.
 
-The destination must not exist. Keep manifest.tsv and original snapshots
+The destination must not exist unless --force replaces it. Keep manifest.tsv and original snapshots
 unchanged. Resource IDs cannot be added, removed, or renamed. Edited packaged
 payloads cannot exceed 65,531 bytes; changed records are stored uncompressed.
 
@@ -119,6 +120,15 @@ This rebuilds resource files, not a complete runnable game folder. It does not
 compile script source or copy an interpreter, configuration, or disk patch files.
 
 Example: scimate import ./workspace ./rebuilt-game
+
+SCI1 target: migrate the validated workspace edits through the generic converter.
+  scimate import --target-engine sci1 --graphics vga ./workspace ./rebuilt-vga
+VGA visual.png accepts opaque 320x190 RGB images with up to 239 additional
+colours alongside the preserved 16 EGA colours. No automatic quantization.
+Priority/control PNGs retain exact EGA colours representing mask indices 0..15.
+Picture edits are encoded directly for VGA, bypassing SCI0 vector size limits.
+Referenced auxiliary files are resolved from workspace/original.
+The generated game remains experimental; ScummVM gameplay proof is manual.
 )";
     } else if (command == "explain") {
         body = R"(Usage: scimate explain [--format sci0] [--json] <game-directory>
