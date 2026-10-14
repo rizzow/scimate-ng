@@ -499,13 +499,19 @@ std::size_t install_vga_parser(Resources& resources, const Game& source, const S
     auto runtime = parser_detail::write_parser_runtime(input,selectors);
     auto& main = resources.at({ResourceType::script,0});
     const auto first_export = parse_migration_script(main).exports.size();
-    constexpr unsigned parser_bridges = 4; // Three kernel bridges plus the game method's delegate.
+    constexpr unsigned parser_bridges = 5; // Parser bridges, game delegate, guarded MenuSelect.
     if (first_export+parser_bridges > 256) throw std::runtime_error("portable parser: main bridge exports exceed byte operands");
     for (const auto& entry : scripts) {
         auto& resource = resources.at({ResourceType::script,entry.first});
         for (const auto& instruction : entry.second.instructions) {
             if (instruction.opcode != op::call_kernel) continue;
             const auto kernel = instruction.operands.at(0);
+            if (kernel == kernel0::menu_select) {
+                resource.payload.at(instruction.start) = static_cast<std::uint8_t>(
+                    sci_vm::encoded_opcode(op::call_base,instruction.width == 1));
+                write_first_operand(resource.payload,instruction,static_cast<unsigned>(first_export)+4);
+                continue;
+            }
             if (kernel < kernel0::parse || kernel > kernel0::set_synonyms) continue;
             resource.payload.at(instruction.start) = static_cast<std::uint8_t>(
                 sci_vm::encoded_opcode(op::call_base,instruction.width == 1));
@@ -516,10 +522,25 @@ std::size_t install_vga_parser(Resources& resources, const Game& source, const S
     forwarders.push_back(forward_game_method(parse_method));
     for (const auto exported : {parser_detail::ParserExport::said,parser_detail::ParserExport::set_synonyms,parser_detail::ParserExport::parse})
         forwarders.push_back(forward_script_export(runtime.entry_script,static_cast<unsigned>(exported)));
+    // Native MenuSelect calls said() for parser events even in VGA games,
+    // where ScummVM has no Vocabulary. Leave those events unclaimed for the
+    // portable parser and preserve the full argument frame for other events.
+    parser_detail::ScriptBuilder menu;
+    const auto entry = menu.label(), native = menu.label();
+    menu.bind(entry); menu.export_procedure(entry);
+    using namespace parser_detail::codegen;
+    branch_if(menu,binary(op::equal,send(parameter(1),parser_detail::parser_selector(names,"type")),number(0x80)),native,false);
+    return_value(menu,number(0));
+    menu.bind(native); menu.emit(op::push_zero); menu.emit(op::rest,{1});
+    menu.emit(op::call_kernel,{sci_vm::sci1_kernel::menu_select,0}); menu.emit(op::return_);
+    const auto menu_script = menu.finish();
+    const auto menu_parsed = script_detail::parse(menu_script);
+    for (const auto& section : menu_parsed.sections) if (section.type == sci_vm::section::code)
+        forwarders.emplace_back(menu_script.begin()+section.start+sci_vm::section_header_bytes,menu_script.begin()+section.end);
     main.payload = append_script_exports(main.payload,parse_migration_script(main),forwarders);
     const auto delegated_main = parse_migration_script(main);
     const AdditionalMethods game_method{{delegated_main.exports.front().second,
-        {{parse_method,delegated_main.exports.at(first_export+parser_bridges-1).second}}}};
+        {{parse_method,delegated_main.exports.at(first_export+3).second}}}};
     for (auto& entry : resources) if (entry.first.first == ResourceType::script)
         entry.second.payload = append_script_owner_method(entry.second.payload,entry.first.second,owner,
             entry.first.second == 0 ? game_method : AdditionalMethods{});
@@ -751,6 +772,7 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics, cons
     result.report = migration_report(output.size(),stats,selected_fallbacks,vga) + object_layout_diagnostics(scripts);
     if (vga) result.report += "VGA profile: all picture/view resources converted; game name is scimate-vga.\n"
         "Portable parser runtime scripts: " + std::to_string(runtime_scripts) + ". Native Parse/Said/SetSynonyms calls redirected.\n"
+        "MenuSelect bridge: parser events bypass native Said matching; keyboard/mouse menus remain native. Typed menu shortcuts are unsupported.\n"
         "DrawPic bridge script: " + std::to_string(graphics_script) + "; unsupported flood-fill overlays, nonzero EGA palettes and mirrored pictures display an explicit error and are not drawn.\n"
         "UNVERIFIED: dynamic script/selector IDs, dynamic Said, loaded-script synonym witnesses and VGA gameplay.\n";
     result.auxiliary_file_references = auxiliary_references(game);

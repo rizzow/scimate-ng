@@ -35,6 +35,12 @@ then become equal-width main-export calls. Appended main forwarders preserve
 the actual parameter lists with `rest 1`; helper script IDs use wide operands.
 Replacement export tables are appended rather than moving source addresses.
 
+MenuSelect is guarded in VGA builds: parsed-command events return no menu
+selection and remain unclaimed for the portable parser. Other events, including
+keyboard and mouse menu use, retain native MenuSelect and its optional pause
+argument. This avoids ScummVM's native menu Said matcher dereferencing its
+disabled vocabulary. Typed menu shortcuts are currently unsupported.
+
 The portable parser compiles the source vocabulary, grammar, suffixes and Said
 specifications into ordinary SCI bytecode. It performs word scanning, suffix
 lookup, ordered sentence derivation, tagged-tree construction, Said matching,

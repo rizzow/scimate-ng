@@ -244,9 +244,9 @@ void tests() {
     for (const auto& record : nested_grammar.records)
         for (const auto value : record) put(parser_source_grammar,value,2);
     parser_source.resources.push_back(resource(ResourceType::vocab,900,parser_source_grammar));
-    Bytes source_selectors; put(source_selectors,4,2); source_selectors.resize(12);
+    Bytes source_selectors; put(source_selectors,5,2); source_selectors.resize(14);
     unsigned selector_slot = 0;
-    for (const std::string name : {"claimed","wordFail","syntaxFail","number","elements"}) {
+    for (const std::string name : {"claimed","wordFail","syntaxFail","number","elements","type"}) {
         const auto offset = source_selectors.size();
         source_selectors[2+2*selector_slot] = static_cast<std::uint8_t>(offset);
         source_selectors[3+2*selector_slot++] = static_cast<std::uint8_t>(offset >> 8);
@@ -289,7 +289,7 @@ void tests() {
             "Portable parser runtime omitted its SetSynonyms export");
     auto vga_source = sample();
     vga_source.resources[1].payload = source_selectors;
-    vga_source.resources[2].payload = {2,0,14,0,0x43,0x24,4,0x43,0x25,2,0x43,0x26,2,0x48,0,0};
+    vga_source.resources[2].payload = {2,0,18,0,0x43,0x24,4,0x43,0x25,2,0x43,0x26,2,0x43,0x21,4,0x48,0,0,0};
     vga_source.resources.push_back(resource(ResourceType::vocab,0,
         write_sci0_vocabulary({{"look",0x800,12},{"coin",0x100,21}})));
     vga_source.resources.push_back(resource(ResourceType::vocab,900,parser_source_grammar));
@@ -316,14 +316,58 @@ void tests() {
             vga_resources.at({ResourceType::pic,200})->payload.at(0) == 0xfe,
             "VGA migration retained EGA picture/view resource formats");
     const auto vga_main = script_detail::parse(vga_resources.at({ResourceType::script,0})->payload);
-    require(vga_main.exports.size() == 10 && vga_main.objects.front().methods.size() == 2 &&
+    require(vga_main.exports.size() == 11 && vga_main.objects.front().methods.size() == 2 &&
             vga_main.strings.at(vga_main.objects.front().values.at(3)) == "\"scimate-vga\"",
             "VGA migration omitted runtime bridges or retained source game identity");
     const auto vga_calls = script_detail::parse(vga_resources.at({ResourceType::script,20})->payload);
     require(vga_calls.instructions.at(0).opcode == sci_vm::opcode::call_base &&
             vga_calls.instructions.at(0).operands.at(0) == 5 && vga_calls.instructions.at(1).operands.at(0) == 6 &&
-            vga_calls.instructions.at(2).operands.at(0) == 7,
+            vga_calls.instructions.at(2).operands.at(0) == 7 &&
+            vga_calls.instructions.at(3).opcode == sci_vm::opcode::call_base &&
+            vga_calls.instructions.at(3).operands.at(0) == 9 && vga_calls.instructions.at(3).operands.at(1) == 4,
             "VGA migration did not redirect source Parse/Said/SetSynonyms calls");
+    // Execute the emitted guard with a mocked event and native menu kernel.
+    // Said events must return without entering the null-vocabulary native path;
+    // keyboard/mouse events must forward both event and optional pause flag.
+    for (const unsigned event_type : {0x80u,1u,4u,0u}) {
+        unsigned pc = vga_main.exports.at(9).second, accumulator = 0, native_calls = 0;
+        std::vector<unsigned> stack;
+        const std::vector<unsigned> parameters{2,1234,1};
+        bool finished = false, forwarded = false;
+        for (unsigned step = 0; step < 30 && !finished; ++step) {
+            const auto found = std::find_if(vga_main.instructions.begin(),vga_main.instructions.end(),
+                [&](const auto& instruction) { return instruction.start == pc; });
+            require(found != vga_main.instructions.end(),"MenuSelect bridge jumped outside code");
+            const auto& instruction = *found;
+            pc = instruction.end;
+            switch (instruction.opcode) {
+            case sci_vm::opcode::push_immediate: stack.push_back(instruction.operands.at(0)); break;
+            case sci_vm::opcode::push_zero: stack.push_back(0); break;
+            case sci_vm::opcode::load_parameter_to_accumulator: accumulator = parameters.at(instruction.operands.at(0)); break;
+            case sci_vm::opcode::send:
+                require(accumulator == 1234 && stack == std::vector<unsigned>({5,0}),"MenuSelect read wrong event selector");
+                stack.clear(); accumulator = event_type; break;
+            case sci_vm::opcode::push_accumulator: stack.push_back(accumulator); break;
+            case sci_vm::opcode::load_immediate: accumulator = instruction.operands.at(0); break;
+            case sci_vm::opcode::equal: accumulator = stack.back() == accumulator; stack.pop_back(); break;
+            case sci_vm::opcode::branch_false:
+                if (!accumulator) pc += static_cast<std::int16_t>(instruction.operands.at(0));
+                break;
+            case sci_vm::opcode::rest:
+                require(instruction.operands.at(0) == 1,"MenuSelect dropped incoming arguments");
+                forwarded = true; break;
+            case sci_vm::opcode::call_kernel:
+                require(instruction.operands.at(0) == sci_vm::sci1_kernel::menu_select &&
+                        instruction.operands.at(1) == 0 && forwarded && stack == std::vector<unsigned>({0}),
+                        "MenuSelect lost optional argument forwarding");
+                ++native_calls; accumulator = 0x102; break;
+            case sci_vm::opcode::return_: finished = true; break;
+            default: throw std::runtime_error("Unexpected MenuSelect bridge instruction");
+            }
+        }
+        require(finished && native_calls == (event_type == 0x80 ? 0u : 1u) &&
+                accumulator == (event_type == 0x80 ? 0u : 0x102u),"MenuSelect guard mishandled event or kernel result");
+    }
     require(vga_candidate.report.find("SCI1 VGA early") != std::string::npos &&
             vga_candidate.report.find("UNVERIFIED") != std::string::npos,
             "VGA migration report misidentified the target or claimed runtime proof");

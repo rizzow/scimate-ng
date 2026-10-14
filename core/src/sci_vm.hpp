@@ -40,6 +40,7 @@ inline constexpr unsigned load_global_to_stack = 68, load_parameter_to_stack = 7
 constexpr bool is_branch(unsigned value) { return value >= branch_true && value <= jump; }
 }
 namespace sci0_kernel {
+inline constexpr unsigned menu_select = 0x21;
 inline constexpr unsigned draw_picture = 0x08;
 inline constexpr unsigned parse = 0x24, said = 0x25, set_synonyms = 0x26;
 inline constexpr unsigned file_open = 0x29, file_puts = 0x2a, file_gets = 0x2b, file_close = 0x2c;
@@ -47,6 +48,7 @@ inline constexpr unsigned do_sound = 0x31, do_avoider = 0x55, last = 0x71;
 inline constexpr unsigned removed_file_functions = 4;
 }
 namespace sci1_kernel {
+inline constexpr unsigned menu_select = 0x21;
 inline constexpr unsigned draw_picture = 0x08, display = 0x1b;
 inline constexpr unsigned is_object = 0x06;
 inline constexpr unsigned script_id = 0x02;
