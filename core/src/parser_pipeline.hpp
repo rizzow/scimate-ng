@@ -18,12 +18,13 @@ struct ParserPipeline {
 // failure callbacks and event claiming belong to the generic kernel bridge,
 // which can distinguish lexical, syntax, capacity and tree-format failure state.
 inline ParserPipeline emit_parser_pipeline(ScriptBuilder& builder, const std::vector<Word>& words,
-    const GrammarTable& grammar, const std::vector<SuffixRule>& suffixes) {
+    const GrammarTable& grammar, const std::vector<SuffixRule>& suffixes,
+    const LexiconProcedures* external_lexicon = nullptr) {
     using namespace codegen;
     const auto normalized = compile_grammar(grammar);
     const auto grammar_layout = emit_compiled_grammar(builder,normalized);
     const auto tables = emit_parser_tables(builder,grammar,suffixes);
-    const auto lexicon = emit_lexicon(builder,words);
+    const auto lexicon = external_lexicon ? *external_lexicon : emit_lexicon(builder,words);
     const auto resolver = emit_word_resolver(builder,lexicon,tables);
     const auto tokens = emit_token_scanner(builder,resolver);
     const auto rules = emit_rule_selector(builder,grammar_layout);

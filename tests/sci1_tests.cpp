@@ -64,6 +64,19 @@ Game sample() {
     return game;
 }
 void tests() {
+    std::vector<Word> paged_words;
+    for (unsigned i = 0; i < 200; ++i)
+        paged_words.push_back({"word"+std::to_string(i),0x100,static_cast<std::uint16_t>(i)});
+    constexpr std::size_t small_lexicon_page = 1024;
+    const auto dictionary_pages = parser_detail::write_lexicon_pages(paged_words,small_lexicon_page);
+    require(dictionary_pages.size() > 1,"Lexicon paging did not split an oversized dictionary");
+    unsigned paged_count = 0;
+    for (const auto& page : dictionary_pages) {
+        require(page.payload.size() <= small_lexicon_page && script_detail::parse(page.payload).exports.size() == 3,
+                "Lexicon page exceeded its capacity or lost lookup exports");
+        paged_count += page.count;
+    }
+    require(paged_count == paged_words.size(),"Lexicon paging lost vocabulary records");
     const Bytes nonwildcard_suffix_fixture{0,'s',0,0x01,0x00,0,0,0x08,0x00,0,0,0xff};
     const auto suffix_rules = parser_detail::read_suffix_table(nonwildcard_suffix_fixture);
     require(suffix_rules.size() == 1 && suffix_rules.front().alternative == "s" &&
@@ -258,14 +271,14 @@ void tests() {
     require(parser_ids == std::vector<std::uint16_t>({2045,2044}),
             "Parser script allocation shadowed a source literal or guarded external script reference");
     const auto parser_runtime = parser_detail::write_parser_runtime(parser_input);
-    require(parser_runtime.entry_script == parser_ids.front() && parser_runtime.scripts.size() == 2,
+    require(parser_runtime.entry_script == parser_ids.front() && parser_runtime.scripts.size() == 3,
             "Parser runtime did not allocate an entry script and Said page");
     const auto runtime_entry = script_detail::parse(parser_runtime.scripts.front().payload);
     require(runtime_entry.exports.size() == 4,"Parser runtime export ABI changed");
     bool calls_lookup_page = false, disposes_synonym_list = false;
     for (const auto& instruction : runtime_entry.instructions) {
         if (instruction.opcode == sci_vm::opcode::call_external)
-            calls_lookup_page |= instruction.operands.at(0) == parser_runtime.scripts.back().number;
+            calls_lookup_page |= instruction.operands.at(0) == parser_runtime.scripts.at(1).number;
         if (instruction.opcode == sci_vm::opcode::call_kernel)
             disposes_synonym_list |= instruction.operands.at(0) == sci_vm::sci1_kernel::dispose_list;
     }

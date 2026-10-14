@@ -2,6 +2,7 @@
 #pragma once
 #include "parser_input.hpp"
 #include "parser_pages.hpp"
+#include "parser_lexicon_pages.hpp"
 #include <optional>
 
 namespace scimate::parser_detail {
@@ -15,10 +16,14 @@ struct ParserRuntime {
 };
 inline ParserRuntime write_parser_runtime(const ParserInput& input, std::optional<SynonymSelectors> synonyms = std::nullopt) {
     auto pages = write_said_pages(input.specifications);
-    const auto numbers = allocate_parser_scripts(input,pages.size()+1);
-    std::vector<unsigned> lookup_scripts(numbers.begin()+1,numbers.end());
+    auto lexicon_pages = write_lexicon_pages(input.words);
+    const auto numbers = allocate_parser_scripts(input,pages.size()+lexicon_pages.size()+1);
+    const auto lexicon_begin = numbers.begin()+1+pages.size();
+    std::vector<unsigned> lookup_scripts(numbers.begin()+1,lexicon_begin);
+    std::vector<unsigned> lexicon_scripts(lexicon_begin,numbers.end());
     ScriptBuilder builder;
-    const auto pipeline = emit_parser_pipeline(builder,input.words,input.grammar,input.suffixes);
+    const auto lexicon = emit_lexicon_page_dispatch(builder,lexicon_pages,lexicon_scripts);
+    const auto pipeline = emit_parser_pipeline(builder,input.words,input.grammar,input.suffixes,&lexicon);
     const auto lookup = emit_said_page_dispatch(builder,lookup_scripts);
     const auto bridges = emit_parser_bridges(builder,pipeline,input.selectors,lookup);
     builder.export_procedure(bridges.parse);
@@ -32,6 +37,8 @@ inline ParserRuntime write_parser_runtime(const ParserInput& input, std::optiona
     runtime.scripts.push_back({numbers.front(),builder.finish()});
     for (std::size_t i = 0; i < pages.size(); ++i)
         runtime.scripts.push_back({numbers[i+1],std::move(pages[i].payload)});
+    for (std::size_t i = 0; i < lexicon_pages.size(); ++i)
+        runtime.scripts.push_back({numbers[i+1+pages.size()],std::move(lexicon_pages[i].payload)});
     return runtime;
 }
 } // namespace scimate::parser_detail
