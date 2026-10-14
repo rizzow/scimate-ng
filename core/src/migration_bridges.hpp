@@ -5,6 +5,31 @@
 #include "binary.hpp"
 
 namespace scimate::migration_detail {
+// Resolve the main object before &rest is active, then enter an injected game
+// method. SEND changes the VM receiver; CALLB/CALLE alone inherit the caller's.
+inline Bytes forward_game_method(unsigned selector) {
+    if (selector > sci_vm::max_script_address) throw std::runtime_error("migration game selector exceeds VM operand");
+    namespace op = sci_vm::opcode;
+    const auto byte_instruction = [](Bytes& code, unsigned opcode, unsigned operand) {
+        code.push_back(static_cast<std::uint8_t>(sci_vm::encoded_opcode(opcode,true)));
+        code.push_back(static_cast<std::uint8_t>(operand));
+    };
+    Bytes code;
+    byte_instruction(code,op::allocate_temporaries,1);
+    for (const auto opcode : {op::push_two,op::push_zero,op::push_zero})
+        code.push_back(static_cast<std::uint8_t>(sci_vm::encoded_opcode(opcode)));
+    byte_instruction(code,op::call_kernel,sci_vm::sci1_kernel::script_id);
+    code.push_back(2*sci_vm::word_bytes);
+    byte_instruction(code,op::store_accumulator_to_temporary,0);
+    code.push_back(static_cast<std::uint8_t>(sci_vm::encoded_opcode(op::push_immediate)));
+    binary_detail::append(code,selector,sci_vm::word_bytes,"migration game selector exceeds VM operand");
+    code.push_back(static_cast<std::uint8_t>(sci_vm::encoded_opcode(op::push_zero)));
+    byte_instruction(code,op::rest,1);
+    byte_instruction(code,op::load_temporary_to_accumulator,0);
+    byte_instruction(code,op::send,2*sci_vm::word_bytes);
+    code.push_back(static_cast<std::uint8_t>(sci_vm::encoded_opcode(op::return_)));
+    return code;
+}
 // Forward the full actual argument list to a generated runtime export. The
 // zero fixed frame plus &rest preserves optional/runtime-supplied parameters.
 inline Bytes forward_script_export(unsigned script, unsigned exported) {

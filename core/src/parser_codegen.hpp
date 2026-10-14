@@ -53,6 +53,13 @@ inline Value send(Value object, unsigned selector, std::vector<Value> values = {
         object(builder); builder.emit(sci_vm::opcode::send,{static_cast<unsigned>((values.size()+2)*sci_vm::word_bytes)});
     };
 }
+inline Value send_self(unsigned selector, std::vector<Value> values, unsigned incoming_accumulator) {
+    return [=](ScriptBuilder& builder) {
+        builder.emit(sci_vm::opcode::push_immediate,{selector}); arguments(builder,values);
+        number(incoming_accumulator)(builder);
+        builder.emit(sci_vm::opcode::send_self,{static_cast<unsigned>((values.size()+2)*sci_vm::word_bytes)});
+    };
+}
 inline void set_temporary(ScriptBuilder& builder, unsigned index, const Value& value) {
     value(builder); builder.emit(sci_vm::opcode::store_accumulator_to_temporary,{index});
 }

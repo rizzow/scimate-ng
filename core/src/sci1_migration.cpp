@@ -457,7 +457,8 @@ GameFiles write_verified_game(const std::vector<Resource>& output, Sci1Format fo
     return files;
 }
 
-unsigned append_owner_selector(Resources& resources, const ScriptMetadata& scripts) {
+unsigned append_owner_selector(Resources& resources, const ScriptMetadata& scripts,
+                               const std::string& name = "scimateOwnerScript") {
     auto& vocabulary = resources.at({ResourceType::vocab,parser_detail::parser_resource::selectors}).payload;
     auto names = vocabulary_detail::read_names(vocabulary,true);
     std::set<unsigned> used;
@@ -474,7 +475,6 @@ unsigned append_owner_selector(Resources& resources, const ScriptMetadata& scrip
     while (used.count(owner)) ++owner;
     if (owner > sci_vm::max_script_address) throw std::runtime_error("portable parser: no unreserved owner selector");
     names.entries.resize(owner+1);
-    const std::string name = "scimateOwnerScript";
     names.entries[owner] = Bytes(name.begin(),name.end());
     Bytes encoded(2+2*names.entries.size(),0); patch(encoded,0,owner);
     for (unsigned i = 0; i < names.entries.size(); ++i) if (names.entries[i]) {
@@ -492,12 +492,13 @@ std::size_t install_vga_parser(Resources& resources, const Game& source, const S
     const auto input = parser_detail::collect_parser_input(source);
     const auto names = vocabulary_detail::read_names(resources.at({ResourceType::vocab,997}).payload,true);
     const auto owner = append_owner_selector(resources,scripts);
+    const auto parse_method = append_owner_selector(resources,scripts,"scimateParse");
     const parser_detail::SynonymSelectors selectors{parser_detail::parser_selector(names,"elements"),
         parser_detail::parser_selector(names,"number"),owner};
     auto runtime = parser_detail::write_parser_runtime(input,selectors);
     auto& main = resources.at({ResourceType::script,0});
     const auto first_export = parse_migration_script(main).exports.size();
-    constexpr unsigned parser_bridges = 3;
+    constexpr unsigned parser_bridges = 4; // Three kernel bridges plus the game method's delegate.
     if (first_export+parser_bridges > 256) throw std::runtime_error("portable parser: main bridge exports exceed byte operands");
     for (const auto& entry : scripts) {
         auto& resource = resources.at({ResourceType::script,entry.first});
@@ -511,11 +512,16 @@ std::size_t install_vga_parser(Resources& resources, const Game& source, const S
         }
     }
     std::vector<Bytes> forwarders;
-    for (const auto exported : {parser_detail::ParserExport::parse,parser_detail::ParserExport::said,parser_detail::ParserExport::set_synonyms})
+    forwarders.push_back(forward_game_method(parse_method));
+    for (const auto exported : {parser_detail::ParserExport::said,parser_detail::ParserExport::set_synonyms,parser_detail::ParserExport::parse})
         forwarders.push_back(forward_script_export(runtime.entry_script,static_cast<unsigned>(exported)));
     main.payload = append_script_exports(main.payload,parse_migration_script(main),forwarders);
+    const auto delegated_main = parse_migration_script(main);
+    const AdditionalMethods game_method{{delegated_main.exports.front().second,
+        {{parse_method,delegated_main.exports.at(first_export+parser_bridges-1).second}}}};
     for (auto& entry : resources) if (entry.first.first == ResourceType::script)
-        entry.second.payload = append_script_owner_method(entry.second.payload,entry.first.second,owner);
+        entry.second.payload = append_script_owner_method(entry.second.payload,entry.first.second,owner,
+            entry.first.second == 0 ? game_method : AdditionalMethods{});
     const auto count = runtime.scripts.size();
     for (auto& generated : runtime.scripts) {
         Resource resource{{{ResourceType::script,generated.number},0,0},0,std::move(generated.payload)};

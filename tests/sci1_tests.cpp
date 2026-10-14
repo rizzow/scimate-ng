@@ -160,11 +160,22 @@ void tests() {
     require(pipeline_script.exports.size() == 3 && has_tree_capacity && pipeline.tree.arena != pipeline.sentence.result,
             "portable parser pipeline did not separate candidate and tree arenas");
     bool sends_callbacks = false, sends_claimed = false;
-    for (const auto& instruction : pipeline_script.instructions) if (instruction.opcode == sci_vm::opcode::send) {
-        if (instruction.operands[0] == 8) sends_callbacks = true;
-        if (instruction.operands[0] == 6) sends_claimed = true;
+    unsigned word_callbacks = 0, syntax_callbacks = 0;
+    for (std::size_t i = 0; i < pipeline_script.instructions.size(); ++i) {
+        const auto& instruction = pipeline_script.instructions[i];
+        if (instruction.opcode == sci_vm::opcode::send_self && instruction.operands[0] == 8) {
+            sends_callbacks = true;
+            require(i > 0,"parser callback has no incoming accumulator");
+            const auto& incoming = pipeline_script.instructions[i-1];
+            require(incoming.opcode == sci_vm::opcode::load_immediate && incoming.operands.size() == 1,
+                    "parser callback lost its native incoming accumulator");
+            if (incoming.operands[0] == 0) ++word_callbacks;
+            else if (incoming.operands[0] == 1) ++syntax_callbacks;
+        }
+        if (instruction.opcode == sci_vm::opcode::send && instruction.operands[0] == 6) sends_claimed = true;
     }
     require(sends_callbacks && sends_claimed,"portable parser bridges lost callback/property send frames");
+    require(word_callbacks == 1 && syntax_callbacks == 2,"parser failure callbacks lost native accumulator values");
     bool has_lookup_index = false;
     for (const auto& section : pipeline_script.sections) if (section.type == 10) {
         const auto table = section.start+4+bridge_lookup.table*2;
@@ -267,7 +278,7 @@ void tests() {
             vga_resources.at({ResourceType::pic,200})->payload.at(0) == 0xfe,
             "VGA migration retained EGA picture/view resource formats");
     const auto vga_main = script_detail::parse(vga_resources.at({ResourceType::script,0})->payload);
-    require(vga_main.exports.size() == 9 &&
+    require(vga_main.exports.size() == 10 && vga_main.objects.front().methods.size() == 2 &&
             vga_main.strings.at(vga_main.objects.front().values.at(3)) == "\"scimate-vga\"",
             "VGA migration omitted runtime bridges or retained source game identity");
     const auto vga_calls = script_detail::parse(vga_resources.at({ResourceType::script,20})->payload);

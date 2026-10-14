@@ -6,11 +6,14 @@
 #include <algorithm>
 
 namespace scimate::migration_detail {
+struct AdditionalMethod { unsigned selector, address; };
+using AdditionalMethods = std::map<std::size_t,std::vector<AdditionalMethod>>;
 // Append a constant owner query to each object's dispatch table, preserving
 // property layouts and all source addresses. Tables are binary NUL-terminated
 // strings in a new strings block; their word encoding is read by object dispatch.
 // Clones retain the source dispatch table and therefore the same owner query.
-inline Bytes append_script_owner_method(const Bytes& original, unsigned script, unsigned selector) {
+inline Bytes append_script_owner_method(const Bytes& original, unsigned script, unsigned selector,
+                                       const AdditionalMethods& extra = {}) {
     if (script > sci_vm::maximum_packed_resource_id || selector > sci_vm::max_script_address)
         throw std::runtime_error("migration owner method exceeds VM operand limits");
     const auto parsed = script_detail::parse(original,false,false);
@@ -19,6 +22,19 @@ inline Bytes append_script_owner_method(const Bytes& original, unsigned script, 
         for (const auto* selectors : {&object.methods,&object.selectors})
             if (std::find(selectors->begin(),selectors->end(),selector) != selectors->end())
                 throw std::runtime_error("migration owner selector collides with a source selector");
+    for (const auto& addition : extra) {
+        const auto object = std::find_if(parsed.objects.begin(),parsed.objects.end(),[&](const auto& candidate) {
+            return candidate.pointer == addition.first;
+        });
+        if (object == parsed.objects.end()) throw std::runtime_error("migration method has no source object");
+        std::set<unsigned> methods{selector};
+        methods.insert(object->methods.begin(),object->methods.end());
+        methods.insert(object->selectors.begin(),object->selectors.end());
+        for (const auto& method : addition.second)
+            if (method.selector > sci_vm::max_script_address || !methods.insert(method.selector).second ||
+                !parsed.boundaries.count(method.address))
+                throw std::runtime_error("migration method has a colliding selector or invalid code target");
+    }
     const auto append_start = parsed.sections.back().end;
     Bytes bytes(original.begin(),original.begin()+append_start);
     const auto word = [&](std::size_t value) {
@@ -31,11 +47,15 @@ inline Bytes append_script_owner_method(const Bytes& original, unsigned script, 
     const auto strings = bytes.size();
     word(sci_vm::section::strings); word(0);
     for (const auto& object : parsed.objects) {
+        const auto added = extra.find(object.pointer);
+        const auto count = added == extra.end() ? 0 : added->second.size();
         const auto table = bytes.size();
-        word(object.methods.size()+1);
+        word(object.methods.size()+count+1);
         for (const auto method : object.methods) word(method);
+        if (added != extra.end()) for (const auto& method : added->second) word(method.selector);
         word(selector); word(0);
         for (const auto address : object.addresses) word(address);
+        if (added != extra.end()) for (const auto& method : added->second) word(method.address);
         word(entry);
         binary_detail::patch_word(bytes,object.pointer-4,table-object.pointer+2,
             "migration owner method table exceeds header offset");

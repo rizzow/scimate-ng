@@ -9,13 +9,14 @@ struct ParserBridges { ScriptBuilder::Label parse, said; unsigned event, valid, 
 // Said lookup ABI: (tree arena, original Said pointer) -> SaidResult. Selector
 // numbers are resolved from the source vocabulary by the export layer, never
 // guessed from a title or a particular compiler's selector ordering.
+// Parse must enter with the main game object as its VM object context. SELF
+// preserves that receiver while supplying the native callback accumulator.
 inline ParserBridges emit_parser_bridges(ScriptBuilder& builder, const ParserPipeline& pipeline,
     ParserSelectors selectors, ScriptBuilder::Label said_lookup) {
     namespace op = sci_vm::opcode;
     using namespace codegen;
     const auto event = builder.local(), valid = builder.local(), message = allocate_word_buffer(builder);
     const auto parse = builder.label(), said = builder.label();
-    const auto game = kernel(sci_vm::sci1_kernel::script_id,{number(0),number(0)});
     const auto synonym_message = builder.string_local("SCI migration: synonym script loading could not be proved");
     const auto said_message = builder.string_local("SCI migration: Said specification is not in the source catalog");
     {
@@ -28,18 +29,18 @@ inline ParserBridges emit_parser_bridges(ScriptBuilder& builder, const ParserPip
         branch_if(builder,local(pipeline.synonyms.selection_failure),synonym_error);
         branch_if(builder,binary(op::equal,local(pipeline.tokens.failure),number(static_cast<unsigned>(ScanFailure::unknown_word))),syntax,false);
         kernel(sci_vm::sci1_kernel::string_copy,{address(message),address(pipeline.tokens.word_buffer)})(builder);
-        send(game,selectors.word_fail,{address(message),parameter(1)})(builder); return_value(builder,number(1));
+        send_self(selectors.word_fail,{address(message),parameter(1)},0)(builder); return_value(builder,number(1));
         builder.bind(syntax);
         // Empty input has no syntax callback. Scanner capacity failures must
         // still be reported even though they clear the token count.
         const auto report = builder.label(); branch_if(builder,local(pipeline.tokens.failure),report);
         branch_if(builder,local(pipeline.tokens.count),empty,false);
-        builder.bind(report); send(game,selectors.syntax_fail,{address(message),parameter(1)})(builder);
+        builder.bind(report); send_self(selectors.syntax_fail,{address(message),parameter(1)},1)(builder);
         builder.emit(op::return_); // Preserve the callback's accumulator result.
         builder.bind(empty); return_value(builder,number(0));
         builder.bind(synonym_error);
         kernel(sci_vm::sci1_kernel::string_copy,{address(message),local(synonym_message)})(builder);
-        send(game,selectors.syntax_fail,{address(message),parameter(1)})(builder); builder.emit(op::return_);
+        send_self(selectors.syntax_fail,{address(message),parameter(1)},1)(builder); builder.emit(op::return_);
     }
     {
         constexpr unsigned result = 0;
