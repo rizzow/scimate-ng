@@ -19,6 +19,7 @@
 #include "../core/src/parser_input.hpp"
 #include "../core/src/parser_runtime.hpp"
 #include "../core/src/migration_bridges.hpp"
+#include "../core/src/migration_identity.hpp"
 #include <iostream>
 
 namespace {
@@ -605,6 +606,31 @@ void tests() {
     require(main[16] == 0x29,"main kernel not remapped");
     const auto source_main = sample().resources.front().payload;
     const auto source_metadata = script_detail::parse(source_main);
+    const auto renamed_main = migration_detail::rename_main_game_object(source_main,"SCIMATEVGA");
+    const auto renamed_metadata = script_detail::parse(renamed_main);
+    const auto renamed_pointer = renamed_metadata.objects.front().values.at(3);
+    require(renamed_metadata.objects.front().pointer == source_metadata.objects.front().pointer &&
+            renamed_metadata.exports.front().second == source_metadata.exports.front().second &&
+            renamed_metadata.strings.at(renamed_pointer) == "\"SCIMATEVGA\"" &&
+            renamed_metadata.strings.at(23) == "\"DEMO\"",
+            "Migration identity changed original addresses or reused a shared string");
+    auto missing_name_relocation = source_main;
+    patch(missing_name_relocation,58,40); // Active relocation no longer names the name property.
+    fails([&] { migration_detail::rename_main_game_object(missing_name_relocation,"SCIMATEVGA"); },"active relocation");
+    fails([&] { migration_detail::rename_main_game_object(source_main,std::string("bad\0name",8)); },"ASCII");
+    const auto forwarded_parser = migration_detail::append_script_exports(source_main,source_metadata,
+        {migration_detail::forward_script_export(parser_runtime.entry_script,static_cast<unsigned>(parser_detail::ParserExport::parse))});
+    const auto forwarded_metadata = script_detail::parse(forwarded_parser);
+    const auto forwarded_start = forwarded_metadata.exports.back().second;
+    require(forwarded_parser.at(forwarded_start) == sci_vm::encoded_opcode(sci_vm::opcode::push_zero) &&
+            forwarded_parser.at(forwarded_start+1) == sci_vm::encoded_opcode(sci_vm::opcode::rest,true) &&
+            forwarded_parser.at(forwarded_start+2) == 1,
+            "Parser bridge does not forward the caller's actual arguments");
+    bool forwards_parser_export = false;
+    for (const auto& instruction : forwarded_metadata.instructions)
+        if (instruction.start >= forwarded_start && instruction.opcode == sci_vm::opcode::call_external)
+            forwards_parser_export = instruction.operands == std::vector<unsigned>{parser_runtime.entry_script,0,0};
+    require(forwards_parser_export,"Parser bridge changed the runtime script, export or fixed frame");
     auto preserved_main = source_main;
     preserved_main[16] = 0x29; // Existing kernel remap is the only source-byte change.
     require(std::equal(preserved_main.begin(),preserved_main.begin()+source_metadata.sections.back().end,main.begin()),

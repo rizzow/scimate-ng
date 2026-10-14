@@ -5,6 +5,20 @@
 #include "binary.hpp"
 
 namespace scimate::migration_detail {
+// Forward the full actual argument list to a generated runtime export. The
+// zero fixed frame plus &rest preserves optional/runtime-supplied parameters.
+inline Bytes forward_script_export(unsigned script, unsigned exported) {
+    if (script > sci_vm::maximum_packed_resource_id || exported > sci_vm::max_script_address)
+        throw std::runtime_error("migration bridge destination exceeds SCI1 format limits");
+    Bytes code{static_cast<std::uint8_t>(sci_vm::encoded_opcode(sci_vm::opcode::push_zero)),
+        static_cast<std::uint8_t>(sci_vm::encoded_opcode(sci_vm::opcode::rest,true)),1,
+        static_cast<std::uint8_t>(sci_vm::encoded_opcode(sci_vm::opcode::call_external))};
+    for (const auto value : {script,exported})
+        binary_detail::append(code,value,sci_vm::word_bytes,"migration bridge destination exceeds VM operands");
+    code.push_back(0); // Fixed argument frame; &rest contributes the actual list.
+    code.push_back(static_cast<std::uint8_t>(sci_vm::encoded_opcode(sci_vm::opcode::return_)));
+    return code;
+}
 // Append bridge code and a replacement export table. SCI0/SCI1 select the last
 // export table, so existing instructions, objects and relocation slots retain
 // their addresses. This also avoids widening short relative instructions.

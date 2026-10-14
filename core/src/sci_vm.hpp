@@ -57,6 +57,7 @@ namespace file_io { inline constexpr unsigned open = 0, close = 1, read_string =
 namespace section { inline constexpr unsigned code = 2, exports = 7, relocations = 8; }
 namespace section { inline constexpr unsigned locals = 10; }
 inline constexpr unsigned word_bytes = 2, section_header_bytes = 4, max_script_address = 65535;
+inline constexpr unsigned maximum_packed_resource_id = 2047;
 constexpr unsigned encoded_opcode(unsigned value, bool byte_operand = false) {
     return (value << 1) | (byte_operand ? 1u : 0u);
 }

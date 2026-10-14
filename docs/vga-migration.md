@@ -173,6 +173,14 @@ source inspection follows that rule as well. Synonym collection retains only the
 first synonym block, matching the interpreter's block lookup. These format rules
 come from [ScummVM's script loader](https://github.com/scummvm/scummvm/blob/master/engines/sci/engine/script.cpp).
 
+The migration bridge writer can forward the full actual parameter list to a
+runtime script export using `rest 1`, without narrowing helper script IDs. A
+separate main-object identity helper appends a new name string and changes only
+the game's name property. It requires that property in the active relocation
+table, preserving its segmented pointer at load time. Original strings remain
+available to other source references. Both helpers still need to be wired into
+the final VGA migration profile; the current CLI export retains its source name.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

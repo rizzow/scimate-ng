@@ -9,7 +9,7 @@
 namespace scimate::parser_detail {
 namespace parser_resource {
 inline constexpr unsigned words = 0, grammar = 900, suffixes = 901, selectors = 997, classes = 996;
-inline constexpr unsigned maximum_script_id = 2047;
+inline constexpr unsigned maximum_script_id = sci_vm::maximum_packed_resource_id;
 }
 struct ParserInput {
     std::vector<Word> words;
