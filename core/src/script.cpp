@@ -147,12 +147,20 @@ ParsedScript parse(const Bytes& bytes, bool validate_targets, bool validate_expo
             for (unsigned i = 0; i < count; ++i, pos += 2) object.values.push_back(word(bytes, pos, end));
             if (object.is_class)
                 for (unsigned i = 0; i < count; ++i, pos += 2) object.selectors.push_back(word(bytes, pos, end));
-            const auto methods = word(bytes, pos, end); pos += 2;
-            for (unsigned i = 0; i < methods; ++i, pos += 2) object.methods.push_back(word(bytes, pos, end));
-            if (word(bytes, pos, end) != 0) fail(pos, "nonzero method-table separator");
-            pos += 2;
-            for (unsigned i = 0; i < methods; ++i, pos += 2) object.addresses.push_back(word(bytes, pos, end));
-            if (pos != end) fail(pos, "unexpected object data");
+            const auto method_area = word(bytes,object.pointer-4,end);
+            // Zero is the legacy inline representation accepted by inspection.
+            // A populated header defines the active table relative to the
+            // property pointer, with its count word two bytes before the area.
+            if (method_area == 1) fail(object.pointer-4,"invalid method-area offset");
+            object.method_table = method_area ? object.pointer+method_area-2 : pos;
+            if (object.method_table < pos) fail(object.pointer-4,"method table overlaps object properties");
+            auto method = object.method_table;
+            const auto methods = word(bytes,method,bytes.size()); method += 2;
+            for (unsigned i = 0; i < methods; ++i, method += 2) object.methods.push_back(word(bytes,method,bytes.size()));
+            if (word(bytes,method,bytes.size()) != 0) fail(method,"nonzero method-table separator");
+            method += 2;
+            for (unsigned i = 0; i < methods; ++i, method += 2) object.addresses.push_back(word(bytes,method,bytes.size()));
+            if (object.method_table == pos && method != end) fail(method,"unexpected object data");
             objects.push_back(std::move(object));
         } else if (section.type == 7 || section.type == 8) {
             // Sectioned SCI uses the final export table. Earlier tables may be

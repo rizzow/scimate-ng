@@ -6,7 +6,12 @@
 namespace scimate::script_detail {
 struct Section { std::size_t start, end; unsigned type; };
 struct Instruction { std::size_t start, end; unsigned opcode, width; std::vector<unsigned> operands; };
-struct Object { std::size_t pointer; bool is_class; std::vector<unsigned> values, selectors, methods, addresses; };
+struct Object {
+    std::size_t pointer;
+    bool is_class;
+    std::vector<unsigned> values, selectors, methods, addresses;
+    std::size_t method_table = 0;
+};
 struct ParsedScript {
     std::vector<Section> sections;
     std::map<std::size_t,std::string> strings;

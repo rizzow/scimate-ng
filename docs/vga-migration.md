@@ -181,6 +181,21 @@ table, preserving its segmented pointer at load time. Original strings remain
 available to other source references. Both helpers still need to be wired into
 the final VGA migration profile; the current CLI export retains its source name.
 
+Object inspection now follows a populated header's relative method-area offset,
+and structured method bindings use that active table. The owner-method writer
+appends a constant script-number query with replacement dispatch tables stored
+as binary strings. It preserves property layouts and original addresses and
+rejects selector collisions or old references that would acquire targets in the
+appended region. Clones inherit the source dispatch table. This query provides
+evidence about a live object's owner; it does not prove that an unrelated script
+number is loaded. SetSynonyms selection is still not connected.
+
+The method-area addressing and clone-table behaviour were checked against
+[ScummVM object loading](https://github.com/scummvm/scummvm/blob/master/engines/sci/engine/object.cpp)
+and its [object representation](https://github.com/scummvm/scummvm/blob/master/engines/sci/engine/object.h).
+Zero method-area words remain an inspection-only legacy inline convention;
+their acceptance is not proof of native interpreter compatibility.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

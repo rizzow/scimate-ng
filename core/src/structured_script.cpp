@@ -85,7 +85,7 @@ Document script(ResourceId id, const Bytes &b) {
                        {"offset", pos}});
               field(d, b, pos, 2, "selector");
             }
-          pos += 2;
+          pos = obj.method_table + 2;
           auto ids = pos;
           auto addresses = pos + obj.methods.size() * 2 + 2;
           for (std::size_t i = 0; i < obj.methods.size(); ++i) {

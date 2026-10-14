@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "game_fixtures.hpp"
 #include "scimate/script.hpp"
+#include "../core/src/migration_owner.hpp"
 #include <iostream>
 
 namespace {
@@ -52,6 +53,37 @@ void tests() {
     contains(object_text, ".class object_000c");
     contains(object_text, "method selector_42 = proc_0024");
     contains(object_text, "proc_0024:");
+    // A header may direct method lookup to a later table without moving the
+    // object's properties or existing bytecode. The stale inline table is not
+    // the object's active dispatch table.
+    auto external_methods = object;
+    external_methods.resize(external_methods.size()-2);
+    external_methods.insert(external_methods.end(),{5,0,14,0,1,0,43,0,0,0,36,0,0,0,0,0});
+    external_methods[8] = 31; // 12 + 31 - 2 = table at 41.
+    const auto external_text = disassemble_sci0_script(external_methods);
+    contains(external_text,"method selector_43 = proc_0024");
+    require(external_text.find("method selector_42") == std::string::npos,"Inactive inline method table remained active");
+    auto bad_method_area = external_methods; bad_method_area[8] = 1;
+    fails([&] { disassemble_sci0_script(bad_method_area); },"method-area");
+    bad_method_area = external_methods; bad_method_area[8] = 3;
+    fails([&] { disassemble_sci0_script(bad_method_area); },"overlaps");
+    const auto owned = migration_detail::append_script_owner_method(object,33,1234);
+    const auto owned_metadata = script_detail::parse(owned);
+    require(owned_metadata.objects.front().pointer == 12 && owned_metadata.objects.front().values ==
+            script_detail::parse(object).objects.front().values &&
+            owned_metadata.objects.front().methods == std::vector<unsigned>{42,1234} &&
+            owned_metadata.objects.front().addresses.front() == 36,
+            "Owner query changed source properties, methods or addresses");
+    const auto owner_entry = owned_metadata.objects.front().addresses.back();
+    require(owned[owner_entry] == sci_vm::encoded_opcode(sci_vm::opcode::load_immediate) &&
+            script_detail::word(owned,owner_entry+1,owned.size()) == 33 &&
+            owned[owner_entry+3] == sci_vm::encoded_opcode(sci_vm::opcode::return_),
+            "Owner method did not return its source script number");
+    fails([&] { migration_detail::append_script_owner_method(object,33,42); },"collides");
+    auto latent_append_branch = object;
+    latent_append_branch.resize(32);
+    latent_append_branch.insert(latent_append_branch.end(),{2,0,7,0,0x33,20,0x48,0,0});
+    fails([&] { migration_detail::append_script_owner_method(latent_append_branch,33,1234); },"relative reference");
     contains(disassemble_sci0_script({0,0}), ".end");
     // Only the final export table is active; a stale earlier target may point
     // inside an instruction without invalidating the active table.
