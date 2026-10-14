@@ -12,6 +12,13 @@ disassembly and game explanations aid inspection; script compilation and
 integrated high-level decompilation are not available. Migration output remains
 unverified until tested in ScummVM.
 
+## Room explorer
+
+Run `scimate rooms <game-directory> [room-number]` to inspect SCI0 room candidates,
+initial pictures, exits and same-script objects. `--json` emits structured records.
+Room identities distinguish decoded initial properties from export-0 conventions;
+dynamic behavior remains unresolved. See [room explorer](docs/room-explorer.md).
+
 ## Command-line help
 
 Explain uses a structured evidence tree and resource-reference graph. Export it
@@ -80,6 +87,10 @@ For another build directory, enable `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` with a
 supporting generator and update `.clangd`'s `CompilationDatabase` path.
 
 ## Desktop projects
+
+Font resources have a glyph browser with pixel dimensions, enlarged selection,
+and a sample-text preview. Glyph indices remain byte values; no game code page
+is guessed. Font decoding happens only when the resource is selected.
 
 Select a resource and click **References…** to find its outgoing **References**
 and incoming **Referenced by** entries in Explain. Select a link to preview its
@@ -411,7 +422,3 @@ Full-game import loads these edits and rejects conflicts with raw payload edits.
 
 `font-export/import`, `cursor-export/import`, and `text-export/import` are also
 available. See [supported formats, editing rules, and limits](docs/sci0-assets.md).
-Font resources have a glyph browser with pixel dimensions, enlarged selection,
-and a sample-text preview. Glyph indices remain byte values; no game code page
-is guessed. Font decoding happens only when the resource is selected.
-

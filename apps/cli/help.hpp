@@ -17,6 +17,7 @@ Inspect games
   list          List resource IDs and volume offsets from a resource.map.
   inspect       Validate a game's map/volumes and decode its resources.
   explain       Report room, sprite, and script clues with confidence labels.
+  rooms         Explore room candidates, exits and initial scene objects.
   disassemble   Print an assembly listing for a decoded script payload.
 
 Export and rebuild games
@@ -151,6 +152,25 @@ Examples:
   scimate explain ./game script 0
   scimate explain ./game pic 7
   scimate explain --json ./game > explanation.json
+)";
+    } else if (command == "rooms") {
+        body = R"(Usage: scimate rooms [--format sci0] [--json] <game-directory> [room-number]
+
+List Rm/Room instances with script/object identities, initial picture properties,
+directional exits, constant newRoom/startRoom clues and same-script view objects.
+Optional decimal room-number (0..2047) filters by the number candidate. Export-0
+room objects use the script ID by convention; otherwise a nonzero initial number
+property is used. Each record states its number basis. Matches remain separate.
+--json emits versioned structured data for tooling; default output is readable text.
+
+This is static analysis. Conditions, dynamic exits, initialization, object
+ownership and runtime scene composition are unresolved. Missing selector/class
+symbols and malformed scripts produce diagnostics. First duplicate resource wins.
+The desktop offers Project > Room Explorer with picture-plane previews and links.
+
+Examples:
+  scimate rooms ./game
+  scimate rooms --json ./game 42
 )";
     } else if (command == "disassemble") {
         body = R"(Usage: scimate disassemble [--format sci0] <decoded-script.bin>
