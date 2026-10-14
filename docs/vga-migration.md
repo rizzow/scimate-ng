@@ -83,6 +83,11 @@ failure is distinct from syntax failure. Grammar productions with multiple
 immediate terminals fail export until their execution semantics are supported.
 These emitted routines still require manual runtime validation and export wiring.
 
+Worklists compare complete candidate streams before appending. Identical
+derivations are freed, the first alternative keeps its position, and only distinct
+streams count toward the capacity limit. Equality includes semantic tags and word
+groups, so candidates with different Said meanings are retained.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

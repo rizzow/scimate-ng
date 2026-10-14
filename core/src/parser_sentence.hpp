@@ -12,11 +12,25 @@ inline SentenceParser emit_sentence_parser(ScriptBuilder& builder, const TokenSc
     namespace kernels = sci_vm::sci1_kernel;
     using namespace codegen;
     constexpr unsigned max_candidates = 512;
+    constexpr unsigned enqueue_capacity_failure = sci_vm::max_script_address;
     const auto result = builder.local(), failure = builder.local();
     const auto free_candidate = [](Value pointer) { return kernel(kernels::memory,{number(sci_vm::memory_operation::free),pointer}); };
-    const auto enqueue = [&](Value list, Value pointer) {
-        kernel(kernels::add_to_end,{list,kernel(kernels::new_node,{pointer,pointer})})(builder);
-    };
+    const auto enqueue = builder.label();
+    {
+        constexpr unsigned node = 0, count = 1;
+        const auto scan = builder.label(), duplicate = builder.label(), append = builder.label(), full = builder.label();
+        builder.bind(enqueue); builder.emit(op::allocate_temporaries,{2});
+        set_temporary(builder,node,kernel(kernels::first_node,{parameter(1)})); set_temporary(builder,count,number(0));
+        builder.bind(scan); branch_if(builder,temporary(node),append,false);
+        branch_if(builder,procedure(candidates.equal,{parameter(2),kernel(kernels::node_value,{temporary(node)})}),duplicate);
+        builder.emit(op::increment_temporary_to_accumulator,{count});
+        set_temporary(builder,node,kernel(kernels::next_node,{temporary(node)})); builder.branch(op::jump,scan);
+        builder.bind(append); branch_if(builder,binary(op::less_unsigned,temporary(count),number(max_candidates)),full,false);
+        kernel(kernels::add_to_end,{parameter(1),kernel(kernels::new_node,{parameter(2),parameter(2)})})(builder);
+        return_value(builder,number(1));
+        builder.bind(duplicate); free_candidate(parameter(2))(builder); return_value(builder,number(0));
+        builder.bind(full); return_value(builder,number(enqueue_capacity_failure));
+    }
     const auto take = [&](unsigned list_temp, unsigned pointer_temp) {
         set_temporary(builder,pointer_temp,kernel(kernels::node_value,{kernel(kernels::first_node,{temporary(list_temp)})}));
         kernel(kernels::delete_key,{temporary(list_temp),temporary(pointer_temp)})(builder);
@@ -31,7 +45,7 @@ inline SentenceParser emit_sentence_parser(ScriptBuilder& builder, const TokenSc
         builder.branch(op::jump,loop); builder.bind(done); return_value(builder,number(0));
     }
     constexpr unsigned work = 0, next_work = 1, candidate = 2, word = 3, rule = 4;
-    constexpr unsigned nonterminal = 5, expanded = 6, count = 7, temporaries = 8;
+    constexpr unsigned nonterminal = 5, expanded = 6, temporaries = 7;
     const auto entry = builder.label(), no_previous = builder.label(), seed = builder.label(), seeded = builder.label();
     const auto word_loop = builder.label(), candidate_loop = builder.label(), after_word = builder.label(), discard = builder.label();
     const auto final_word = builder.label(), expand = builder.label(), capacity = builder.label(), syntax = builder.label();
@@ -44,16 +58,16 @@ inline SentenceParser emit_sentence_parser(ScriptBuilder& builder, const TokenSc
     set_temporary(builder,candidate,number(0)); set_temporary(builder,expanded,number(0));
     set_temporary(builder,work,kernel(kernels::new_list,{})); set_temporary(builder,next_work,kernel(kernels::new_list,{}));
     branch_if(builder,local(tokens.count),syntax,false);
-    set_temporary(builder,word,number(0)); set_temporary(builder,rule,number(0)); set_temporary(builder,count,number(0));
+    set_temporary(builder,word,number(0)); set_temporary(builder,rule,number(0));
     builder.bind(seed);
     set_temporary(builder,rule,procedure(select_rule,{number(grammar.start_id),current_class,current_group,temporary(rule)}));
     branch_if(builder,temporary(rule),seeded,false);
-    branch_if(builder,binary(op::less_unsigned,temporary(count),number(max_candidates)),capacity,false);
     set_temporary(builder,expanded,procedure(candidates.splice_rule,{number(0),temporary(rule)}));
-    branch_if(builder,temporary(expanded),capacity,false); enqueue(temporary(work),temporary(expanded));
-    set_temporary(builder,expanded,number(0)); builder.emit(op::increment_temporary_to_accumulator,{count}); builder.branch(op::jump,seed);
+    branch_if(builder,temporary(expanded),capacity,false);
+    branch_if(builder,binary(op::equal,procedure(enqueue,{temporary(work),temporary(expanded)}),number(enqueue_capacity_failure)),capacity);
+    set_temporary(builder,expanded,number(0)); builder.branch(op::jump,seed);
     builder.bind(seeded);
-    builder.bind(word_loop); set_temporary(builder,count,number(0));
+    builder.bind(word_loop);
     builder.bind(candidate_loop);
     branch_if(builder,kernel(kernels::first_node,{temporary(work)}),after_word,false);
     take(work,candidate);
@@ -69,10 +83,10 @@ inline SentenceParser emit_sentence_parser(ScriptBuilder& builder, const TokenSc
     set_temporary(builder,rule,procedure(select_rule,{temporary(nonterminal),indexed_local(tokens.classes,next_word),
         indexed_local(tokens.groups,next_word),temporary(rule)}));
     branch_if(builder,temporary(rule),discard,false);
-    branch_if(builder,binary(op::less_unsigned,temporary(count),number(max_candidates)),capacity,false);
     set_temporary(builder,expanded,procedure(candidates.splice_rule,{temporary(candidate),temporary(rule)}));
-    branch_if(builder,temporary(expanded),capacity,false); enqueue(temporary(next_work),temporary(expanded));
-    set_temporary(builder,expanded,number(0)); builder.emit(op::increment_temporary_to_accumulator,{count}); builder.branch(op::jump,expand);
+    branch_if(builder,temporary(expanded),capacity,false);
+    branch_if(builder,binary(op::equal,procedure(enqueue,{temporary(next_work),temporary(expanded)}),number(enqueue_capacity_failure)),capacity);
+    set_temporary(builder,expanded,number(0)); builder.branch(op::jump,expand);
     builder.bind(final_word); branch_if(builder,procedure(candidates.find_pending,{temporary(candidate),number(0)}),discard);
     branch_if(builder,local(result),discard); set_local(builder,result,temporary(candidate)); builder.branch(op::jump,keep);
     builder.bind(discard); free_candidate(temporary(candidate))(builder);

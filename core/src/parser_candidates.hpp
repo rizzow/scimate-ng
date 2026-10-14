@@ -17,12 +17,29 @@ inline void set_candidate_word(ScriptBuilder& builder, codegen::Value pointer, c
     kernel(sci_vm::sci1_kernel::memory,{number(sci_vm::memory_operation::poke),
         binary(sci_vm::opcode::add,pointer,binary(sci_vm::opcode::multiply,word_index,number(sci_vm::word_bytes))),value})(builder);
 }
-struct CandidateProcedures { ScriptBuilder::Label find_pending, consume_word, splice_rule; };
+struct CandidateProcedures { ScriptBuilder::Label find_pending, consume_word, splice_rule, equal; };
 inline CandidateProcedures emit_candidate_procedures(ScriptBuilder& builder, const CompiledGrammarLayout& grammar) {
     namespace op = sci_vm::opcode;
     using namespace codegen;
     using Kind = GrammarSymbolKind;
     const auto find = builder.label(), consume = builder.label(), splice = builder.label();
+    const auto equal = builder.label();
+    {
+        constexpr unsigned length = 0, cursor = 1;
+        const auto scan = builder.label(), different = builder.label(), same = builder.label();
+        builder.bind(equal); builder.emit(op::allocate_temporaries,{2});
+        set_temporary(builder,length,candidate_word(parameter(1),number(0)));
+        branch_if(builder,binary(op::equal,temporary(length),candidate_word(parameter(2),number(0))),different,false);
+        set_temporary(builder,length,binary(op::add,number(candidate_header_words),
+            binary(op::multiply,temporary(length),number(candidate_symbol_words))));
+        set_temporary(builder,cursor,number(candidate_header_words));
+        builder.bind(scan);
+        branch_if(builder,binary(op::less_unsigned,temporary(cursor),temporary(length)),same,false);
+        branch_if(builder,binary(op::equal,candidate_word(parameter(1),temporary(cursor)),
+            candidate_word(parameter(2),temporary(cursor))),different,false);
+        builder.emit(op::increment_temporary_to_accumulator,{cursor}); builder.branch(op::jump,scan);
+        builder.bind(same); return_value(builder,number(1)); builder.bind(different); return_value(builder,number(0));
+    }
     // find_pending(pointer, nonterminal_only): one-based symbol index or zero.
     {
         constexpr unsigned cursor = 0, length = 1, kind = 2;
@@ -106,6 +123,6 @@ inline CandidateProcedures emit_candidate_procedures(ScriptBuilder& builder, con
         builder.emit(op::increment_temporary_to_accumulator,{cursor}); builder.branch(op::jump,scan);
         builder.bind(done); return_value(builder,temporary(output)); builder.bind(missing); return_value(builder,number(0));
     }
-    return {find,consume,splice};
+    return {find,consume,splice,equal};
 }
 } // namespace scimate::parser_detail
