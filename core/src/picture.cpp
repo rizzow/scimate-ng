@@ -64,6 +64,7 @@ struct Renderer {
  std::size_t work = 0;
  explicit Renderer(const Bytes& bytes): data(bytes) {
   pic.planes = {Bytes(pixels,15),Bytes(pixels,0),Bytes(pixels,0)};
+  for (auto& plane : pic.written) plane.assign(pixels,0);
   for (int i=0;i<160;++i) palette[i]=default_palette[i%40];
  }
  int get() { check(pos<data.size(), "picture: truncated command"); return data[pos++]; }
@@ -79,9 +80,9 @@ struct Renderer {
   if (x<0 || x>=width || y<0 || y>=height) return;
   check(++work<=64*1024*1024,"picture: rendering work limit exceeded");
   int i=y*width+x;
-  if (color>=0) pic.planes[0][i]=((x^y)&1)?color>>4:color&15;
-  if (priority>=0) pic.planes[1][i]=priority;
-  if (control>=0) pic.planes[2][i]=control;
+  if (color>=0) { pic.planes[0][i]=((x^y)&1)?color>>4:color&15; pic.written[0][i]=1; }
+  if (priority>=0) { pic.planes[1][i]=priority; pic.written[1][i]=1; }
+  if (control>=0) { pic.planes[2][i]=control; pic.written[2][i]=1; }
  }
  void line(int x,int y,int endx,int endy) {
   int dx=std::abs(endx-x),dy=std::abs(endy-y),sx=endx<x?-1:1,sy=endy<y?-1:1;
@@ -94,6 +95,7 @@ struct Renderer {
   }
  }
  void fill(int x,int y) {
+  pic.contains_fill = true;
   if(x<0 || x>=width || y<0 || y>=height) return;
   int plane=color>=0?0:priority>=0?1:control>=0?2:-1;
   if (plane<0 || (plane==0 && color==255) || (plane==1 && priority==0) || (plane==2 && control==0)) return;
@@ -198,6 +200,7 @@ namespace vga_picture {
 constexpr std::uint8_t extended = 0xfe, palette = 2, bitmap = 1, terminate = 0xff;
 constexpr std::uint8_t disable_visual = 0xf1, disable_priority = 0xf3, disable_control = 0xfc;
 constexpr std::uint8_t set_priority = 0xf2, set_control = 0xfb, absolute_line = 0xf6;
+constexpr std::uint8_t set_visual = 0xf0;
 constexpr std::uint8_t repeat_run = 0x80, clear_color = 255;
 constexpr std::size_t max_literal_run = 127, max_repeat_run = 63, cel_header_size = 8;
 void word(Bytes& bytes, std::size_t value) {
@@ -224,15 +227,19 @@ Bytes encode_bitmap(const Bytes& visual) {
  }
  return bytes;
 }
-void append_mask(Bytes& bytes, const Bytes& plane, std::uint8_t set_color) {
+void append_vector_plane(Bytes& bytes, const Bytes& plane, std::uint8_t set_color,
+                         unsigned colors, const Bytes* written = nullptr) {
  bytes.insert(bytes.end(),{disable_visual,disable_priority,disable_control});
- for (std::uint8_t value = 1; value < 16; ++value) {
+ const auto draws = [&](std::size_t offset, unsigned value) {
+  return plane[offset] == value && (written ? (*written)[offset] != 0 : value != 0);
+ };
+ for (unsigned value = 0; value < colors; ++value) {
   bool selected = false;
   for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
-   if (plane[y*width+x] != value) continue;
+   if (!draws(y*width+x,value)) continue;
    int end = x;
-   while (end+1 < width && plane[y*width+end+1] == value) ++end;
-   if (!selected) { bytes.push_back(set_color); bytes.push_back(value); selected = true; }
+   while (end+1 < width && draws(y*width+end+1,value)) ++end;
+   if (!selected) { bytes.push_back(set_color); bytes.push_back(static_cast<std::uint8_t>(value)); selected = true; }
    bytes.push_back(absolute_line); coordinate(bytes,x,y); coordinate(bytes,end,y); x = end;
    check(bytes.size() < 65531,"VGA picture: masks exceed SCI1 resource size");
   }
@@ -253,24 +260,37 @@ PicturePalette ega_picture_palette() {
  return palette;
 }
 
-Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palette) {
+Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
  using namespace vga_picture;
  for (const auto& plane : picture.planes) check(plane.size() == pixels,"VGA picture: planes must be 320x190");
  for (const auto pixel : picture.planes[0]) check(pixel != clear_color,"VGA picture: visual index 255 is reserved for transparency");
  for (std::size_t plane = 1; plane < picture.planes.size(); ++plane)
   for (const auto pixel : picture.planes[plane]) check(pixel < 16,"VGA picture: invalid priority/control index");
+ if (mode == VgaPictureMode::overlay) {
+  check(!picture.contains_fill,"VGA picture: overlay has background-dependent flood fills");
+  for (const auto& plane : picture.written) {
+   check(plane.size() == pixels,"VGA picture: overlay requires explicit drawing masks");
+   for (const auto pixel : plane) check(pixel <= 1,"VGA picture: invalid drawing mask");
+  }
+ }
  Bytes result{extended,vga_picture::palette};
  for (unsigned index = 0; index < 256; ++index) result.push_back(static_cast<std::uint8_t>(index));
  result.insert(result.end(),4,0); // Palette timestamp.
  for (const auto& color : palette) { result.push_back(1); result.insert(result.end(),color.begin(),color.end()); }
- const auto encoded = encode_bitmap(picture.planes[0]);
- result.insert(result.end(),{extended,bitmap}); coordinate(result,0,0);
- vga_picture::word(result,encoded.size()+cel_header_size);
- vga_picture::word(result,width); vga_picture::word(result,height);
- result.insert(result.end(),{0,0,clear_color,0});
- result.insert(result.end(),encoded.begin(),encoded.end());
- append_mask(result,picture.planes[1],set_priority);
- append_mask(result,picture.planes[2],set_control);
+ if (mode == VgaPictureMode::background) {
+  const auto encoded = encode_bitmap(picture.planes[0]);
+  result.insert(result.end(),{extended,bitmap}); coordinate(result,0,0);
+  vga_picture::word(result,encoded.size()+cel_header_size);
+  vga_picture::word(result,width); vga_picture::word(result,height);
+  result.insert(result.end(),{0,0,clear_color,0});
+  result.insert(result.end(),encoded.begin(),encoded.end());
+  append_vector_plane(result,picture.planes[1],set_priority,16);
+  append_vector_plane(result,picture.planes[2],set_control,16);
+ } else {
+  append_vector_plane(result,picture.planes[0],set_visual,clear_color,&picture.written[0]);
+  append_vector_plane(result,picture.planes[1],set_priority,16,&picture.written[1]);
+  append_vector_plane(result,picture.planes[2],set_control,16,&picture.written[2]);
+ }
  result.push_back(terminate);
  check(result.size() <= 65531,"VGA picture: payload exceeds SCI1 resource size");
  return result;

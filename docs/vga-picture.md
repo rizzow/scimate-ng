@@ -7,6 +7,21 @@ existing EGA colours while allowing later edits to use additional palette slots.
 Visual index 255 is reserved for transparency; priority/control remain 4-bit.
 Output is bounded by the SCI1 resource-size limit.
 
+Decoded pictures now retain separate drawing masks: a white visual pixel or zero
+priority/control pixel can be an explicit write, not just an untouched default.
+`VgaPictureMode::overlay` emits only masked vector writes, including explicit
+zero values. It avoids embedded-cel priority filtering and does not overwrite
+untouched pixels. Callers must provide drawing masks for every intended write.
+Pictures with flood fills are refused in this mode because their result can
+depend on the existing background. The default `background` mode remains a
+full-room bitmap conversion. Neither this mode choice nor mirrored EGA dithering
+is yet handled by the migration's DrawPic rewrite.
+
+These limits follow [ScummVM's picture drawing code](https://github.com/scummvm/scummvm/blob/master/engines/sci/graphics/picture.cpp):
+embedded cels test the existing priority plane, while vector flood fills inspect
+existing screen contents. A flattened bitmap is therefore not a generic overlay
+replacement.
+
 A private conversion of picture 200 is stored under the ignored
 `migration-output/pic200-vga/` directory. It contains a decoded payload, a
 ScummVM picture patch, and a preview. No private resource or artwork is tracked.

@@ -15,6 +15,20 @@ void tests(const fs::path& root) {
  auto picture=read_sci0_picture(source);
  require(picture.planes[0][15*320+15]==4 && picture.planes[1][15*320+15]==6 && picture.planes[2][15*320+15]==3,"enclosed three-plane fill");
  require(picture.planes[0][0]==15 && picture.planes[1][0]==0,"initial planes");
+ require(picture.written[0][0] == 0 && picture.written[0][15*320+15] == 1 &&
+         picture.written[1][15*320+15] == 1 && picture.contains_fill,"source drawing masks lost fill writes");
+ const auto zero_overlay = read_sci0_picture({0xf0,39,0xf2,0,0xfb,0,0xf6,0,0,0,0,2,0,0xff});
+ require(zero_overlay.written[0][0] == 1 && zero_overlay.written[1][0] == 1 &&
+         zero_overlay.written[2][0] == 1 && zero_overlay.written[0][3] == 0,
+         "Explicit white/zero writes were mistaken for untouched pixels");
+ const auto vga_overlay = write_sci1_vga_picture(zero_overlay,ega_picture_palette(),VgaPictureMode::overlay);
+ const Bytes overlay_commands{0xf1,0xf3,0xfc,0xf0,15,0xf6,0,0,0,0,2,0,
+     0xf1,0xf3,0xfc,0xf2,0,0xf6,0,0,0,0,2,0,
+     0xf1,0xf3,0xfc,0xfb,0,0xf6,0,0,0,0,2,0,0xff};
+ constexpr std::size_t vga_palette_bytes = 2+256+4+256*4;
+ require(Bytes(vga_overlay.begin()+vga_palette_bytes,vga_overlay.end()) == overlay_commands,
+         "VGA overlay did not preserve untouched pixels and explicit zero mask writes");
+ fails([&] { write_sci1_vga_picture(picture,ega_picture_palette(),VgaPictureMode::overlay); },"background-dependent");
  require(write_sci0_picture(picture)==source,"unchanged vector preservation");
  // Diagonal rounding follows Sierra's line algorithm, including reversed lines.
  auto diagonal=read_sci0_picture({0xf0,1,0xf6,0,0,0,0,4,2,0xff});
