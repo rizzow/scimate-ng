@@ -131,6 +131,13 @@ private slots:
         QCOMPARE(tree.selection().resource->type, ResourceType::pic);
         QCOMPARE(tree.selection().resource->number, 6);
         QVERIFY(!tree.selection().offset);
+        tree.clear();
+        tree.focusResource({ResourceType::pic, 6});
+        QVERIFY(!tree.selection().resource);
+        tree.setAnalysis(analysis);
+        tree.focusResource({ResourceType::pic, 6});
+        QVERIFY(tree.selection().resource.has_value());
+        QCOMPARE(tree.selection().resource->number, 6);
         tree.setAnalysis({});
         tree.focusResource({ResourceType::text, 7});
         QVERIFY(tree.selection().evidence.contains("No recognized static references"));

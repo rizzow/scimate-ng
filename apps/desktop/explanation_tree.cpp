@@ -33,6 +33,12 @@ ExplanationTree::ExplanationTree(QWidget* parent) : QTreeWidget(parent) {
     setWordWrap(true);
 }
 
+ExplanationTree::~ExplanationTree() {
+    // QTreeWidget resets its model during base destruction, after our cache
+    // members have been destroyed. Stop callbacks while those members live.
+    QObject::disconnect(model(), nullptr, this, nullptr);
+}
+
 QTreeWidgetItem* ExplanationTree::resourceNode(scimate::ResourceId resource) {
     const Key key{resource.type, resource.number};
     auto found = resourceNodes_.find(key);

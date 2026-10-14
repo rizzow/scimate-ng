@@ -394,7 +394,10 @@ void tests() {
     require(suffix_table.size() == 1 && suffix_table[0].alternative == "ies" && suffix_table[0].replacement == "y" &&
             suffix_table[0].result_class == 0x100 && suffix_table[0].class_mask == 0x100,
             "portable parser suffix strings or big-endian classes changed");
-    fails([&] { parser_detail::read_suffix_table(Bytes{'*','s'}); },"truncated");
+    require(parser_detail::read_suffix_table(Bytes{'*','s'}).empty(),
+            "Incomplete suffix tail should be ignored before a record is started");
+    fails([&] { parser_detail::read_suffix_table(Bytes{'*','s',0,1}); },"truncated word");
+    fails([&] { parser_detail::read_suffix_table(Bytes{'*','s','x'}); },"unterminated suffix string");
     parser_detail::ScriptBuilder lexicon_builder;
     const auto lexicon = parser_detail::emit_lexicon(lexicon_builder,
         {{"look",0x800,12},{"coin",0x100,21},{"coin",0x100,22}});

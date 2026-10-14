@@ -15,6 +15,7 @@ struct ExplanationSelection {
 class ExplanationTree : public QTreeWidget {
 public:
     explicit ExplanationTree(QWidget* parent = nullptr);
+    ~ExplanationTree() override;
     void resetAnalysis();
     void setAnalysis(const scimate::GameExplanation& analysis);
     void focusResource(scimate::ResourceId resource);
