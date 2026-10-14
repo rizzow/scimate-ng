@@ -68,11 +68,15 @@ hashes establish compatibility.
 
 Views retain loop/cel IDs, mirrors and placement in the SCI1 VGA encoding.
 Without PNG overrides, their transparent indices also remain unchanged.
-For `import --target-engine sci1 --graphics vga`, a view bundle may contain a
-complete `vga/` directory with matching `loop-L-cel-C.png` names and a byte-identical
+For `import --target-engine sci1 --graphics vga`, the main view PNGs accept VGA
+RGB colours directly. Alternatively, a view bundle may contain a complete
+`vga/` directory with matching `loop-L-cel-C.png` names and a byte-identical
 copy of its parent `view.tsv`. Mirrored loops keep their source references and
-have no separate PNGs. The parent EGA PNGs, metadata and binary payload must
-remain unchanged when a VGA override is present; conflicting edits fail.
+have no separate PNGs. A `vga/view.tsv` selects the sibling set; when selected,
+the parent EGA PNGs, metadata and binary payload must remain unchanged.
+Without a sibling manifest, the parent PNGs are decoded as VGA. Conflicting
+binary payload and PNG edits fail. Unchanged EGA PNGs retain their original
+payload, so binary-only edits remain supported.
 
 Indexed, RGB and RGBA PNGs with binary alpha are accepted. One embedded palette
 is allocated across every source cel, retaining EGA colours 0–15, adding up to

@@ -168,9 +168,9 @@ static ViewCel decode_vga_cel_png(const Bytes& bytes, ViewPalette& palette, unsi
 
 static View import_view(const std::filesystem::path& directory, bool vga) {
     auto view = read_sci0_view(detail::read_file(directory / workspace_detail::original_file,65535));
-    const auto images = vga ? directory / "vga" : directory;
+    const auto images = vga && std::filesystem::exists(directory / "vga" / "view.tsv") ? directory / "vga" : directory;
     const auto manifest = detail::read_file(images / "view.tsv",1024*1024);
-    if (vga && manifest != detail::read_file(directory / "view.tsv",1024*1024))
+    if (images != directory && manifest != detail::read_file(directory / "view.tsv",1024*1024))
         throw std::runtime_error("VGA view manifest must match the parent view metadata");
     if (vga) view.palette = ega_picture_palette();
     unsigned colors = 16;
@@ -190,8 +190,14 @@ static View import_view(const std::filesystem::path& directory, bool vga) {
             expect(row[0] == "cel" && row[1] == std::to_string(l) && row[2] == std::to_string(c) && row[6] == filename(l,c));
             const auto x = integer(row[3],-128,127), y = integer(row[4],-128,127);
             const auto transparent = static_cast<std::uint8_t>(integer(row[5],0,15));
-            const auto png = detail::read_file(images / filename(l,c),format::max_interchange_bytes);
-            auto cel = vga ? decode_vga_cel_png(png,*view.palette,colors) : decode_cel_png(png,transparent);
+            const auto path = images / filename(l,c);
+            ViewCel cel;
+            try {
+                const auto png = detail::read_file(path,format::max_interchange_bytes);
+                cel = vga ? decode_vga_cel_png(png,*view.palette,colors) : decode_cel_png(png,transparent);
+            } catch (const std::exception& error) {
+                throw std::runtime_error(path.string() + ": " + error.what());
+            }
             cel.x = x; cel.y = y;
             loop.cels[c] = std::move(cel);
         }

@@ -16,7 +16,8 @@ ViewCel decode_cel_png(const Bytes& png, std::uint8_t transparent);
 // Editable columns: x, y, transparent. PNG controls dimensions and pixels.
 void export_sci0_view(const Bytes& payload, const std::filesystem::path& destination);
 Bytes import_sci0_view(const std::filesystem::path& directory);
-// Complete sibling vga/ PNG set and identical view.tsv; one palette per view.
+// RGB edits in the parent bundle, or a complete sibling vga/ set with identical
+// view.tsv. A sibling manifest selects that set; one palette spans all cels.
 // RGB/RGBA/indexed input, binary alpha, <=239 additional colours; no quantization.
 View import_vga_view_edit(const std::filesystem::path& directory);
 // Standalone decoded view payload helpers. Outputs must not already exist.

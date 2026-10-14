@@ -204,14 +204,29 @@ Game open_sci0_export(const std::filesystem::path& export_directory, const Progr
                 throw std::runtime_error("expected view directory: " + view_directory.string());
             if (read_file(view_directory / workspace_detail::original_file,65535) != original)
                 throw std::runtime_error("view snapshot differs from original resource");
-            auto edited = import_sci0_view(view_directory);
-            bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
-            if (views && std::filesystem::exists(view_directory / "vga")) {
-                if (!std::filesystem::is_directory(std::filesystem::symlink_status(view_directory / "vga")))
-                    throw std::runtime_error("expected VGA view directory: " + view_directory.string());
-                if (bytes != original) throw std::runtime_error("view " + std::to_string(game.resources[i].entry.id.number) +
-                    ": conflicting binary/EGA edits and VGA PNG override in " + view_directory.string());
-                view_edits[i] = import_vga_view_edit(view_directory);
+            if (views) {
+                const bool sibling = std::filesystem::exists(view_directory / "vga" / "view.tsv");
+                if (sibling) {
+                    auto edited = import_sci0_view(view_directory);
+                    bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
+                    if (bytes != original) throw std::runtime_error("view " + std::to_string(game.resources[i].entry.id.number) +
+                        ": conflicting binary/EGA edits and VGA PNG override in " + view_directory.string());
+                }
+                auto edited = import_vga_view_edit(view_directory);
+                auto baseline = read_sci0_view(original);
+                baseline.palette = ega_picture_palette();
+                for (auto& loop : baseline.loops) for (auto& cel : loop.cels) {
+                    for (auto& pixel : cel.pixels) if (pixel == cel.transparent) pixel = 255;
+                    cel.transparent = 255;
+                }
+                if (!same_view(edited,baseline)) {
+                    if (bytes != original) throw std::runtime_error("view " + std::to_string(game.resources[i].entry.id.number) +
+                        ": conflicting binary payload and VGA PNG edits in " + view_directory.string());
+                    view_edits[i] = std::move(edited);
+                }
+            } else {
+                auto edited = import_sci0_view(view_directory);
+                bytes = workspace_detail::reconcile(original, bytes, edited, "record " + std::to_string(i));
             }
         }
         const auto picture_directory = export_directory / "pictures" / std::filesystem::path(payload_filename(i)).stem();
