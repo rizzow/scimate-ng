@@ -111,6 +111,14 @@ pointer or zero and exposes failure state for the eventual event/callback bridge
 The candidate stream is released immediately after tree conversion.
 This entry is still internal; it has not enabled a playable VGA CLI export.
 
+Pronoun state now persists in generated script locals. Before grammar parsing,
+pronoun-class tokens become nouns referring to the previous successful sentence's
+subject word group. After a successful tree build, the subject lookup follows the
+format's immediate-child/first-generic-child traversal. Sentences without a new
+subject and failed input retain the old reference. The initial undefined marker
+disables replacement until a reference has been established. Synonym collection
+and the event/callback bridge remain to be connected.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

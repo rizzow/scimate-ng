@@ -2,6 +2,7 @@
 #pragma once
 #include "parser_sentence.hpp"
 #include "parser_tree_builder.hpp"
+#include "parser_pronouns.hpp"
 
 namespace scimate::parser_detail {
 struct ParserPipeline {
@@ -9,6 +10,7 @@ struct ParserPipeline {
     TokenScanner tokens;
     SentenceParser sentence;
     TreeBuilder tree;
+    PronounState pronouns;
 };
 // Entry (input string) returns the parsed tree arena or zero. Game-specific
 // failure callbacks and event claiming belong to the generic kernel bridge,
@@ -26,6 +28,7 @@ inline ParserPipeline emit_parser_pipeline(ScriptBuilder& builder, const std::ve
     const auto candidates = emit_candidate_procedures(builder,grammar_layout);
     const auto sentence = emit_sentence_parser(builder,tokens,grammar_layout,rules,candidates);
     const auto tree = emit_tree_builder(builder,grammar.root_id());
+    const auto pronouns = emit_pronoun_state(builder,tokens);
     const auto entry = builder.label(), failed = builder.label();
     builder.bind(entry);
     for (const auto pointer : {sentence.result,tree.arena}) {
@@ -35,11 +38,14 @@ inline ParserPipeline emit_parser_pipeline(ScriptBuilder& builder, const std::ve
     }
     set_local(builder,sentence.failure,number(0)); set_local(builder,tree.failed,number(0));
     branch_if(builder,procedure(tokens.procedure,{parameter(1)}),failed,false);
+    procedure(pronouns.replace,{})(builder);
     branch_if(builder,procedure(sentence.procedure,{}),failed,false);
     procedure(tree.procedure,{local(sentence.result)})(builder);
     kernel(sci_vm::sci1_kernel::memory,{number(sci_vm::memory_operation::free),local(sentence.result)})(builder);
-    set_local(builder,sentence.result,number(0)); return_value(builder,local(tree.arena));
+    set_local(builder,sentence.result,number(0));
+    branch_if(builder,local(tree.arena),failed,false); procedure(pronouns.remember,{local(tree.arena)})(builder);
+    return_value(builder,local(tree.arena));
     builder.bind(failed); return_value(builder,number(0));
-    return {entry,tokens,sentence,tree};
+    return {entry,tokens,sentence,tree,pronouns};
 }
 } // namespace scimate::parser_detail

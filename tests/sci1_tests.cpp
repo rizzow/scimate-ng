@@ -133,7 +133,8 @@ void tests() {
     const auto pipeline = parser_detail::emit_parser_pipeline(pipeline_builder,
         {{"look",0x800,12},{"coin",0x100,21}},nested_grammar,{});
     pipeline_builder.export_procedure(pipeline.procedure);
-    const auto pipeline_script = script_detail::parse(pipeline_builder.finish());
+    const auto pipeline_bytes = pipeline_builder.finish();
+    const auto pipeline_script = script_detail::parse(pipeline_bytes);
     bool has_tree_capacity = false;
     for (const auto& instruction : pipeline_script.instructions) {
         if (instruction.opcode == sci_vm::opcode::load_immediate && instruction.operands[0] == 6002) has_tree_capacity = true;
@@ -142,6 +143,12 @@ void tests() {
     }
     require(pipeline_script.exports.size() == 1 && has_tree_capacity && pipeline.tree.arena != pipeline.sentence.result,
             "portable parser pipeline did not separate candidate and tree arenas");
+    bool has_pronoun_state = false;
+    for (const auto& section : pipeline_script.sections) if (section.type == 10) {
+        const auto reference = section.start+4+pipeline.pronouns.reference*2;
+        has_pronoun_state = script_detail::word(pipeline_bytes,reference,section.end) == 0x1000;
+    }
+    require(has_pronoun_state,"portable pronoun state did not start with the undefined-reference marker");
     Bytes grammar_fixture;
     for (const auto value : {0x555,0x141,0x123,0,0,0,0,0,0,0,
                             0x123,0x146,0x800,0,0,0,0,0,0,0}) put(grammar_fixture,value,2);
