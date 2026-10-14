@@ -15,33 +15,37 @@
 #include "scimate/format_constants.hpp"
 
 #include <algorithm>
-#include <array>
 #include <charconv>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string_view>
 #include <vector>
 
 namespace {
-constexpr std::string_view migrate_help = R"(Usage: scimate migrate [--to sci1] [--force] <SCI0-game-directory> <SCI1-game-directory>
+constexpr std::string_view migrate_help = R"(Usage: scimate migrate [--to sci1] [--graphics ega|vga] [--force] <SCI0-game-directory> <SCI1-game-directory>
 
 Experimental format-based export targeting ScummVM's SCI1 runtime paths.
 Parser-bearing games target SCI1 EGA with converted words, grammar and suffix
 resource IDs; other games target SCI1 late. Remaps kernel calls and adds FileIO
 bridges, retaining EGA assets and validated SCI0 late sound compatibility.
+--graphics vga converts all views/pictures, installs a portable script parser,
+and assigns the distinct scimate-vga game name. Graphics use an early SCI1 packed
+container. Unsupported synonym eligibility and picture overlays/palettes/mirroring
+report runtime errors; this remains an experimental candidate, not playback proof.
 Writes resource.map, resource.000 and migration-report.txt describing the target.
 
 Examples:
   scimate migrate /path/to/source-game ./migrated-sci1
   scimate inspect --format sci1-ega ./migrated-sci1
+  scimate migrate --graphics vga /path/to/source-game ./migrated-vga
+  scimate inspect --format sci1-vga ./migrated-vga
 
 The source is an actual SCI0 game directory, not the exported payload bundle.
 The destination must not exist unless --force replaces its entire directory.
 Resources are internally round-trip checked;
 runtime compatibility is UNVERIFIED until you validate the result in ScummVM.
-This is not a general SCI0 -> SCI1/SCI1.1 converter. No VGA artwork conversion.
+This is not a general SCI0 -> SCI1/SCI1.1 converter. VGA retains existing artwork.
 See docs/sci1-migration.md for the manual detection and gameplay proof checklist.
 Exit codes: 0 candidate written, 1 conversion/I/O error, 2 usage error.
 )";
@@ -74,6 +78,8 @@ int main(int argc, char** argv) {
     const bool asset_import = kind == scimate::cli::Command::asset_import;
     std::vector<const char*> paths;
     bool valid = true, format_seen = false, options = true, target_seen = false, force = false, json = false;
+    bool graphics_seen = false;
+    auto graphics = scimate::Sci1Graphics::ega;
     std::string_view format = "sci0";
     for (int i = 2; i < argc; ++i) {
         const std::string_view arg = argv[i];
@@ -86,6 +92,11 @@ int main(int argc, char** argv) {
             if (format_seen || i+1 == argc) { valid = false; break; }
             format = argv[++i]; format_seen = true;
             if (!scimate::cli::resource_format(format)) { valid = false; break; }
+        } else if (options && arg == "--graphics" && migrating) {
+            if (graphics_seen || i+1 == argc) { valid = false; break; }
+            const std::string_view value = argv[++i]; graphics_seen = true;
+            if (value == "vga") graphics = scimate::Sci1Graphics::vga;
+            else if (value != "ega") { valid = false; break; }
         } else if (options && arg == "--to" && migrating) {
             if (target_seen || i+1 == argc || std::string_view(argv[i+1]) != "sci1") { valid = false; break; }
             target_seen = true; ++i;
@@ -101,15 +112,15 @@ int main(int argc, char** argv) {
     try {
         if (migrating) {
             scimate::write_output_directory(paths[0], paths[1], force, [&](const auto& destination) {
-                scimate::migrate_sci0_to_sci1_directory(paths[0], destination);
+                scimate::migrate_sci0_to_sci1_directory(paths[0], destination,graphics);
             });
-            std::cout << "Wrote experimental SCI1 candidate: " << paths[1]
+            std::cout << "Wrote experimental SCI1" << (graphics == scimate::Sci1Graphics::vga ? " VGA" : "") << " candidate: " << paths[1]
                       << "\nRuntime proof remains UNVERIFIED; see migration-report.txt.\n";
             if (!std::cout) throw std::runtime_error("failed to write migration result");
             return 0;
         }
         const auto sci1_format = format == "sci11" ? scimate::Sci1Format::sci11 :
-                                format == "sci1-ega" ? scimate::Sci1Format::sci1_ega : scimate::Sci1Format::sci1_late;
+                                format == "sci1-ega" || format == "sci1-vga" ? scimate::Sci1Format::sci1_ega : scimate::Sci1Format::sci1_late;
         if (rooms) {
             std::optional<unsigned> number;
             if (paths.size() == 2) {

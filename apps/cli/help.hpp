@@ -295,7 +295,7 @@ changes indices referenced by scripts; character encodings are not guessed.
     if (format_option) {
         body += "Formats: ";
         body += sci1 && (command == "list" || command == "inspect")
-            ? "sci0 (default), sci1 (SCI1 late), sci1-ega (SCI1 EGA), sci11 (SCI1.1).\n"
+            ? "sci0 (default), sci1 (SCI1 late), sci1-ega/sci1-vga (packed SCI1), sci11 (SCI1.1).\n"
             : "sci0 (default).\n";
     }
     body += "Exit status: 0 success; 1 input/output or resource error; 2 invalid usage.\n";

@@ -30,6 +30,6 @@ inline const CommandSpec* command_spec(std::string_view name) {
     return nullptr;
 }
 inline bool resource_format(std::string_view format) {
-    return format == "sci0" || format == "sci1" || format == "sci11" || format == "sci1-ega";
+    return format == "sci0" || format == "sci1" || format == "sci11" || format == "sci1-ega" || format == "sci1-vga";
 }
 }

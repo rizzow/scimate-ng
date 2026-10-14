@@ -65,8 +65,8 @@ Game open_sci1_game(const std::filesystem::path& directory, Sci1Format format) {
     return read_sci1_game(std::move(files),format);
 }
 void migrate_sci0_to_sci1_directory(const std::filesystem::path& source,
-                                   const std::filesystem::path& destination) {
-    auto result = migrate_sci0_to_sci1(open_sci0_game(source));
+                                   const std::filesystem::path& destination, Sci1Graphics graphics) {
+    auto result = migrate_sci0_to_sci1(open_sci0_game(source),graphics);
     const auto auxiliary = collect_auxiliary_files(source,result,result.report);
     detail::create_destination(destination);
     for (const auto& volume : result.files.volumes)
