@@ -98,8 +98,18 @@ The emitted matcher reads parsed nodes from a separate dynamic arena and keeps
 three internal outcomes: absent, mismatched and matched. Optional terms accept
 absence, not a present mismatching word. Alternatives, reference tags, wildcard
 groups and the partial marker remain distinct. A partial match sets state for
-the future call bridge to preserve event claiming. Tree-arena construction,
-specification lookup and call redirection still need integration.
+the future call bridge to preserve event claiming. Specification lookup and call
+redirection still need integration.
+
+The parsed-tree builder now converts complete candidate streams to six-word
+records in a bounded dynamic arena, with separate child and sibling indices.
+It validates paired tags and balanced delimiters and rejects mixed terminal/
+child payloads. Root tags come from the source grammar. Failure frees the arena.
+The unified parser entry emits scanning, sentence derivation and tree conversion
+in one pipeline, releasing prior results before new input. It returns an arena
+pointer or zero and exposes failure state for the eventual event/callback bridge.
+The candidate stream is released immediately after tree conversion.
+This entry is still internal; it has not enabled a playable VGA CLI export.
 
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This

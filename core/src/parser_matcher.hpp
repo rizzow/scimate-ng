@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "parser_candidates.hpp"
+#include "parser_tree.hpp"
 #include "parser_said.hpp"
 
 namespace scimate::parser_detail {
-namespace tree_field {
-inline constexpr unsigned major = 0, minor = 1, terminal = 2, word = 3, child = 4, sibling = 5, words = 6;
-}
 inline unsigned emit_said_tree(ScriptBuilder& builder, const SaidNode& tree) {
     builder.local(); // Zero is the null-node index.
     const std::function<unsigned(const SaidNode&)> append = [&](const SaidNode& node) {

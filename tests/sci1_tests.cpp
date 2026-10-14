@@ -12,6 +12,7 @@
 #include "../core/src/parser_sentence.hpp"
 #include "../core/src/parser_said.hpp"
 #include "../core/src/parser_matcher.hpp"
+#include "../core/src/parser_pipeline.hpp"
 #include <iostream>
 
 namespace {
@@ -128,6 +129,19 @@ void tests() {
     recursive_grammar.records.insert(recursive_grammar.records.begin()+2,
         {0x124,0x141,0x124,0,0,0,0,0,0,0});
     fails([&] { parser_detail::compile_grammar(recursive_grammar,{16,1024}); },"limits");
+    parser_detail::ScriptBuilder pipeline_builder;
+    const auto pipeline = parser_detail::emit_parser_pipeline(pipeline_builder,
+        {{"look",0x800,12},{"coin",0x100,21}},nested_grammar,{});
+    pipeline_builder.export_procedure(pipeline.procedure);
+    const auto pipeline_script = script_detail::parse(pipeline_builder.finish());
+    bool has_tree_capacity = false;
+    for (const auto& instruction : pipeline_script.instructions) {
+        if (instruction.opcode == sci_vm::opcode::load_immediate && instruction.operands[0] == 6002) has_tree_capacity = true;
+        if (instruction.opcode == sci_vm::opcode::call_kernel)
+            require(instruction.operands[0] != 0x24 && instruction.operands[0] != 0x25,"portable parser pipeline calls native parser kernels");
+    }
+    require(pipeline_script.exports.size() == 1 && has_tree_capacity && pipeline.tree.arena != pipeline.sentence.result,
+            "portable parser pipeline did not separate candidate and tree arenas");
     Bytes grammar_fixture;
     for (const auto value : {0x555,0x141,0x123,0,0,0,0,0,0,0,
                             0x123,0x146,0x800,0,0,0,0,0,0,0}) put(grammar_fixture,value,2);
