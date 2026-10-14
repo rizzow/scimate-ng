@@ -160,6 +160,13 @@ the export integration; these reservations are not a proof for arbitrary dynamic
 script-number expressions. Secondary/translated vocabularies fail explicitly
 until a language profile is implemented.
 
+The runtime writer assembles the parser entry script and Said lookup pages using
+those reserved IDs. Its entry exports are Parse, Said, clear-synonyms and
+append-synonyms, in that order. It checks the early SCI1 container payload limit
+before returning scripts. This assembly is not yet installed by migration:
+the source rewrite must supply loaded-script synonym eligibility and redirect
+the original parser kernel calls to these exports.
+
 The exported game also needs a distinct game-object name with relocated string
 references, so ScummVM does not activate the original title's workarounds. This
 does not establish runtime compatibility by itself.

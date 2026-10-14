@@ -17,6 +17,7 @@
 #include "../core/src/parser_said_lookup.hpp"
 #include "../core/src/parser_pages.hpp"
 #include "../core/src/parser_input.hpp"
+#include "../core/src/parser_runtime.hpp"
 #include <iostream>
 
 namespace {
@@ -227,6 +228,20 @@ void tests() {
     const auto parser_ids = parser_detail::allocate_parser_scripts(parser_input,2);
     require(parser_ids == std::vector<std::uint16_t>({2045,2044}),
             "Parser script allocation shadowed a source literal or guarded external script reference");
+    const auto parser_runtime = parser_detail::write_parser_runtime(parser_input);
+    require(parser_runtime.entry_script == parser_ids.front() && parser_runtime.scripts.size() == 2,
+            "Parser runtime did not allocate an entry script and Said page");
+    const auto runtime_entry = script_detail::parse(parser_runtime.scripts.front().payload);
+    require(runtime_entry.exports.size() == 4,"Parser runtime export ABI changed");
+    bool calls_lookup_page = false, disposes_synonym_list = false;
+    for (const auto& instruction : runtime_entry.instructions) {
+        if (instruction.opcode == sci_vm::opcode::call_external)
+            calls_lookup_page |= instruction.operands.at(0) == parser_runtime.scripts.back().number;
+        if (instruction.opcode == sci_vm::opcode::call_kernel)
+            disposes_synonym_list |= instruction.operands.at(0) == sci_vm::sci1_kernel::dispose_list;
+    }
+    require(calls_lookup_page && disposes_synonym_list,
+            "Parser runtime omitted Said dispatch or synonym list disposal");
     bool has_pronoun_state = false;
     for (const auto& section : pipeline_script.sections) if (section.type == 10) {
         const auto reference = section.start+4+pipeline.pronouns.reference*2;
