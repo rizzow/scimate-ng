@@ -36,9 +36,6 @@ void tests(const fs::path& root) {
          "Independent VGA bitmap decoding changed the three planes");
  auto truncated_bitmap = vga_background; truncated_bitmap.resize(1300);
  fails([&] { read_sci1_vga_picture(truncated_bitmap); },"bitmap");
- const Bytes overlay_commands{0xf1,0xf3,0xfc,0xf0,15,0xf6,0,0,0,0,2,0,
-     0xf1,0xf3,0xfc,0xf2,0,0xf6,0,0,0,0,2,0,
-     0xf1,0xf3,0xfc,0xfb,0,0xf6,0,0,0,0,2,0,0xff};
  constexpr std::size_t vga_palette_bytes = 2+256+4+256*4;
  auto checkerboard = zero_overlay;
  for (unsigned plane = 0; plane < 3; ++plane) {
@@ -91,8 +88,15 @@ void tests(const fs::path& root) {
    if (decoded.written[plane][i]) composed.planes[plane][i] = decoded.planes[plane][i];
  }
  require(composed.planes == noisy.planes,"Picture continuations changed priority or control pixels");
- require(Bytes(vga_overlay.begin()+vga_palette_bytes,vga_overlay.end()) == overlay_commands,
-         "VGA overlay did not preserve untouched pixels and explicit zero mask writes");
+ // Verify compositing against a non-default background rather than requiring
+ // one particular vector encoding of the same pixels.
+ auto backdrop = zero_overlay;
+ for (unsigned plane = 0; plane < 3; ++plane) backdrop.planes[plane].assign(320*190,plane+9);
+ const auto composited = read_sci1_vga_picture(vga_overlay,&backdrop).picture;
+ require(composited.written == zero_overlay.written,"VGA overlay changed explicit drawing masks");
+ for (unsigned plane = 0; plane < 3; ++plane) for (unsigned i = 0; i < 320*190; ++i)
+  require(composited.planes[plane][i] == (zero_overlay.written[plane][i] ? zero_overlay.planes[plane][i] : backdrop.planes[plane][i]),
+          "VGA overlay did not preserve untouched pixels and explicit zero mask writes");
  fails([&] { write_sci1_vga_picture(picture,ega_picture_palette(),VgaPictureMode::overlay); },"background-dependent");
  require(write_sci0_picture(picture)==source,"unchanged vector preservation");
  // Diagonal rounding follows Sierra's line algorithm, including reversed lines.

@@ -33,21 +33,20 @@ std::size_t new_length(const Instruction& inst) {
 }
 // Widen pointer/property/branch operands before laying out code. This avoids
 // iterative widening and keeps all address calculations deterministic.
-void check_source_flow(const ParsedScript& parsed) {
-    std::map<std::size_t,const Instruction*> instructions;
-    for (const auto& inst : parsed.instructions) instructions.emplace(inst.start,&inst);
+void check_control_flow(const std::map<std::size_t,const Instruction*>& instructions,
+                        const std::set<std::size_t>& procedures) {
     std::queue<std::size_t> pending;
     std::set<std::size_t> seen;
-    for (auto entry : parsed.procedures) pending.push(entry);
+    for (auto entry : procedures) pending.push(entry);
     while (!pending.empty()) {
         auto at = pending.front(); pending.pop();
         if (!seen.insert(at).second) continue;
         auto found = instructions.find(at);
-        if (found == instructions.end()) invalid("control-flow target outside source code");
+        if (found == instructions.end()) invalid("control-flow target outside code");
         const auto& inst = *found->second;
         if (relative_code(inst.opcode)) pending.push(target(inst));
         if (inst.opcode != 36 && inst.opcode != 25) {
-            if (!instructions.count(inst.end)) invalid("reachable fallthrough outside source code at $" + hex(inst.start));
+            if (!instructions.count(inst.end)) invalid("reachable fallthrough outside code at $" + hex(inst.start));
             pending.push(inst.end);
         }
     }
@@ -66,7 +65,9 @@ void relocations(Bytes& bytes, std::size_t header, const std::set<std::uint16_t>
 
 Sci11ScriptPair split_sci0_script(const Bytes& payload) {
     const auto parsed = parse(payload);
-    check_source_flow(parsed);
+    std::map<std::size_t,const Instruction*> source_instructions;
+    for (const auto& inst : parsed.instructions) source_instructions.emplace(inst.start,&inst);
+    check_control_flow(source_instructions,parsed.procedures);
     const Section* locals = nullptr;
     std::set<unsigned> singleton;
     for (const auto& section : parsed.sections) {
@@ -273,6 +274,7 @@ void validate_sci11_script_pair(const Bytes& script, const Bytes& heap) {
             invalid("invalid shifted property operand");
         instructions.emplace(inst.start,std::move(inst));
     }
+    std::set<std::size_t> procedures(methods.begin(),methods.end());
     for (auto method : methods) if (!instructions.count(method)) invalid("method is not an instruction boundary");
     for (const auto& entry : instructions)
         if (relative_code(entry.second.opcode) && !instructions.count(target(entry.second))) invalid("branch/call is not an instruction boundary");
@@ -281,9 +283,17 @@ void validate_sci11_script_pair(const Bytes& script, const Bytes& heap) {
         if (script_relocations.count(narrow(slot))) {
             script_slots.insert(slot);
             if (!objects.count(value)) invalid("object export does not point to an object");
-        } else if (value && !instructions.count(value)) invalid("procedure export is not an instruction boundary");
+        } else if (value) {
+            if (!instructions.count(value)) invalid("procedure export is not an instruction boundary");
+            procedures.insert(value);
+        }
     }
     for (auto slot : script_relocations)
         if (!script_slots.count(slot)) invalid("unrecognized hunk heap-pointer relocation");
+    // Alignment padding can decode as an instruction, but an exported procedure
+    // or method must not fall through into the relocation table.
+    std::map<std::size_t,const Instruction*> hunk_instructions;
+    for (const auto& entry : instructions) hunk_instructions.emplace(entry.first,&entry.second);
+    check_control_flow(hunk_instructions,procedures);
 }
 } // namespace scimate

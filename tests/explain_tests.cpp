@@ -21,6 +21,13 @@ void patch(Bytes& bytes, std::size_t offset, unsigned value) {
 void resource(Game& game, ResourceType type, unsigned number, Bytes bytes) {
     game.resources.push_back({{{type, static_cast<std::uint16_t>(number)}, 0, 0}, 0, std::move(bytes)});
 }
+void replace_resource(Game& game, ResourceType type, unsigned number, Bytes bytes) {
+    auto found = std::find_if(game.resources.begin(), game.resources.end(), [&](const auto& entry) {
+        return entry.entry.id.type == type && entry.entry.id.number == number;
+    });
+    require(found != game.resources.end(), "replacement fixture resource not found");
+    found->payload = std::move(bytes);
+}
 Bytes vocabulary() {
     const std::vector<std::string> names{"species", "superClass", "info", "name", "view", "picNumber", "init", "play", "newRoom", "setCycle"};
     Bytes bytes;
@@ -144,12 +151,12 @@ void tests() {
              {0x39,8,0x78,0x39,100,0x33,0,0x54,6,0x48}, // branch invalidates constants
              {0x39,8,0x78,0x39,100,0x43,0,0,0x54,6,0x48}}) { // call invalidates constants
         auto sample = example();
-        resource(sample, ResourceType::script, 0, object_script(false, 1, 1, "LSL", 0, 0, code, true));
+        replace_resource(sample, ResourceType::script, 0, object_script(false, 1, 1, "LSL", 0, 0, code, true));
         lacks(explain_sci0_game(sample), "Opening-room candidate");
     }
     // A Game init method not exported as the main game is not startup evidence.
     auto unexported = example();
-    resource(unexported, ResourceType::script, 0, object_script(false, 1, 1, "LSL", 0, 0, {0x39,8,0x78,0x39,100,0x54,6,0x48}));
+    replace_resource(unexported, ResourceType::script, 0, object_script(false, 1, 1, "LSL", 0, 0, {0x39,8,0x78,0x39,100,0x54,6,0x48}));
     lacks(explain_sci0_game(unexported), "Opening-room candidate");
     // Both runtime view assignment and animation-controller sends are recognized.
     auto runtime = example();
@@ -162,7 +169,7 @@ void tests() {
              {0x39,4,0x78,0x39,42,0x33,0,0x54,6,0x48},
              {0x39,4,0x78,0x81,1,0x36,0x54,6,0x48},
              {0x39,4,0x7a,0x39,42,0x54,6,0x48}}) {
-        resource(runtime, ResourceType::script, 21, object_script(false, 4, 4, "Larry", 0, 0, code));
+        replace_resource(runtime, ResourceType::script, 21, object_script(false, 4, 4, "Larry", 0, 0, code));
         require(references(analyze_sci0_game(runtime), 21, ResourceType::view, 42) == 0, "unsupported send manufactured a resource link");
     }
     // Names are escaped before being emitted into the terminal.

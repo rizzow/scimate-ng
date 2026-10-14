@@ -239,7 +239,7 @@ void tests() {
     require(external_pages == 2,"Said dispatcher omitted a lookup page");
     Game parser_source;
     parser_source.resources.push_back(resource(ResourceType::vocab,0,
-        write_sci0_vocabulary({{"look",0x800,12},{"coin",0x100,21}})));
+        write_sci0_vocabulary({{"coin",0x100,21},{"look",0x800,12}})));
     Bytes parser_source_grammar;
     for (const auto& record : nested_grammar.records)
         for (const auto value : record) put(parser_source_grammar,value,2);
@@ -291,7 +291,7 @@ void tests() {
     vga_source.resources[1].payload = source_selectors;
     vga_source.resources[2].payload = {2,0,18,0,0x43,0x24,4,0x43,0x25,2,0x43,0x26,2,0x43,0x21,4,0x48,0,0,0};
     vga_source.resources.push_back(resource(ResourceType::vocab,0,
-        write_sci0_vocabulary({{"look",0x800,12},{"coin",0x100,21}})));
+        write_sci0_vocabulary({{"coin",0x100,21},{"look",0x800,12}})));
     vga_source.resources.push_back(resource(ResourceType::vocab,900,parser_source_grammar));
     View vga_source_view; vga_source_view.loops.resize(1);
     ViewCel vga_source_cel; vga_source_cel.width = 1; vga_source_cel.height = 1; vga_source_cel.pixels = {1};
