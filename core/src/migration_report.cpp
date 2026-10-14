@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "migration_internal.hpp"
 #include "sci_vm.hpp"
+#include "scimate/resource_lookup.hpp"
 #include <set>
 #include <sstream>
 namespace scimate::migration_detail {
@@ -33,7 +34,8 @@ std::string migration_report(std::size_t resource_count, const MigrationStats& s
 }
 std::vector<std::string> auxiliary_references(const Game& game) {
     std::set<std::string> names;
-    for (const auto& resource : game.resources) if (resource.entry.id.type == ResourceType::script) {
+    for (const auto& entry : index_resources(game)) if (entry.first.first == ResourceType::script) {
+        const auto& resource = *entry.second;
         const auto script = parse_migration_script(resource);
         for (const auto& section : script.sections) if (section.type == sci_vm::section::strings) {
             std::size_t cursor = section.start+sci_vm::section_header_bytes;

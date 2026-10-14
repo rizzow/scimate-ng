@@ -805,7 +805,24 @@ void tests() {
     fails([&] { migrate_sci0_to_sci1(unsupported); },"DoSound");
     // Source SCI0 duplicate resolution matches ScummVM (first entry wins).
     auto duplicates = sample(); duplicates.resources.push_back(resource(ResourceType::script,20,{}));
-    require(migrate_sci0_to_sci1(duplicates).files.map == migrated.files.map,"SCI0 duplicate resolution changed");
+    const auto duplicate_result = migrate_sci0_to_sci1(duplicates);
+    require(duplicate_result.files.map == migrated.files.map && duplicate_result.files.volumes == migrated.files.volumes,
+            "SCI0 duplicate resolution changed");
+    require(duplicate_result.auxiliary_file_references == migrated.auxiliary_file_references,
+            "Malformed shadowed script changed auxiliary references");
+    auto referenced = sample();
+    const auto with_filename = [](Bytes script, const std::string& name) {
+        script.resize(script.size()-2); // Replace the section terminator.
+        put(script,sci_vm::section::strings,2); put(script,name.size()+5,2);
+        script.insert(script.end(),name.begin(),name.end()); script.push_back(0);
+        put(script,0,2);
+        return script;
+    };
+    const auto original_script = referenced.resources[2].payload;
+    referenced.resources[2].payload = with_filename(original_script,"support.dat");
+    referenced.resources.push_back(resource(ResourceType::script,20,with_filename(original_script,"ignored.dat")));
+    require(migrate_sci0_to_sci1(referenced).auxiliary_file_references == std::vector<std::string>{"support.dat"},
+            "Auxiliary discovery included a filename from a shadowed script");
 }
 } // namespace
 int main() {
