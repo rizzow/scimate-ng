@@ -169,6 +169,8 @@ then select the `scimate-desktop` run target. Select `scimate` to run the CLI.
 
 - **New Project from Game** creates a named workspace in a new folder from an
   existing SCI0 game. It preserves original resources and exports editable PNGs.
+  The dialog uses full-width fields and suggests the selected game folder's name
+  (for example `LSL3-workspace`); manually entered project names are preserved.
 - **Open Project** opens `project.scimate`. Recent projects are remembered.
   The workspace is movable and does not need the original game folder. Open Project
   uses the native platform file picker; select `project.scimate`.

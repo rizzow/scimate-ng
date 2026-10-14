@@ -265,34 +265,59 @@ void MainWindow::updateRecents() {
 }
 
 void MainWindow::newProjectDialog() {
-    QDialog dialog(this); dialog.setWindowTitle("New Project from Game"); dialog.resize(620, 220);
-    QFormLayout layout(&dialog);
-    QLineEdit name("My SCI project"), source, destination;
-    layout.addRow("Project name", &name);
+    QDialog dialog(this); dialog.setWindowTitle("New Project from Game"); dialog.resize(760, 400);
+    dialog.setMinimumWidth(600);
+    QVBoxLayout layout(&dialog);
+    layout.setContentsMargins(24, 20, 24, 20); layout.setSpacing(10);
+    QLineEdit name, source, destination;
+    name.setObjectName("newProjectName"); source.setObjectName("newProjectSource"); destination.setObjectName("newProjectDestination");
+    name.setPlaceholderText("Suggested from the game folder; you can change it");
+    source.setPlaceholderText("Choose a folder containing resource.map");
+    for (auto* field : {&name, &source, &destination}) {
+        field->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        field->setMinimumHeight(field->sizeHint().height() + 8);
+    }
+    auto addLabel = [&](const QString& title, QWidget* buddy) {
+        auto* label = new QLabel(title); label->setBuddy(buddy); layout.addWidget(label);
+    };
+    addLabel("&Game folder", &source);
     auto* sourceRow = new QHBoxLayout;
-    auto* browse = new QPushButton("Browse…"); sourceRow->addWidget(&source); sourceRow->addWidget(browse);
-    layout.addRow("Game folder", sourceRow);
+    auto* browse = new QPushButton("Browse…"); sourceRow->addWidget(&source, 1); sourceRow->addWidget(browse);
+    layout.addLayout(sourceRow);
+    layout.addSpacing(6);
+    addLabel("&Project name", &name); layout.addWidget(&name);
+    bool customName = false;
+    connect(&name, &QLineEdit::textEdited, &dialog, [&] { customName = !name.text().trimmed().isEmpty(); });
+    connect(&source, &QLineEdit::textChanged, &dialog, [&] {
+        const auto folder = QDir::cleanPath(QDir::fromNativeSeparators(source.text().trimmed()));
+        if (!customName || name.text().trimmed().isEmpty())
+            name.setText(source.text().trimmed().isEmpty() ? QString{} : QFileInfo(folder).fileName());
+        source.setToolTip(source.text());
+    });
     connect(browse, &QPushButton::clicked, &dialog, [&] {
         const auto value = QFileDialog::getExistingDirectory(&dialog, "Source SCI0 game",
             source.text().isEmpty() ? dialogDirectory("games") : source.text());
-        if (!value.isEmpty()) { source.setText(value); rememberDirectory("games", value); }
+        if (!value.isEmpty()) { source.setText(value); source.setCursorPosition(0); rememberDirectory("games", value); }
     });
     destination.setReadOnly(true);
-    layout.addRow("New project folder", &destination);
-    auto* hint = new QLabel("Projects are stored under the directory chosen in Preferences. Use a unique project name.\nThe game stays unchanged; the project contains original resources and editable files.");
-    hint->setWordWrap(true); layout.addRow(hint);
-    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel); buttons.button(QDialogButtonBox::Ok)->setText("Create Project"); layout.addRow(&buttons);
+    layout.addSpacing(6);
+    addLabel("New project folder", &destination); layout.addWidget(&destination);
+    auto* hint = new QLabel("The project folder uses the location set in Preferences. Your original game stays unchanged.");
+    hint->setWordWrap(true); hint->setTextFormat(Qt::PlainText); layout.addWidget(hint);
+    layout.addStretch();
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel); buttons.button(QDialogButtonBox::Ok)->setText("Create Project"); layout.addWidget(&buttons);
     auto update = [&] {
         auto folder = name.text().trimmed();
         folder.replace(QRegularExpression("[\\x00-\\x1f<>:\"/\\\\|?*]"), "_");
         while (folder.endsWith('.') || folder.endsWith(' ')) folder.chop(1);
         destination.setText(folder.isEmpty() ? QString{} : QDir(preferences::projectDirectory()).filePath(folder));
+        destination.setCursorPosition(0);
         const bool exists = !destination.text().isEmpty() && QFileInfo::exists(destination.text());
         destination.setToolTip(exists ? "This folder already exists. Choose another project name." : destination.text());
         buttons.button(QDialogButtonBox::Ok)->setEnabled(!folder.isEmpty() && !source.text().trimmed().isEmpty() && !exists);
     };
     for (auto* field : {&name, &source}) connect(field, &QLineEdit::textChanged, &dialog, update);
-    update(); connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept); connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    update(); browse->setFocus(); connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept); connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     if (dialog.exec() == QDialog::Accepted) createProject(source.text(), destination.text(), name.text().trimmed());
 }
 
