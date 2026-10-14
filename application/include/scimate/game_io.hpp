@@ -2,27 +2,19 @@
 #pragma once
 
 #include "scimate/resource_game.hpp"
+#include "scimate/progress.hpp"
 #include "scimate/sci1.hpp"
 #include <filesystem>
 #include <string>
-#include <functional>
 
 namespace scimate {
-struct OperationProgress {
-    std::string phase;
-    std::size_t completed = 0, total = 0;
-    std::string detail;
-};
-// Called synchronously on the worker/calling thread, never from a UI thread
-// implicitly. Counts are per phase; a zero total denotes an unmeasured phase.
-using ProgressCallback = std::function<void(const OperationProgress&)>;
-
 std::string volume_filename(std::uint8_t number);
 Game open_sci0_game(const std::filesystem::path& directory, const ProgressCallback& progress = {});
 
 // Validate the manifest/snapshots and load current payload and PNG edits.
 Game open_sci0_export(const std::filesystem::path& directory, const ProgressCallback& progress = {},
-                      std::vector<Bytes>* original_payloads = nullptr, VgaPictureEdits* pictures = nullptr);
+                      std::vector<Bytes>* original_payloads = nullptr, VgaPictureEdits* pictures = nullptr,
+                      VgaViewEdits* views = nullptr);
 
 struct ExportSummary {
     std::size_t script_listings = 0;

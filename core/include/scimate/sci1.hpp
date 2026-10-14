@@ -4,6 +4,8 @@
 #include <string>
 #include <map>
 #include "scimate/picture.hpp"
+#include "scimate/view.hpp"
+#include "scimate/progress.hpp"
 
 namespace scimate {
 // Explicit DOS resource formats, not interpreter auto-detection.
@@ -28,6 +30,8 @@ struct Sci1Migration {
 // changes the game name. Unsupported runtime picture/synonym cases report errors.
 enum class Sci1Graphics { ega, vga };
 using VgaPictureEdits = std::map<unsigned,VgaPicture>;
+using VgaViewEdits = std::map<unsigned,View>;
 Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics = Sci1Graphics::ega,
-                                 const VgaPictureEdits& pictures = {});
+                                 const VgaPictureEdits& pictures = {}, const ProgressCallback& progress = {},
+                                 const VgaViewEdits& views = {});
 } // namespace scimate

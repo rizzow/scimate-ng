@@ -8,6 +8,7 @@
 #include "binary.hpp"
 #include "scimate/resource_lookup.hpp"
 #include "migration_internal.hpp"
+#include "migration_progress.hpp"
 #include "sci_vm.hpp"
 #include "migration_analysis.hpp"
 #include "migration_bridges.hpp"
@@ -536,7 +537,12 @@ struct VgaGraphicsPlan {
     std::set<unsigned> filled_pictures;
     std::map<unsigned,std::vector<unsigned>> continuations;
 };
-VgaGraphicsPlan convert_vga_graphics(Resources& resources, const ScriptMetadata& scripts, const VgaPictureEdits& edits) {
+VgaGraphicsPlan convert_vga_graphics(Resources& resources, const ScriptMetadata& scripts, const VgaPictureEdits& edits,
+                                    const ProgressCallback& progress, const VgaViewEdits& views) {
+    for (const auto& edit : views)
+        if (edit.first > sci_vm::maximum_packed_resource_id ||
+            !resources.count({ResourceType::view,static_cast<std::uint16_t>(edit.first)}))
+            throw std::runtime_error("VGA view edit has no source resource: view "+std::to_string(edit.first));
     for (const auto& edit : edits)
         if (edit.first > sci_vm::maximum_packed_resource_id ||
             !resources.count({ResourceType::pic,static_cast<std::uint16_t>(edit.first)}))
@@ -551,15 +557,22 @@ VgaGraphicsPlan convert_vga_graphics(Resources& resources, const ScriptMetadata&
     std::vector<Resource> generated;
     for (const auto& entry : scripts) for (const auto& object : entry.second.objects)
         reserved.insert(object.values.begin(),object.values.end());
+    std::size_t total = 0, completed = 0;
+    for (const auto& entry : resources)
+        if (entry.first.first == ResourceType::view || entry.first.first == ResourceType::pic) ++total;
     for (auto& entry : resources) {
         auto& resource = entry.second;
         if (entry.first.first != ResourceType::view && entry.first.first != ResourceType::pic) continue;
         const auto context = std::string(resource_type_name(entry.first.first))+" "+std::to_string(entry.first.second)+
             " (source resource."+(resource.entry.volume < 10 ? std::string("00") : std::string("0"))+
             std::to_string(resource.entry.volume)+", resource header at byte "+std::to_string(resource.entry.offset)+")";
+        const auto started = std::chrono::steady_clock::now();
+        const auto label = std::string(resource_type_name(entry.first.first)) + " " + std::to_string(entry.first.second);
+        migration_progress(progress, {"Converting VGA graphics", completed, total, label});
         try {
         if (entry.first.first == ResourceType::view) {
-            resource.payload = write_sci1_vga_view(read_sci0_view(resource.payload));
+            const auto edited = views.find(entry.first.second);
+            resource.payload = write_sci1_vga_view(edited == views.end() ? read_sci0_view(resource.payload) : edited->second);
             detectable_view |= entry.first.second < 1000;
         } else if (entry.first.first == ResourceType::pic) {
             const auto edited = edits.find(entry.first.second);
@@ -576,6 +589,9 @@ VgaGraphicsPlan convert_vga_graphics(Resources& resources, const ScriptMetadata&
                 generated.push_back({{{ResourceType::pic,static_cast<std::uint16_t>(id)},0,0},0,std::move(parts[i])});
             }
         }
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started).count();
+        migration_progress(progress, {"Converting VGA graphics", ++completed, total, label + " completed in " + std::to_string(elapsed) + " ms"});
         } catch (const std::exception& error) {
             throw std::runtime_error("VGA conversion: "+context+": "+error.what());
         }
@@ -693,19 +709,24 @@ unsigned install_vga_picture_bridge(Resources& resources, const ScriptMetadata& 
 
 } // namespace
 
-Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics, const VgaPictureEdits& pictures) {
-    if (!pictures.empty() && graphics != Sci1Graphics::vga)
-        throw std::runtime_error("VGA picture edits require VGA graphics");
+Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics, const VgaPictureEdits& pictures,
+                                  const ProgressCallback& progress, const VgaViewEdits& views) {
+    if ((!pictures.empty() || !views.empty()) && graphics != Sci1Graphics::vga)
+        throw std::runtime_error("VGA picture/view edits require VGA graphics");
     using namespace migration_detail;
     auto resources = resolve_duplicate_resources(game);
     if (!resources.count({ResourceType::script,0})) throw std::runtime_error("migration requires script 0");
-    const auto volume_repairs = repair_volume_queries(resources);
+    const auto volume_repairs = migration_stage(progress,"Checking sound query compatibility", [&] { return repair_volume_queries(resources); });
     std::vector<std::string> selected_fallbacks;
-    const auto scripts = validate_migration_scripts(resources,selected_fallbacks);
+    const auto scripts = migration_stage(progress,"Validating migration scripts", [&] { return validate_migration_scripts(resources,selected_fallbacks); });
     const auto first_bridge_export = validate_main_export(scripts);
-    const auto stats = rewrite_script_kernels(resources,scripts,game,first_bridge_export);
-    append_main_file_bridges(resources,first_bridge_export);
-    verify_preserved_script_layouts(resources,scripts);
+    const auto stats = migration_stage(progress,"Rewriting script kernels", [&] {
+        return rewrite_script_kernels(resources,scripts,game,first_bridge_export);
+    });
+    migration_stage(progress,"Installing file bridges and checking script layouts", [&] {
+        append_main_file_bridges(resources,first_bridge_export);
+        verify_preserved_script_layouts(resources,scripts);
+    });
 
     const auto vga = graphics == Sci1Graphics::vga;
     const auto format = stats.parser_calls || vga ? Sci1Format::sci1_ega : Sci1Format::sci1_late;
@@ -713,16 +734,20 @@ Sci1Migration migrate_sci0_to_sci1(const Game& game, Sci1Graphics graphics, cons
     unsigned graphics_script = 0;
     if (vga) {
         const auto early_picture_flags = source_uses_early_picture_flags(resources,scripts);
-        if (stats.parser_calls) runtime_scripts = install_vga_parser(resources,game,scripts);
+        if (stats.parser_calls) runtime_scripts = migration_stage(progress,"Generating portable parser", [&] { return install_vga_parser(resources,game,scripts); });
         resources.erase({ResourceType::vocab,999});
-        const auto filled_pictures = convert_vga_graphics(resources,scripts,pictures);
-        graphics_script = install_vga_picture_bridge(resources,scripts,early_picture_flags,filled_pictures);
+        const auto filled_pictures = migration_stage(progress,"Converting picture and view resources", [&] {
+            return convert_vga_graphics(resources,scripts,pictures,progress,views);
+        });
+        graphics_script = migration_stage(progress,"Installing VGA picture bridges", [&] {
+            return install_vga_picture_bridge(resources,scripts,early_picture_flags,filled_pictures);
+        });
         auto& main = resources.at({ResourceType::script,0});
         main.payload = rename_main_game_object(main.payload,"scimate-vga");
-    } else if (stats.parser_calls) adapt_parser(resources);
+    } else if (stats.parser_calls) migration_stage(progress,"Adapting EGA parser resources", [&] { adapt_parser(resources); });
     const auto output = take_resources(resources);
     Sci1Migration result;
-    result.files = write_verified_game(output,format);
+    result.files = migration_stage(progress,"Packing and verifying resource container", [&] { return write_verified_game(output,format); });
     result.report = migration_report(output.size(),stats,selected_fallbacks,vga) + object_layout_diagnostics(scripts);
     if (vga) result.report += "VGA profile: all picture/view resources converted; game name is scimate-vga.\n"
         "Portable parser runtime scripts: " + std::to_string(runtime_scripts) + ". Native Parse/Said/SetSynonyms calls redirected.\n"

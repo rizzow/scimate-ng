@@ -232,18 +232,22 @@ void append_vector_plane(Bytes& bytes, const Bytes& plane, std::uint8_t set_colo
  const auto draws = [&](std::size_t offset, unsigned value) {
   return plane[offset] == value && (written ? (*written)[offset] != 0 : value != 0);
  };
- std::array<bool,256> active{};
+ int first_row = height, last_row = -1;
  for (std::size_t i = 0; i < plane.size(); ++i)
-  if (draws(i,plane[i])) active[plane[i]] = true;
+  if (draws(i,plane[i])) {
+   const auto row = static_cast<int>(i / width);
+   first_row = std::min(first_row,row); last_row = std::max(last_row,row);
+  }
  Bytes best;
  // All four directions rasterize exact straight pixel runs. Diagonals compact
  // EGA checkerboard dithering without painting intervening background pixels.
  for (const auto direction : {std::pair{1,0},std::pair{0,1},std::pair{1,1},std::pair{1,-1}}) {
- Bytes candidate{disable_visual,disable_priority,disable_control};
- for (unsigned value = 0; value < colors; ++value) {
-  if (!active[value]) continue;
-  bool selected = false;
-  for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x) {
+ // Group runs by colour in one traversal, preserving the previous colour and
+ // row ordering. Split overlays visit only rows with explicit drawing marks.
+ std::array<Bytes,256> runs;
+ for (int y = first_row; y <= last_row; ++y) for (int x = 0; x < width; ++x) {
+   const auto value = plane[y*width+x];
+   if (value >= colors) continue;
    if (!draws(y*width+x,value)) continue;
    const auto inside = [](int px, int py) { return px >= 0 && px < width && py >= 0 && py < height; };
    const int previous_x = x-direction.first, previous_y = y-direction.second;
@@ -253,9 +257,16 @@ void append_vector_plane(Bytes& bytes, const Bytes& plane, std::uint8_t set_colo
           draws((end_y+direction.second)*width+end_x+direction.first,value)) {
     end_x += direction.first; end_y += direction.second;
    }
-   if (!selected) { candidate.push_back(set_color); candidate.push_back(static_cast<std::uint8_t>(value)); selected = true; }
-   candidate.push_back(absolute_line); coordinate(candidate,x,y); coordinate(candidate,end_x,end_y);
+   auto& run = runs[value];
+   run.push_back(absolute_line); coordinate(run,x,y); coordinate(run,end_x,end_y);
   }
+ Bytes candidate{disable_visual,disable_priority,disable_control};
+ std::size_t size = candidate.size();
+ for (unsigned value = 0; value < colors; ++value) if (!runs[value].empty()) size += 2 + runs[value].size();
+ candidate.reserve(size);
+ for (unsigned value = 0; value < colors; ++value) if (!runs[value].empty()) {
+  candidate.push_back(set_color); candidate.push_back(static_cast<std::uint8_t>(value));
+  candidate.insert(candidate.end(),runs[value].begin(),runs[value].end());
  }
  if (best.empty() || candidate.size() < best.size()) best = std::move(candidate);
  }
@@ -310,8 +321,7 @@ static Bytes encode_vga_picture(const Picture& picture, const PicturePalette& pa
  result.push_back(terminate);
  return result;
 }
-Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
- auto result = encode_vga_picture(picture,palette,mode);
+static void verify_vga_picture(const Bytes& result, const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
  if (result.size() > 65531)
   throw std::runtime_error("VGA picture: encoded payload is "+std::to_string(result.size())+
       " bytes; SCI1 resource limit is 65531 bytes");
@@ -324,13 +334,21 @@ Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palet
              (mode == VgaPictureMode::overlay && !decoded.picture.written[plane][i]))
    throw std::runtime_error("VGA picture: decoded pixel verification failed");
  }
+}
+Bytes write_sci1_vga_picture(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
+ auto result = encode_vga_picture(picture,palette,mode);
+ verify_vga_picture(result,picture,palette,mode);
  return result;
 }
 std::vector<Bytes> write_sci1_vga_picture_parts(const Picture& picture, const PicturePalette& palette, VgaPictureMode mode) {
  auto whole = encode_vga_picture(picture,palette,mode);
  constexpr std::size_t payload_limit = 65531;
- if (whole.size() <= payload_limit) return {write_sci1_vga_picture(picture,palette,mode)};
  std::vector<Bytes> parts;
+ if (whole.size() <= payload_limit) {
+  verify_vga_picture(whole,picture,palette,mode);
+  parts.push_back(std::move(whole));
+  return parts;
+ }
  auto overlay = picture;
  overlay.contains_fill = false;
  if (mode == VgaPictureMode::background) {

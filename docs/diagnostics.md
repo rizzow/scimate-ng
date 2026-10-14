@@ -18,6 +18,9 @@ Verbose output covers every command: map reads and record counts, script
 disassembly sizes, game validation and analysis counts, resource-bundle conversion,
 and payload writes/verification. Help supports it too, including
 `scimate help --verbose sound-export` and `scimate list --verbose --help`.
+SCI1 migration additionally reports timings for script validation/rewriting,
+portable-parser generation, graphics conversion, bridge installation and container
+verification. Graphics progress identifies each picture/view and its elapsed time.
 Desktop errors use the same logger and plain-text dialogs. Worker failures and
 exceptions reaching the Qt event boundary are reported through this path.
 

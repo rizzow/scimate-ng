@@ -71,7 +71,7 @@ void migrate_sci0_to_sci1_directory(const std::filesystem::path& source,
                                    const std::filesystem::path& destination, Sci1Graphics graphics, const ProgressCallback& progress) {
     auto game = open_sci0_game(source, progress);
     if (progress) progress({"Migrating and verifying resources", 0, 0, graphics == Sci1Graphics::vga ? "Converting to VGA graphics" : "Retaining EGA graphics"});
-    auto result = migrate_sci0_to_sci1(game,graphics);
+    auto result = migrate_sci0_to_sci1(game,graphics,{},progress);
     if (progress) progress({"Collecting referenced auxiliary files", 0, 0, source.string()});
     const auto auxiliary = collect_auxiliary_files(source,result,result.report);
     if (progress) progress({"Writing migrated resources", 0, 0, destination.string()});
@@ -84,12 +84,15 @@ void migrate_sci0_to_sci1_directory(const std::filesystem::path& source,
 }
 void import_sci1_game(const std::filesystem::path& workspace, const std::filesystem::path& destination, Sci1Graphics graphics, const ProgressCallback& progress) {
     VgaPictureEdits pictures;
-    auto game = open_sci0_export(workspace,progress,nullptr,graphics == Sci1Graphics::vga ? &pictures : nullptr);
+    VgaViewEdits views;
+    auto game = open_sci0_export(workspace,progress,nullptr,graphics == Sci1Graphics::vga ? &pictures : nullptr,
+        graphics == Sci1Graphics::vga ? &views : nullptr);
     if (progress) progress({"Migrating and verifying workspace resources", 0, 0, graphics == Sci1Graphics::vga ? "Converting to VGA graphics" : "Retaining EGA graphics"});
-    auto result = migrate_sci0_to_sci1(game,graphics,pictures);
+    auto result = migrate_sci0_to_sci1(game,graphics,pictures,progress,views);
     if (progress) progress({"Collecting referenced auxiliary files", 0, 0, workspace.string()});
     const auto auxiliary = collect_auxiliary_files(workspace/"original",result,result.report);
-    result.report += "Built from editable workspace: "+workspace.string()+"; VGA picture PNG overrides: "+std::to_string(pictures.size())+".\n";
+    result.report += "Built from editable workspace: "+workspace.string()+"; VGA picture PNG overrides: "+std::to_string(pictures.size())+
+        "; VGA view PNG overrides: "+std::to_string(views.size())+".\n";
     if (progress) progress({"Writing imported SCI1 resources", 0, 0, destination.string()});
     detail::create_destination(destination);
     for (const auto& volume : result.files.volumes) detail::write_file(destination/volume_filename(volume.first),volume.second);

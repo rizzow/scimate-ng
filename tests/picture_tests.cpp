@@ -26,6 +26,12 @@ void tests(const fs::path& root) {
  require(decoded_overlay.picture.planes == zero_overlay.planes && decoded_overlay.picture.written == zero_overlay.written &&
          decoded_overlay.palette == ega_picture_palette(),"Independent VGA overlay decoding changed pixels, masks or palette");
  const auto vga_background = write_sci1_vga_picture(picture,ega_picture_palette());
+ const auto background_parts = write_sci1_vga_picture_parts(picture,ega_picture_palette());
+ require(background_parts.size() == 1 && background_parts.front() == vga_background,
+         "Single-part background differs from verified direct encoding");
+ const auto overlay_parts = write_sci1_vga_picture_parts(zero_overlay,ega_picture_palette(),VgaPictureMode::overlay);
+ require(overlay_parts.size() == 1 && overlay_parts.front() == vga_overlay,
+         "Single-part overlay differs from verified direct encoding");
  require(read_sci1_vga_picture(vga_background).picture.planes == picture.planes,
          "Independent VGA bitmap decoding changed the three planes");
  auto truncated_bitmap = vga_background; truncated_bitmap.resize(1300);
@@ -48,6 +54,21 @@ void tests(const fs::path& root) {
  const auto decoded_checkerboard = read_sci0_picture(Bytes(compact_checkerboard.begin()+vga_palette_bytes,compact_checkerboard.end()));
  require(decoded_checkerboard.planes == checkerboard.planes && decoded_checkerboard.written == checkerboard.written,
          "Compact diagonal runs changed mask pixels or explicit zero writes");
+ auto narrow = zero_overlay;
+ for (unsigned plane = 0; plane < 3; ++plane) {
+  narrow.planes[plane].assign(320*190,plane == 0 ? 15 : 0);
+  narrow.written[plane].assign(320*190,0);
+ }
+ for (unsigned x = 0; x < 320; ++x) {
+  narrow.planes[0][189*320+x] = x % 255;
+  narrow.planes[1][189*320+x] = x % 16;
+  narrow.written[0][189*320+x] = narrow.written[1][189*320+x] = 1;
+ }
+ const auto narrow_parts = write_sci1_vga_picture_parts(narrow,ega_picture_palette(),VgaPictureMode::overlay);
+ require(narrow_parts.size() == 1,"Single-row overlay unexpectedly required continuations");
+ const auto decoded_narrow = read_sci1_vga_picture(narrow_parts.front()).picture;
+ require(decoded_narrow.planes == narrow.planes && decoded_narrow.written == narrow.written,
+         "Bounded-row encoding lost colours or explicit zero writes at the image edge");
  auto noisy = checkerboard;
  std::uint32_t noise = 1;
  for (unsigned plane = 1; plane < 3; ++plane) for (unsigned i = 0; i < 320*190; ++i) {
@@ -62,6 +83,10 @@ void tests(const fs::path& root) {
  for (const auto& part : noisy_parts) {
   require(part.size() <= 65531,"Picture continuation exceeds early SCI1 capacity");
   const auto decoded = read_sci1_vga_picture(part).picture;
+  unsigned first_row = 190, last_row = 0;
+  for (const auto& mask : decoded.written) for (unsigned i = 0; i < mask.size(); ++i)
+   if (mask[i]) { first_row = std::min(first_row,i/320); last_row = std::max(last_row,i/320); }
+  require(first_row < 190 && last_row-first_row < 8,"Continuation escaped its eight-row drawing band");
   for (unsigned plane = 0; plane < 3; ++plane) for (unsigned i = 0; i < 320*190; ++i)
    if (decoded.written[plane][i]) composed.planes[plane][i] = decoded.planes[plane][i];
  }
